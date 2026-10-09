@@ -8,7 +8,7 @@ export async function POST(req: Request) {
     const { principal } = await requirePrincipal(req);
     const input = await parseBody(
       req,
-      reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true, category: true }).extend({ renewalId: z.string().uuid().nullish() }),
+      reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true, category: true, channels: true }).extend({ renewalId: z.string().uuid().nullish() }),
     );
     return json({ preview: await previewSchedule(principal, input) });
   });

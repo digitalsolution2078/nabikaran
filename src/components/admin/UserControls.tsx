@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../api";
+import { ROLE_LABELS } from "@/lib/auth/rbac";
 
 export function AdjustCredits({ userId, direct }: { userId: string; direct: boolean }) {
   const router = useRouter();
@@ -76,14 +77,19 @@ export function RoleControl({ userId, role }: { userId: string; role: string }) 
     <div>
       <div className="row">
         <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="Role" style={{ maxWidth: 220 }}>
-          <option value="user">User</option>
-          <option value="admin">Admin</option>
-          <option value="super_admin">Super Admin</option>
+          {(["user", "auditor", "content", "support", "finance", "admin", "super_admin"] as const).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
         </select>
         <button className="btn btn-secondary" onClick={save} disabled={value === role}>Save role</button>
       </div>
       {msg && <p className="small mt mb-0" role="status">{msg}</p>}
-      <p className="hint mt mb-0">Admin: dashboards, users, top-up verification, adjustment requests, templates. Super Admin: also roles, settings, SMS pricing/templates and direct adjustments.</p>
+      <ul className="hint mt mb-0" style={{ paddingLeft: 18 }}>
+        <li><strong>Read-only auditor</strong>: views dashboards, users, logs and audit; changes nothing.</li>
+        <li><strong>Template / content manager</strong>: edits document and message templates.</li>
+        <li><strong>Support admin</strong>: adds customer notes and requests credit adjustments.</li>
+        <li><strong>Finance reviewer</strong>: approves/rejects top-ups and adjustment requests.</li>
+        <li><strong>Operations admin</strong>: support + finance + templates + MCP clients.</li>
+        <li><strong>Super admin</strong>: everything, including roles, pricing, WhatsApp and settings.</li>
+      </ul>
     </div>
   );
 }

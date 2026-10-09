@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "./api";
 import { usePrefs } from "./Prefs";
 import { Icon, iconForGroup } from "./Icon";
+import { ChannelBadge } from "./ChannelBadge";
 import { PRESET_OFFSET_DAYS, offsetFromParts } from "@/lib/scheduler";
 import type { SchedulePreview } from "@/lib/core/dto";
 import type { MessageKey } from "@/lib/i18n/dict";
@@ -35,6 +36,8 @@ export interface RenewalFormValues {
   familyMemberLabel: string;
   offsets: number[];
   templateSlug: string | null;
+  channels: Array<"sms" | "whatsapp">;
+  whatsappConsent?: boolean;
 }
 
 const GROUP_LABEL: Record<string, { en: string; ne: string }> = {
@@ -60,7 +63,7 @@ interface Shortfall {
   locked?: boolean;
 }
 
-export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20 }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number }) {
+export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false } }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean } }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const lang = prefs.lang;
@@ -78,6 +81,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     familyMemberLabel: "",
     offsets: preselected?.default_offsets ?? [30 * 1440, 7 * 1440, 1440, 0],
     templateSlug: preselected?.slug ?? null,
+    channels: ["sms"],
     ...initial,
   });
   const [custom, setCustom] = useState({ days: 0, hours: 0, minutes: 0 });
@@ -86,6 +90,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [topup, setTopup] = useState<Shortfall | null>(null);
+  const [bsConfirmed, setBsConfirmed] = useState(false);
 
   // Restore a draft saved when the customer left to top up (new reminders only).
   useEffect(() => {
@@ -168,9 +173,10 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     try {
       const r = await api<{ preview: SchedulePreview }>("/api/renewals/preview", {
         method: "POST",
-        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets, renewalId: renewalId ?? null },
+        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets, channels: v.channels, renewalId: renewalId ?? null },
       });
       setPreview(r.preview);
+      setBsConfirmed(false);
       if (!r.preview.sufficient) {
         setTopup({ needed: r.preview.reservedOnConfirmCredits, available: r.preview.wallet.available, shortfall: r.preview.shortfallCredits });
       }
@@ -314,23 +320,47 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           <div className="chips">
             {PRESET_OFFSET_DAYS.map((d) => {
               const m = d * 1440;
-              return <button type="button" key={d} className="chip" aria-pressed={v.offsets.includes(m)} onClick={() => toggle(m)}>{d === 0 ? t("rem.onDay") : t("rem.daysBefore", { n: localizeNumber(d, lang) })}</button>;
+              return <button type="button" key={d} className="chip" aria-pressed={v.offsets.includes(m)} onClick={() => toggle(m)}>{offsetLabel(m, lang)}</button>;
             })}
             {v.offsets.filter((m) => !PRESET_OFFSET_DAYS.map((d) => d * 1440).includes(m)).map((m) => (
               <button type="button" key={m} className="chip" aria-pressed onClick={() => toggle(m)}>{offsetLabel(m, lang)} ✕</button>
             ))}
           </div>
-          <div className="row mt" style={{ alignItems: "flex-end" }}>
-            <span className="label">{t("rem.custom")}:</span>
-            <label className="row small">{t("rem.days")} <input type="number" min={0} max={1825} style={{ width: 80 }} value={custom.days} onChange={(e) => setCustom({ ...custom, days: Math.max(0, +e.target.value) })} /></label>
-            <label className="row small">{t("rem.hours")} <input type="number" min={0} max={23} style={{ width: 70 }} value={custom.hours} onChange={(e) => setCustom({ ...custom, hours: Math.max(0, +e.target.value) })} /></label>
-            <label className="row small">{t("rem.minutes")} <input type="number" min={0} max={59} style={{ width: 70 }} value={custom.minutes} onChange={(e) => setCustom({ ...custom, minutes: Math.max(0, +e.target.value) })} /></label>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => toggle(offsetFromParts(custom.days, custom.hours, custom.minutes))}>{t("rem.addCustom")}</button>
-          </div>
+          <fieldset className="custom-offset mt">
+            <legend className="label">{t("rem.customTitle")}</legend>
+            <div className="custom-offset-grid">
+              <div className="field"><label htmlFor="co-d">{t("rem.days")}</label><input id="co-d" type="number" inputMode="numeric" min={0} max={1825} value={custom.days} onChange={(e) => setCustom({ ...custom, days: Math.min(1825, Math.max(0, Math.floor(+e.target.value || 0))) })} /></div>
+              <div className="field"><label htmlFor="co-h">{t("rem.hours")}</label><input id="co-h" type="number" inputMode="numeric" min={0} max={23} value={custom.hours} onChange={(e) => setCustom({ ...custom, hours: Math.min(23, Math.max(0, Math.floor(+e.target.value || 0))) })} /></div>
+              <div className="field"><label htmlFor="co-m">{t("rem.minutes")}</label><input id="co-m" type="number" inputMode="numeric" min={0} max={59} value={custom.minutes} onChange={(e) => setCustom({ ...custom, minutes: Math.min(59, Math.max(0, Math.floor(+e.target.value || 0))) })} /></div>
+            </div>
+            <p className="hint">{t("rem.customHint", { label: offsetLabel(offsetFromParts(custom.days, custom.hours, custom.minutes), lang) })}</p>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={v.offsets.includes(offsetFromParts(custom.days, custom.hours, custom.minutes))} onClick={() => toggle(offsetFromParts(custom.days, custom.hours, custom.minutes))}>{t("rem.addCustom")}</button>
+          </fieldset>
+
+          <fieldset className="mt">
+            <legend className="label">{t("rem.deliveryChannel")}</legend>
+            <div className="choice-row" role="radiogroup">
+              {([["sms"], ["whatsapp"], ["sms", "whatsapp"]] as Array<Array<"sms" | "whatsapp">>).map((opt) => {
+                const key = opt.join("+");
+                const needsWa = opt.includes("whatsapp");
+                const selected = v.channels.length === opt.length && opt.every((c) => v.channels.includes(c));
+                return (
+                  <label key={key} className={`choice ${selected ? "selected" : ""} ${needsWa && !whatsapp.available ? "disabled" : ""}`}>
+                    <input type="radio" name="channels" checked={selected} disabled={needsWa && !whatsapp.available} onChange={() => set("channels", opt)} />
+                    <span>{key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : t("channel.both")}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {!whatsapp.available && <p className="hint mb-0">{t("channel.waComingSoon")}</p>}
+            {v.channels.includes("whatsapp") && !whatsapp.optedIn && (
+              <label className="row small mt"><input type="checkbox" checked={Boolean(v.whatsappConsent)} onChange={(e) => set("whatsappConsent", e.target.checked)} /> {t("channel.waConsent")}</label>
+            )}
+          </fieldset>
           {error && <div className="alert bad mt" role="alert">{error}</div>}
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(1)}>{t("rem.back")}</button>
-            <button type="button" className="btn btn-primary" disabled={busy || v.offsets.length === 0} onClick={loadPreview}>{busy ? <span className="spinner" /> : <Icon name="receipt" size={16} />} {t("rem.preview")}</button>
+            <button type="button" className="btn btn-primary" disabled={busy || v.offsets.length === 0 || (v.channels.includes("whatsapp") && !whatsapp.optedIn && !v.whatsappConsent)} onClick={loadPreview}>{busy ? <span className="spinner" /> : <Icon name="receipt" size={16} />} {t("rem.preview")}</button>
           </div>
         </section>
       )}
@@ -352,20 +382,34 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             {preview.lines.map((l) => (
               <li key={l.offsetMinutes} className="sms-preview-item">
                 <div className="row between">
-                  <span><strong>{formatDate(l.due.utc, prefs)}</strong> <span className="small muted">{l.due.local.slice(11)} · {offsetLabel(l.offsetMinutes, lang)}</span></span>
+                  <span><ChannelBadge channel={l.channel} /> <strong>{formatDate(l.due.utc, prefs)}</strong> <span className="small muted">{l.due.local.slice(11)} · {offsetLabel(l.offsetMinutes, lang)}</span></span>
                   <span className="small nowrap">{localizeNumber(l.credits, lang)} {t("common.credits")}</span>
                 </div>
-                <pre className="sms">{l.smsText}</pre>
-                <span className="small muted">{l.encoding} · {l.smsText.length}/160 · {l.segments} SMS</span>
+                <pre className={`sms ${l.channel === "whatsapp" ? "sms-wa" : ""}`}>{l.smsText}</pre>
+                {l.channel === "whatsapp"
+                  ? <span className="small muted">{t("rem.waTemplate")}: <span className="mono">{l.whatsappTemplate?.name}</span> ({l.whatsappTemplate?.language})</span>
+                  : <span className="small muted">{l.encoding} · {l.smsText.length}/160 · {l.segments} SMS</span>}
               </li>
             ))}
           </ol>
+          <div className="cost-table mt">
+            {preview.channels.map((ch) => {
+              const c = preview.byChannel[ch];
+              return c ? (
+                <div key={ch} className="row between"><span><ChannelBadge channel={ch} /> {localizeNumber(c.messages, lang)} × {localizeNumber(c.creditsPerUnit, lang)} {t("common.credits")} {t("rem.perMessage")}</span><strong>{localizeNumber(c.credits, lang)}</strong></div>
+              ) : null;
+            })}
+            {preview.channels.length > 1 && <div className="row between total"><span>{t("rem.combinedCost")}</span><strong>{localizeNumber(preview.totalCredits, lang)} {t("common.credits")}</strong></div>}
+          </div>
           <div className="grid grid-3 mt">
-            <div className="stat"><div className="label">{t("rem.total")}</div><div className="value">{localizeNumber(preview.totalCredits, lang)}</div><div className="sub">{localizeNumber(preview.creditsPerUnit, lang)} {t("common.credits")} / SMS</div></div>
+            <div className="stat"><div className="label">{t("rem.total")}</div><div className="value">{localizeNumber(preview.totalCredits, lang)}</div><div className="sub">{t("common.credits")}</div></div>
             <div className="stat"><div className="label">{t("rem.reservedNow")}</div><div className="value">{localizeNumber(preview.reservedOnConfirmCredits, lang)}</div></div>
             <div className="stat"><div className="label">{t("rem.available")}</div><div className="value">{localizeNumber(preview.wallet.available, lang)}</div></div>
           </div>
           <p className="hint mt">{t("rem.reserveNote")}</p>
+          {v.calendar === "BS" && (
+            <label className="row small alert warn"><input type="checkbox" checked={bsConfirmed} onChange={(e) => setBsConfirmed(e.target.checked)} /> <span>{t("rem.bsConfirm")} <strong>{formatDate(preview.expiry.utc, { lang, date: "BS" })} = {formatDate(preview.expiry.utc, { lang, date: "AD" })}</strong></span></label>
+          )}
           {error && <div className="alert bad" role="alert">{error}</div>}
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(2)}>{t("rem.back")}</button>
@@ -374,7 +418,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
                 <Icon name="wallet" size={18} /> {t("topup.needTitle")}
               </button>
             )}
-            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0 || !preview.sufficient} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
+            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0 || !preview.sufficient || (v.calendar === "BS" && !bsConfirmed)} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
           </div>
         </section>
       )}

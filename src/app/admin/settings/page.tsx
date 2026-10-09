@@ -17,7 +17,7 @@ export default async function AdminSettings() {
     getSetting("topup"),
     getSetting("manual_qr"),
     getSetting("signin"),
-    getDb().query<{ id: string; phone_e164: string; display_name: string | null; role: string }>("select id, phone_e164, display_name, role from users where role in ('admin','super_admin') order by role desc, created_at"),
+    getDb().query<{ id: string; phone_e164: string; display_name: string | null; role: string }>("select id, phone_e164, display_name, role from users where role <> 'user' order by role desc, created_at"),
   ]);
   return (
     <div className="stack">

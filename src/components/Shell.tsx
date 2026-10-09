@@ -14,11 +14,12 @@ export interface ShellUser {
   availableCredits: number;
 }
 
-const APP_PREFIXES = ["/dashboard", "/renewals", "/wallet", "/settings", "/admin", "/onboarding"];
+const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding"];
 
 const NAV: { href: string; icon: IconName; key: MessageKey }[] = [
   { href: "/dashboard", icon: "home", key: "nav.dashboard" },
   { href: "/renewals", icon: "bell", key: "nav.reminders" },
+  { href: "/messages", icon: "message", key: "nav.messages" },
   { href: "/wallet", icon: "wallet", key: "nav.wallet" },
   { href: "/settings", icon: "settings", key: "nav.settings" },
 ];

@@ -6,6 +6,8 @@ import { getReminder } from "@/lib/core/reminders";
 import { getLockState } from "@/lib/core/account-lock";
 import { listDocTemplates } from "@/lib/services/admin-console";
 import { getSetting } from "@/lib/services/settings";
+import { whatsappAvailable } from "@/lib/whatsapp/availability";
+import { getDb } from "@/lib/db";
 import { RenewalForm } from "@/components/RenewalForm";
 import { LockNotice } from "@/components/LockNotice";
 
@@ -18,7 +20,14 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
   if (!user) redirect(`/login?next=/renewals/${id}/edit`);
   const r = await getReminder(webPrincipal(user), id).catch(() => null);
   if (!r) notFound();
-  const [templates, lock, limits] = await Promise.all([listDocTemplates(false), getLockState(user.id), getSetting("topup")]);
+  const [templates, lock, limits, waOk, opt] = await Promise.all([
+    listDocTemplates(false),
+    getLockState(user.id),
+    getSetting("topup"),
+    whatsappAvailable(),
+    getDb().query<{ at: string | null }>("select whatsapp_opt_in_at as at from users where id = $1", [user.id]),
+  ]);
+  const whatsapp = { available: waOk, optedIn: Boolean(opt.rows[0]?.at) };
   return (
     <div>
       <Link href={`/renewals/${r.id}`} className="small">← {r.label}</Link>
@@ -30,6 +39,7 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
           templates={templates}
           renewalId={r.id}
           topupMin={limits.min_npr}
+          whatsapp={whatsapp}
           initial={{
             category: r.category,
             label: r.label,
@@ -38,8 +48,9 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
             localTime: r.localTime,
             notes: r.notes ?? "",
             familyMemberLabel: r.familyMemberLabel ?? "",
-            offsets: r.jobs.filter((j) => j.status !== "cancelled").map((j) => j.offsetMinutes),
-            templateSlug: null,
+            offsets: [...new Set(r.jobs.filter((j) => j.status !== "cancelled").map((j) => j.offsetMinutes))],
+            templateSlug: r.templateSlug,
+            channels: r.channels,
           }}
         />
       )}

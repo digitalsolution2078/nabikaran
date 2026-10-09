@@ -25,7 +25,7 @@ export async function getOverview(db: Db = getDb()): Promise<Overview> {
     select
       (select count(*) from users)::text as users_total,
       (select count(*) from users where phone_verified_at is not null)::text as users_verified,
-      (select count(*) from users where role in ('admin','super_admin'))::text as admins,
+      (select count(*) from users where role <> 'user')::text as admins,
       (select count(*) from renewal_items where status = 'active')::text as rem_active,
       (select count(*) from renewal_items where status = 'paused')::text as rem_paused,
       (select count(*) from reminder_jobs where status = 'submitted')::text as sms_submitted,
