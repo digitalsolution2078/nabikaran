@@ -3,6 +3,7 @@ import { getDb, type Db } from "../db";
 import { env } from "../env";
 import { getSmsProvider } from "../providers/sms";
 import { renderReminder } from "../sms/templates";
+import { categorySmsName } from "../categories";
 import { loadTemplates } from "../core/reminders";
 import { getActivePricing } from "../core/wallet";
 import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../scheduler";
@@ -61,11 +62,11 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
     // reservation active, no accepted/pending attempt, due.
     const pre = await db.tx(async (tx) => {
       const { rows } = await tx.query<{
-        job_status: string; due_at_utc: string; renewal_status: string; label: string; expiry_at_utc: string; cycle_no: number; job_cycle: number;
+        job_status: string; due_at_utc: string; renewal_status: string; label: string; category: string; expiry_at_utc: string; cycle_no: number; job_cycle: number;
         phone_e164: string; phone_verified_at: string | null; locale: string; user_status: string; reservation_status: string | null; held: string | null;
         prior: number;
       }>(
-        `select j.status as job_status, j.due_at_utc, i.status as renewal_status, i.label, i.expiry_at_utc, i.cycle_no, j.cycle_no as job_cycle,
+        `select j.status as job_status, j.due_at_utc, i.status as renewal_status, i.label, i.category, i.expiry_at_utc, i.cycle_no, j.cycle_no as job_cycle,
                 u.phone_e164, u.phone_verified_at, u.locale, u.status as user_status, r.status as reservation_status, r.held_credits::text as held,
                 (select count(*) from sms_attempts a where a.job_id = j.id and a.api_state in ('pending','accepted'))::int as prior
            from reminder_jobs j
@@ -95,7 +96,7 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         [job.id, attemptNo, provider.name, idempotencyKey],
       );
       await tx.query("update reminder_jobs set attempts = $2, updated_at = now() where id = $1", [job.id, attemptNo]);
-      const rendered = renderReminder({ label: s.label, expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale }, templates);
+      const rendered = renderReminder({ label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale }, templates);
       return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: rendered.body, estimatedSegments: rendered.estimate.segments };
     });
 

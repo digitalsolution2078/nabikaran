@@ -4,6 +4,7 @@ import { assertSameOrigin, getCurrentUser, type SessionUser } from "./auth/sessi
 import { env } from "./env";
 import { HttpError, RateLimitError } from "./core/errors";
 import { webPrincipal, type Principal } from "./core/principal";
+import { can, isAdminRole, type Permission } from "./auth/rbac";
 
 export { HttpError };
 
@@ -47,7 +48,14 @@ export async function requirePrincipal(req: Request): Promise<{ user: SessionUse
 
 export async function requireAdmin(req: Request): Promise<SessionUser> {
   const user = await requireUser(req);
-  if (user.role !== "admin") throw new HttpError(403, "Admin only", "forbidden");
+  if (!isAdminRole(user.role)) throw new HttpError(403, "Admin only", "forbidden");
+  return user;
+}
+
+/** Admin with a specific permission (see src/lib/auth/rbac.ts). */
+export async function requirePermission(req: Request, permission: Permission): Promise<SessionUser> {
+  const user = await requireAdmin(req);
+  if (!can(user.role, permission)) throw new HttpError(403, `Missing permission ${permission}`, "forbidden");
   return user;
 }
 

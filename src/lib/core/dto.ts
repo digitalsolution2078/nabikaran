@@ -61,7 +61,8 @@ export type Warning =
   | "over_cap"
   | "beyond_two_year_horizon"
   | "bs_date_needs_confirmation"
-  | "insufficient_credits";
+  | "insufficient_credits"
+  | "sms_label_adjusted";
 
 export interface SchedulePreviewLine {
   offsetMinutes: number;
@@ -71,6 +72,8 @@ export interface SchedulePreviewLine {
   segments: number;
   encoding: string;
   credits: number;
+  smsLabel: string;
+  labelAdjusted: boolean;
 }
 
 export interface SchedulePreview {

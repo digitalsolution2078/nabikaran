@@ -5,7 +5,7 @@ import { previewSchedule, reminderInputSchema } from "@/lib/core/reminders";
 export async function POST(req: Request) {
   return handle(async () => {
     const { principal } = await requirePrincipal(req);
-    const input = await parseBody(req, reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true }));
+    const input = await parseBody(req, reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true, category: true }));
     return json({ preview: await previewSchedule(principal, input) });
   });
 }

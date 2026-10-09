@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { normalizeNepalPhone, redactPhone } from "@/lib/phone";
 import { kathmanduToUtc, utcToKathmandu, parseIsoDate, formatKathmandu } from "@/lib/time";
 import { adToBs, bsToAd, isValidBsDate, parseBsInput, bsDaysInMonth } from "@/lib/bs-date";
-import { estimateSegments } from "@/lib/sms/segments";
-import { renderReminder, sanitizeLabel } from "@/lib/sms/templates";
+import { estimateSegments, isGsm7 } from "@/lib/sms/segments";
+import { renderReminder, sanitizeLabel, toGsmSafe, validateTemplateBody } from "@/lib/sms/templates";
 import { planReminders, MAX_REMINDERS_PER_CYCLE, retryDelayMs } from "@/lib/scheduler";
 import { mapKhaltiStatus } from "@/lib/payments/khalti";
 
@@ -80,24 +80,34 @@ describe("SMS segments", () => {
   });
 });
 
-describe("templates", () => {
+describe("templates (GSM-7, single segment, English / Romanized Nepali)", () => {
   const expiry = new Date("2027-03-01T03:15:00Z");
-  it("renders Nepali default with day count and date", () => {
-    const r = renderReminder({ label: "Bluebook", expiryAtUtc: expiry, dueAtUtc: new Date(expiry.getTime() - 7 * 86_400_000) });
-    expect(r.body).toContain("Bluebook");
-    expect(r.body).toContain("7 दिनमा");
-    expect(r.body).toContain("2027-03-01");
-    expect(r.estimate.encoding).toBe("UCS-2");
-    expect(r.estimate.segments).toBeGreaterThanOrEqual(1);
+  it("renders Romanized Nepali default with day count and date as one GSM-7 segment", () => {
+    const r = renderReminder({ label: "Bluebook", expiryAtUtc: expiry, dueAtUtc: new Date(expiry.getTime() - 7 * 86_400_000), locale: "ne-NP" });
+    expect(r.body).toBe("Nabikaran: Tapaiko Bluebook ko myad 7 din pachhi (2027-03-01) sakinchha. Samayamai nabikaran garnuhos.");
+    expect(r.estimate).toMatchObject({ encoding: "GSM-7", segments: 1 });
   });
-  it("uses the 'today' template at offset 0", () => {
+  it("uses the 'today' template at offset 0 (English)", () => {
     const r = renderReminder({ label: "Licence", expiryAtUtc: expiry, dueAtUtc: expiry, locale: "en-NP" });
     expect(r.templateCategory).toBe("today");
-    expect(r.body).toContain("expires today");
+    expect(r.body).toBe("Nabikaran: Your Licence expires today (2027-03-01). Please renew on time.");
   });
-  it("caps and sanitizes labels so cost cannot be inflated unboundedly", () => {
-    expect(sanitizeLabel("x".repeat(200)).length).toBe(40);
+  it("never emits Devanagari: falls back to the category SMS name", () => {
+    const r = renderReminder({ label: "राहदानी", fallbackLabel: "Passport", expiryAtUtc: expiry, dueAtUtc: expiry, locale: "en-NP" });
+    expect(r.smsLabel).toBe("Passport");
+    expect(r.labelAdjusted).toBe(true);
+    expect(isGsm7(r.body)).toBe(true);
+  });
+  it("caps and sanitizes labels so cost cannot be inflated", () => {
+    expect(sanitizeLabel("x".repeat(200)).length).toBe(30);
     expect(sanitizeLabel("a\u0000b\n\nc")).toBe("a b c");
+    expect(sanitizeLabel("Café “Pass” {x} — 2026")).toBe('Cafe "Pass" x - 2026');
+    expect(toGsmSafe("नेपाल")).toBe("");
+  });
+  it("worst-case template validation", () => {
+    expect(validateTemplateBody("Nabikaran: Your {label} expires in {days} day(s) on {date}. Please renew on time.", "default")).toMatchObject({ ok: true });
+    expect(validateTemplateBody("{label} {date} 🙂", "today")).toMatchObject({ ok: false });
+    expect(validateTemplateBody("{label} {date} {name}", "today")).toMatchObject({ ok: false });
   });
 });
 

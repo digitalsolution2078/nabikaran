@@ -4,6 +4,7 @@ import { getPaymentGateway, type LookupResult } from "../payments";
 import { env } from "../env";
 import { HttpError } from "../core/errors";
 import { retryAwaitingCredits } from "../core/wallet";
+import { validateTopupAmount } from "./settings";
 
 export interface PackRow {
   code: string;
@@ -44,19 +45,29 @@ export async function createTopupOrder(user: { id: string; phoneE164: string }, 
   const { rows: packs } = await db.query<PackRow>("select code, amount_paisa, credits from topup_packs where code = $1 and active", [packCode]);
   const pack = packs[0];
   if (!pack) throw new HttpError(400, "Unknown pack", "unknown_pack");
+  return createOrder(user, Number(pack.amount_paisa), Number(pack.credits), pack.code, db);
+}
+
+/** Customer-chosen amount (whole NPR), validated against admin min/max. 1 credit = NPR 1. */
+export async function createCustomTopupOrder(user: { id: string; phoneE164: string }, amountNpr: number, db: Db = getDb()) {
+  const { amountPaisa, credits } = await validateTopupAmount(amountNpr, db);
+  return createOrder(user, amountPaisa, credits, null, db);
+}
+
+async function createOrder(user: { id: string; phoneE164: string }, amountPaisa: number, credits: number, packCode: string | null, db: Db) {
   const gateway = getPaymentGateway();
   const orderReference = newOrderReference();
   const { rows } = await db.query<OrderRow>(
     `insert into payment_orders (user_id, gateway, order_reference, pack_code, amount_paisa, credits, status)
      values ($1,$2,$3,$4,$5,$6,'initiated') returning *`,
-    [user.id, gateway.name, orderReference, pack.code, pack.amount_paisa, pack.credits],
+    [user.id, gateway.name, orderReference, packCode, amountPaisa, credits],
   );
   const order = rows[0];
   const init = await gateway.initiate({
     orderId: order.id,
     orderReference,
-    amountPaisa: Number(pack.amount_paisa),
-    description: `Nabikaran wallet ${pack.credits} credits`,
+    amountPaisa,
+    description: `Nabikaran wallet ${credits} credits`,
     returnUrl: `${env.appUrl}/api/payments/${gateway.name}/return`,
     websiteUrl: env.appUrl,
     customer: { phone: user.phoneE164 },
