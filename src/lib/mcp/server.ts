@@ -6,7 +6,7 @@ import { getDb } from "../db";
 import { audit } from "../core/audit";
 import { HttpError, RateLimitError, ScopeError } from "../core/errors";
 import { principalSubject, type Principal } from "../core/principal";
-import { checkRateLimit } from "../core/rate-limit";
+import { checkRateLimit, countEvent } from "../core/rate-limit";
 import { getAccount } from "../core/account";
 import { getWalletSummary } from "../core/wallet";
 import { listReminders, setReminderStatus, CATEGORIES } from "../core/reminders";
@@ -52,6 +52,7 @@ async function run(tool: string, extra: { authInfo?: AuthInfo }, fn: (p: Princip
     await checkRateLimit(db, principalSubject(p), TOOL_RATE_LIMIT);
     const result = await fn(p);
     await audit(db, p, `mcp.${tool}`, null, { ok: !result.isError });
+    await countEvent(db, result.isError ? "mcp:tool_error" : "mcp:tool_ok");
     return result;
   } catch (e) {
     if (e instanceof RateLimitError) return fail("rate_limited", `Too many requests. Retry after ${e.retryAfterSeconds}s.`, { retry_after_seconds: e.retryAfterSeconds });
@@ -64,6 +65,7 @@ async function run(tool: string, extra: { authInfo?: AuthInfo }, fn: (p: Princip
       return fail(e.code ?? "error", e.message);
     }
     console.error(`[mcp] ${tool} failed`, e);
+    await countEvent(db, "mcp:tool_error");
     return fail("internal_error", "Something went wrong on Nabikaran's side. Please try again.");
   }
 }

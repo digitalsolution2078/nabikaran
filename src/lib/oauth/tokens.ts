@@ -123,6 +123,7 @@ async function refreshTokens(client: ClientRow, req: TokenRequest, db: Db): Prom
     await tx.query("insert into audit_events (actor_user_id, actor_via, actor_client_id, action, target_type, target_id) values ($1,'system',$2,'oauth.token_refreshed','oauth_token_family',$3)", [t.user_id, client.id, t.family_id]);
     return { kind: "ok", pair };
   });
+  invalidateTokenCache();
   if (outcome.kind === "ok") return outcome.pair;
   if (outcome.kind === "reuse") {
     // Reuse of a rotated token: assume theft, kill the whole family (committed outside the refused grant).
@@ -146,6 +147,7 @@ export async function revokeToken(req: { token?: string; token_type_hint?: strin
     await db.query("update oauth_tokens set revoked_at = coalesce(revoked_at, now()), revoke_reason = coalesce(revoke_reason, 'client_revoked') where id = $1", [t.id]);
   }
   await db.query("insert into audit_events (actor_user_id, actor_via, actor_client_id, action, target_type, target_id) values ($1,'system',$2,'oauth.token_revoked','oauth_token_family',$3)", [t.user_id, client.id, t.family_id]);
+  invalidateTokenCache();
 }
 
 /** Settings → Disconnect, account closure, admin kill-switch. */
@@ -157,10 +159,28 @@ export async function revokeAllForUserClient(userId: string, clientId: string | 
   await db.query("insert into audit_events (actor_user_id, actor_via, actor_client_id, action, target_type, target_id, json_detail_redacted) values ($1,'web',$2,'oauth.disconnected','oauth_client',$2,$3)", [
     userId, clientId, JSON.stringify({ reason, revoked: rowCount ?? 0 }),
   ]);
+  invalidateTokenCache();
   return rowCount ?? 0;
 }
 
 export type VerifyFailure = "missing" | "invalid" | "expired" | "revoked" | "wrong_resource" | "account_inactive";
+
+/**
+ * Per-instance positive cache for access-token lookups (docs §4.3). Bounded
+ * TTL keeps the revocation delay short; revocations made through this instance
+ * drop the cache immediately. Disabled when TOKEN_CACHE_SECONDS=0 (tests).
+ */
+const tokenCache = new Map<string, { principal: Principal; until: number }>();
+const TOKEN_CACHE_MS = Number(process.env.TOKEN_CACHE_SECONDS ?? (process.env.NODE_ENV === "test" ? 0 : 30)) * 1000;
+const TOKEN_CACHE_MAX = 5000;
+
+export function invalidateTokenCache(): void {
+  tokenCache.clear();
+}
+
+export function tokenCacheSize(): number {
+  return tokenCache.size;
+}
 
 /**
  * Resource-server side: turn a bearer token into a Principal. This is the ONLY
@@ -170,11 +190,14 @@ export type VerifyFailure = "missing" | "invalid" | "expired" | "revoked" | "wro
 export async function verifyAccessToken(token: string | null | undefined, db: Db = getDb()): Promise<{ ok: true; principal: Principal } | { ok: false; reason: VerifyFailure }> {
   if (!token) return { ok: false, reason: "missing" };
   if (token.length > 256) return { ok: false, reason: "invalid" };
+  const hash = sha256hex(token);
+  const cached = TOKEN_CACHE_MS > 0 ? tokenCache.get(hash) : undefined;
+  if (cached && cached.until > Date.now()) return { ok: true, principal: cached.principal };
   const { rows } = await db.query<TokenRow & { user_status: string; phone_verified_at: string | null; locale: string; client_disabled: string | null }>(
     `select t.*, u.status as user_status, u.phone_verified_at, u.locale, c.disabled_at as client_disabled
        from oauth_tokens t join users u on u.id = t.user_id join oauth_clients c on c.id = t.client_id
       where t.token_hash = $1 and t.kind = 'access'`,
-    [sha256hex(token)],
+    [hash],
   );
   const t = rows[0];
   if (!t) return { ok: false, reason: "invalid" };
@@ -184,7 +207,12 @@ export async function verifyAccessToken(token: string | null | undefined, db: Db
   if (t.user_status !== "active" || !t.phone_verified_at) return { ok: false, reason: "account_inactive" };
   // Throttled last-used stamp (at most once a minute per token) to keep writes cheap.
   await db.query("update oauth_tokens set last_used_at = now() where id = $1 and (last_used_at is null or last_used_at < now() - interval '1 minute')", [t.id]);
-  return { ok: true, principal: mcpPrincipal({ userId: t.user_id, locale: t.locale, scopes: t.scopes as Scope[], clientId: t.client_id, tokenId: t.id }) };
+  const principal = mcpPrincipal({ userId: t.user_id, locale: t.locale, scopes: t.scopes as Scope[], clientId: t.client_id, tokenId: t.id });
+  if (TOKEN_CACHE_MS > 0) {
+    if (tokenCache.size >= TOKEN_CACHE_MAX) tokenCache.clear();
+    tokenCache.set(hash, { principal, until: Math.min(Date.now() + TOKEN_CACHE_MS, new Date(t.expires_at).getTime()) });
+  }
+  return { ok: true, principal };
 }
 
 export interface ConnectionView {
@@ -204,6 +232,36 @@ export async function listConnections(userId: string, db: Db = getDb()): Promise
     [userId],
   );
   return rows.map((r) => ({ clientId: r.client_id, name: r.name, scopes: r.scopes, connectedAt: new Date(r.connected_at).toISOString(), lastUsedAt: r.last_used_at ? new Date(r.last_used_at).toISOString() : null }));
+}
+
+/** Admin kill-switch: a disabled client's tokens stop validating at once; enabling restores them (unless revoked). */
+export async function setClientDisabled(actorId: string, clientId: string, disabled: boolean, db: Db = getDb()): Promise<boolean> {
+  const { rowCount } = await db.query("update oauth_clients set disabled_at = case when $2 then coalesce(disabled_at, now()) else null end where id = $1", [clientId, disabled]);
+  if ((rowCount ?? 0) === 0) return false;
+  await db.query("insert into audit_events (actor_user_id, actor_via, actor_client_id, action, target_type, target_id) values ($1,'web',$2,$3,'oauth_client',$2)", [
+    actorId, clientId, disabled ? "oauth.client_disabled" : "oauth.client_enabled",
+  ]);
+  invalidateTokenCache();
+  return true;
+}
+
+export interface ClientAdminView {
+  id: string;
+  name: string;
+  createdAt: string;
+  disabledAt: string | null;
+  activeUsers: number;
+  activeTokens: number;
+}
+
+export async function listClientsForAdmin(db: Db = getDb()): Promise<ClientAdminView[]> {
+  const { rows } = await db.query<{ id: string; name: string; created_at: string; disabled_at: string | null; active_users: string; active_tokens: string }>(
+    `select c.id, c.name, c.created_at, c.disabled_at,
+            (select count(distinct t.user_id) from oauth_tokens t where t.client_id = c.id and t.kind = 'refresh' and t.revoked_at is null and t.expires_at > now())::text as active_users,
+            (select count(*) from oauth_tokens t where t.client_id = c.id and t.kind = 'access' and t.revoked_at is null and t.expires_at > now())::text as active_tokens
+       from oauth_clients c order by c.created_at desc limit 200`,
+  );
+  return rows.map((r) => ({ id: r.id, name: r.name, createdAt: new Date(r.created_at).toISOString(), disabledAt: r.disabled_at ? new Date(r.disabled_at).toISOString() : null, activeUsers: Number(r.active_users), activeTokens: Number(r.active_tokens) }));
 }
 
 /** Housekeeping (reconciler): purge expired codes and long-expired tokens. */

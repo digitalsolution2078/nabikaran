@@ -4,6 +4,8 @@ import { verifyAccessToken, type VerifyFailure } from "../oauth/tokens";
 import { wwwAuthenticate } from "../oauth/metadata";
 import { env } from "../env";
 import { createMcpServer } from "./server";
+import { countEvent } from "../core/rate-limit";
+import { getDb } from "../db";
 
 const CORS: Record<string, string> = {
   "access-control-allow-origin": "*",
@@ -53,7 +55,10 @@ export async function handleMcpRequest(req: Request): Promise<Response> {
   const auth = req.headers.get("authorization") ?? "";
   const token = /^Bearer\s+(.+)$/i.exec(auth)?.[1]?.trim() ?? null;
   const verified = await verifyAccessToken(token);
-  if (!verified.ok) return unauthorized(verified.reason);
+  if (!verified.ok) {
+    await countEvent(getDb(), `mcp:401:${verified.reason}`);
+    return unauthorized(verified.reason);
+  }
   const { principal } = verified;
 
   // Stateless mode cannot serve the standalone GET stream; tell clients so.

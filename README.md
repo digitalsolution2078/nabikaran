@@ -32,7 +32,7 @@ Make a user admin: `update users set role = 'admin' where phone_e164 = '+977...'
 ## Tests
 
 ```bash
-npm test          # 95 tests: phone/BS/time/segments/scheduler + wallet SQL + dispatcher/payments/OTP flows
+npm test          # 99 tests: phone/BS/time/segments/scheduler + wallet SQL + dispatcher/payments/OTP flows
 npm run typecheck
 ```
 
@@ -66,7 +66,7 @@ src/app/api            routes per PRD §10 (+ /api/me export/close, /api/admin/*
 src/app/mcp, /oauth    MCP endpoint and OAuth endpoints; /docs/mcp connect guide
 src/app                pages: / login onboarding dashboard renewals(+new,[id]) wallet(+history) settings privacy terms admin
 tests/                 vitest (PGlite)
-docs/                  architecture notes
+docs/                  MCP_ARCHITECTURE.md (design + phase log), LAUNCH_CHECKLIST.md (staging → production)
 ```
 
 ## Before launch (PRD §14)

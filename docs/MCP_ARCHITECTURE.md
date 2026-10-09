@@ -1,6 +1,6 @@
 # Nabikaran — MCP-Ready Architecture Proposal
 
-Status: **approved (all five decisions in §11). Phases 0–3 implemented — see §12–15. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
+Status: **approved (all five decisions in §11). Phases 0–4 implemented — see §12–16. Remaining work is operational (docs/LAUNCH_CHECKLIST.md). No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
 Scope: let users manage reminders from ChatGPT, Claude and other MCP clients through a remote server at `https://mcp.nabikaran.org/mcp`, reusing the existing web app's business logic and database.
 
 ---
@@ -366,3 +366,17 @@ Deployment checklist for Phase 2 (needs approval): DNS `mcp.nabikaran.org` → t
 | Tests (`tests/mcp-write.test.ts`, 10, via the SDK client): no-confirmation AD path, BS/image confirmation prompt with AD+BS pair, invalid BS/AD dates, nothing-to-schedule, unknown id; create once + replay (same key and new key), 5-way concurrent confirm, wrong `expected_expiry_ad`, unconfirmed BS, foreign prepared_id, expired snapshot, price change, insufficient credits → awaiting + top-up → auto-schedule, scope, edit cycle + pause/resume + cancel (confirm flag, replay releases 0), cross-user 404s | suite total 95 |
 
 All seven tools from §6 are now live behind OAuth. Phase 4 (hardening, monitoring, directory submission) is next.
+
+## 16. Phase 4 — implemented (hardening & launch readiness)
+
+| Item | Where |
+| --- | --- |
+| Positive token-lookup cache per instance (`TOKEN_CACHE_SECONDS`, default 30 s, 0 in tests, bounded size, capped at token expiry); cleared on every revocation, rotation, disconnect and kill-switch in the same instance | `src/lib/oauth/tokens.ts` |
+| Admin kill-switch: `oauth_clients.disabled_at` toggled via `POST /api/admin/oauth-clients`; disabled clients fail token validation at once and cannot start new authorizations; audited | `tokens.ts` `setClientDisabled`, `/admin` → "AI assistants (MCP)" table |
+| Monitoring: hourly metric counters (`request_counters` subject `metrics`, kept 30 days) for `mcp:401:<reason>`, `mcp:tool_ok`, `mcp:tool_error`; admin metrics gain `mcp.{clients, disabledClients, connectedUsers, toolCalls24h, toolErrors24h, unauthorized24h, prepared24h, confirmed24h}` with a >20 % error-rate notice | `core/rate-limit.ts`, `services/admin.ts`, `/admin` |
+| Public health endpoint for uptime monitors: `GET /api/health` → 200 / 503 on dispatcher heartbeat age ≥ 3 min or DB error; no secrets | `src/app/api/health/route.ts` |
+| Privacy and Terms wording for connected AI assistants (permissions, no top-up, no full phone, logging, disconnect, BS/photo-date confirmation responsibility) | `/privacy`, `/terms` |
+| Staging → production checklist with Inspector smoke test, the 10-prompt assistant matrix, negative checks, security sign-off and go/no-go gate | `docs/LAUNCH_CHECKLIST.md` |
+| Tests (`tests/phase4.test.ts`, 4): kill-switch on/off incl. 401 at the endpoint and refused authorization, cache off under test + cleared on revocation, 401/tool counters → metrics and survive pruning, heartbeat → health | suite total 99 |
+
+Engineering work for the MCP programme is complete. What remains is operational and needs founder approval: staging deployment (A), recorded tests (B–C), security sign-off (D) and production (E) per `docs/LAUNCH_CHECKLIST.md`.
