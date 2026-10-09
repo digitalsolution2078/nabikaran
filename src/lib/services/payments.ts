@@ -55,6 +55,7 @@ export async function createCustomTopupOrder(user: { id: string; phoneE164: stri
 }
 
 async function createOrder(user: { id: string; phoneE164: string }, amountPaisa: number, credits: number, packCode: string | null, db: Db) {
+  if (env.paymentGateway === "none") throw new HttpError(400, "Online payment is not available yet; use QR top-up", "gateway_disabled");
   const gateway = getPaymentGateway();
   const orderReference = newOrderReference();
   const { rows } = await db.query<OrderRow>(

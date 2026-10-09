@@ -2,9 +2,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
+import { usePrefs } from "./Prefs";
 
 export function OtpForm({ next }: { next?: string | null }) {
   const router = useRouter();
+  const { t } = usePrefs();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"phone" | "code">("phone");
@@ -38,29 +40,41 @@ export function OtpForm({ next }: { next?: string | null }) {
       router.refresh();
     } catch (err) {
       setError((err as Error).message);
-    } finally {
       setBusy(false);
     }
   }
 
-  return step === "phone" ? (
-    <form onSubmit={request} className="card">
-      <label htmlFor="phone">Nepal mobile number (+977)</label>
-      <input id="phone" inputMode="tel" autoComplete="tel" placeholder="98XXXXXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} required />
-      <p className="muted" style={{ fontSize: 13 }}>We send a one-time code by SMS. Standard SMS consent: by continuing you agree to receive reminder SMS you schedule.</p>
-      {error && <div className="error">{error}</div>}
-      <button disabled={busy} type="submit">{busy ? "Sending…" : "Send code"}</button>
-    </form>
-  ) : (
-    <form onSubmit={verify} className="card">
-      <p>Code sent to <strong>{phone}</strong>. {devCode && <span className="notice">Dev code: {devCode}</span>}</p>
-      <label htmlFor="code">6-digit code</label>
-      <input id="code" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} required />
-      {error && <div className="error">{error}</div>}
-      <div className="row" style={{ marginTop: 10 }}>
-        <button disabled={busy} type="submit">{busy ? "Verifying…" : "Verify"}</button>
-        <button type="button" className="secondary" onClick={() => { setStep("phone"); setCode(""); }}>Change number</button>
+  if (step === "phone") {
+    return (
+      <form onSubmit={request} noValidate>
+        <div className="field">
+          <label htmlFor="phone">{t("login.phone")}</label>
+          <div className="input-affix">
+            <span>+977</span>
+            <input id="phone" inputMode="tel" autoComplete="tel-national" placeholder="98XXXXXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? "otp-err" : undefined} required />
+          </div>
+        </div>
+        {error && <p className="field-error" id="otp-err" role="alert">{error}</p>}
+        <button className="btn btn-primary btn-block btn-lg" disabled={busy || phone.replace(/\D/g, "").length < 10} type="submit">
+          {busy ? <><span className="spinner" /> {t("login.sending")}</> : t("login.send")}
+        </button>
+        <p className="hint mt">{t("login.consent")}</p>
+      </form>
+    );
+  }
+  return (
+    <form onSubmit={verify} noValidate>
+      <p>{t("login.codeSent")} <strong>{phone}</strong></p>
+      {devCode && <div className="alert info">Development code: <strong className="mono">{devCode}</strong></div>}
+      <div className="field">
+        <label htmlFor="code">{t("login.code")}</label>
+        <input id="code" inputMode="numeric" autoComplete="one-time-code" pattern="\d{6}" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} style={{ fontSize: 22, letterSpacing: "0.4em", textAlign: "center" }} aria-invalid={Boolean(error)} required autoFocus />
       </div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+      <button className="btn btn-primary btn-block btn-lg" disabled={busy || code.length !== 6} type="submit">
+        {busy ? <><span className="spinner" /> {t("login.verifying")}</> : t("login.verify")}
+      </button>
+      <button type="button" className="btn btn-ghost btn-block mt" onClick={() => { setStep("phone"); setCode(""); setError(null); }}>{t("login.change")}</button>
     </form>
   );
 }

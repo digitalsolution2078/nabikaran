@@ -96,7 +96,7 @@ describe("manual QR top-ups", () => {
     expect(qr.network).toBe("Fonepay");
     expect(request).toMatchObject({ status: "awaiting_payment", amountNpr: 500, credits: 500 });
     await expect(approveManualTopup(admin, request.id, "FP-123456", null, db)).rejects.toMatchObject({ code: "approve_refused" }); // not submitted yet
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     const sub = await submitManualTopup(customer, request.id, { payerTxnRef: "TXN998877", receipt: { contentType: "image/png", bytes: png } }, db);
     expect(sub).toMatchObject({ status: "pending", hasReceipt: true });
     expect((await submitManualTopup(customer, request.id, { payerTxnRef: "TXN998877" }, db)).status).toBe("pending"); // idempotent resubmit
@@ -143,6 +143,7 @@ describe("manual QR top-ups", () => {
     const r = (await startManualTopup(other, 100, db)).request;
     await expect(submitManualTopup(customer, r.id, { payerTxnRef: "TXNX1234" }, db)).rejects.toMatchObject({ status: 404 });
     await expect(submitManualTopup(other, r.id, { payerTxnRef: "TXNX1234", receipt: { contentType: "text/html", bytes: Buffer.from("x") } }, db)).rejects.toMatchObject({ code: "invalid_receipt" });
+    await expect(submitManualTopup(other, r.id, { payerTxnRef: "TXNX1234", receipt: { contentType: "image/png", bytes: Buffer.from("<html><script>alert(1)</script>") } }, db)).rejects.toMatchObject({ code: "invalid_receipt" });
   });
 });
 

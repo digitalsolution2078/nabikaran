@@ -415,5 +415,6 @@ export async function listJobsForUser(p: Principal, limit = 100, db: Db = getDb(
       where j.user_id = $1 and j.status <> 'cancelled' order by j.due_at_utc desc limit $2`,
     [p.userId, limit],
   );
-  return rows;
+  // node-postgres returns timestamptz as Date; expose ISO strings like the DTOs do.
+  return rows.map((r) => ({ ...r, due_at_utc: new Date(r.due_at_utc).toISOString() }));
 }

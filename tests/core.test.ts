@@ -3,7 +3,7 @@ import { createTestDb, createUser, fund, wallet, principalFor, inDays } from "./
 import type { Db } from "@/lib/db";
 import { mcpPrincipal, webPrincipal, requireScope, ALL_SCOPES, type Principal } from "@/lib/core/principal";
 import { ScopeError, RateLimitError } from "@/lib/core/errors";
-import { createReminder, updateReminder, setReminderStatus, listReminders, getReminder, previewSchedule } from "@/lib/core/reminders";
+import { createReminder, updateReminder, setReminderStatus, listReminders, getReminder, previewSchedule, listJobsForUser } from "@/lib/core/reminders";
 import { getAccount } from "@/lib/core/account";
 import { getWalletSummary, getLedger } from "@/lib/core/wallet";
 import { checkRateLimit } from "@/lib/core/rate-limit";
@@ -166,5 +166,14 @@ describe("audit and rate limiting", () => {
     await expect(checkRateLimit(db, "token:abc", rule, t0)).rejects.toThrow(RateLimitError);
     await expect(checkRateLimit(db, "token:other", rule, t0)).resolves.toEqual({ remaining: 2 });
     await expect(checkRateLimit(db, "token:abc", rule, new Date("2026-10-09T10:10:00Z"))).resolves.toEqual({ remaining: 2 });
+  });
+});
+
+describe("row normalisation", () => {
+  it("listJobsForUser returns ISO strings (sortable) even though the driver returns Date", async () => {
+    const jobs = await listJobsForUser(principalFor(alice), 50, db);
+    expect(jobs.length).toBeGreaterThan(0);
+    for (const j of jobs) expect(j.due_at_utc).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(() => [...jobs].sort((a, b) => a.due_at_utc.localeCompare(b.due_at_utc))).not.toThrow();
   });
 });

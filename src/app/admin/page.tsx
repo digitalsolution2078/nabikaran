@@ -1,54 +1,84 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth/session";
+import Link from "next/link";
 import { getMetrics } from "@/lib/services/admin";
+import { getOverview } from "@/lib/services/admin-console";
 import { listClientsForAdmin } from "@/lib/oauth/tokens";
 import { AdminClients } from "@/components/AdminClients";
+import { Icon } from "@/components/Icon";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  if (user.role !== "admin") redirect("/dashboard");
-  const [m, clients] = await Promise.all([getMetrics(), listClientsForAdmin()]);
-  const stale = m.worker.minutesSinceDispatch === null || m.worker.minutesSinceDispatch >= 3;
+function Stat({ label, value, sub, icon, tone }: { label: string; value: string | number; sub?: string; icon: Parameters<typeof Icon>[0]["name"]; tone?: "orange" | "yellow" }) {
   return (
-    <div>
-      <h1>Admin</h1>
-      {stale && <p className="notice">Scheduler health: no dispatcher run in the last 3 minutes{m.worker.lastDispatchAt ? ` (last ${m.worker.lastDispatchAt})` : ""}.</p>}
-      <h2>Users</h2>
-      <div className="grid">
-        <div className="stat"><div className="n">{m.users.total}</div><div className="l">Total</div></div>
-        <div className="stat"><div className="n">{m.users.verified}</div><div className="l">Verified</div></div>
-        <div className="stat"><div className="n">{m.users.last7d}</div><div className="l">New (7d)</div></div>
+    <div className="stat">
+      <div className="label"><span className={`icon-chip ${tone ?? ""}`}><Icon name={icon} size={16} /></span>{label}</div>
+      <div className="value">{typeof value === "number" ? value.toLocaleString("en-IN") : value}</div>
+      {sub && <div className="sub">{sub}</div>}
+    </div>
+  );
+}
+
+export default async function AdminOverview() {
+  const [o, m, clients] = await Promise.all([getOverview(), getMetrics(), listClientsForAdmin()]);
+  const stale = m.worker.minutesSinceDispatch === null || m.worker.minutesSinceDispatch >= 3;
+  const npr = (paisa: number) => `NPR ${(paisa / 100).toLocaleString("en-IN")}`;
+  return (
+    <div className="stack">
+      {stale && <div className="alert warn"><Icon name="alert" /> Scheduler health: no dispatcher run in the last 3 minutes{m.worker.lastDispatchAt ? ` (last ${m.worker.lastDispatchAt})` : ""}. Check the cron container.</div>}
+      {o.topups.pendingManual > 0 && (
+        <div className="alert info"><Icon name="qr" /> <span>{o.topups.pendingManual} QR top-up{o.topups.pendingManual > 1 ? "s" : ""} waiting for verification. <Link href="/admin/wallet/topups">Review →</Link></span></div>
+      )}
+
+      <h2>Users & reminders</h2>
+      <div className="grid grid-4">
+        <Stat label="Registered users" value={o.users.total} icon="users" sub={`${m.users.last7d} new in 7 days`} />
+        <Stat label="Verified users" value={o.users.verified} icon="check" />
+        <Stat label="Active reminders" value={o.reminders.active} icon="bell" sub={`${o.reminders.paused} paused`} />
+        <Stat label="Admins" value={o.users.admins} icon="shield" />
       </div>
-      <h2>Wallet liability</h2>
-      <div className="grid">
-        <div className="stat"><div className="n">{m.wallet.postedLiabilityCredits}</div><div className="l">Prepaid credits outstanding (NPR)</div></div>
-        <div className="stat"><div className="n">{m.wallet.reservedCredits}</div><div className="l">Reserved</div></div>
-        <div className="stat"><div className="n">{m.wallet.topupsPaid}</div><div className="l">Paid top-ups</div></div>
-        <div className="stat"><div className="n">NPR {m.wallet.topupRevenuePaisa / 100}</div><div className="l">Gross top-up value</div></div>
+
+      <h2>SMS</h2>
+      <div className="grid grid-4">
+        <Stat label="Sent (accepted)" value={o.sms.submitted + o.sms.delivered} icon="message" sub={`${o.sms.delivered} delivery-confirmed`} />
+        <Stat label="Failed" value={o.sms.failed} icon="x" tone="orange" />
+        <Stat label="Pending / scheduled" value={o.sms.pending} icon="clock" tone="yellow" />
+        <Stat label="Unknown (reconcile)" value={o.sms.unknown} icon="alert" tone="orange" sub={`${m.sms.accepted24h}/${m.sms.attempts24h} accepted in 24h`} />
       </div>
-      <h2>Jobs</h2>
-      <div className="grid">{Object.entries(m.jobs).map(([k, v]) => <div className="stat" key={k}><div className="n">{v}</div><div className="l">{k}</div></div>)}</div>
-      <h2>SMS &amp; payments</h2>
-      <div className="grid">
-        <div className="stat"><div className="n">{m.sms.accepted24h}/{m.sms.attempts24h}</div><div className="l">Accepted / attempts (24h)</div></div>
-        <div className="stat"><div className="n">{m.sms.unknownOpen}</div><div className="l">Unknown attempts needing action</div></div>
-        <div className="stat"><div className="n">{m.payments.pendingOrders}</div><div className="l">Pending orders</div></div>
-        <div className="stat"><div className="n">{m.payments.mismatches}</div><div className="l">Amount mismatches</div></div>
+
+      <h2>Credits & revenue</h2>
+      <div className="grid grid-4">
+        <Stat label="Credits purchased" value={o.credits.purchased} icon="wallet" sub="all top-ups, lifetime" />
+        <Stat label="Outstanding liability" value={o.credits.outstanding} icon="lock" tone="yellow" sub={`${o.credits.reserved} reserved for scheduled SMS`} />
+        <Stat label="Credits spent on SMS" value={o.credits.spent} icon="chart" />
+        <Stat label="Revenue" value={npr(o.revenue.gatewayPaisa + o.revenue.manualPaisa)} icon="receipt" tone="orange" sub={`Gateway ${npr(o.revenue.gatewayPaisa)} · QR ${npr(o.revenue.manualPaisa)}`} />
       </div>
-      <h2>AI assistants (MCP)</h2>
-      <div className="grid">
-        <div className="stat"><div className="n">{m.mcp.connectedUsers}</div><div className="l">Users with a connected app</div></div>
-        <div className="stat"><div className="n">{m.mcp.toolCalls24h}</div><div className="l">Tool calls (24h)</div></div>
-        <div className="stat"><div className="n">{m.mcp.toolErrors24h}</div><div className="l">Tool errors (24h)</div></div>
-        <div className="stat"><div className="n">{m.mcp.unauthorized24h}</div><div className="l">401s (24h)</div></div>
-        <div className="stat"><div className="n">{m.mcp.prepared24h} / {m.mcp.confirmed24h}</div><div className="l">Prepared / confirmed (24h)</div></div>
+
+      <div className="grid grid-2">
+        <section className="card">
+          <h2>SMS provider</h2>
+          <dl className="kv">
+            <dt>Provider</dt><dd>{env.smsProvider}{env.smsProvider === "mock" ? " (development — no real SMS)" : ""}</dd>
+            <dt>API token</dt><dd>{env.aakash.authToken ? "configured (hidden)" : "not set"}</dd>
+            <dt>Last dispatcher run</dt><dd>{m.worker.lastDispatchAt ?? "never"}</dd>
+            <dt>Payment gateway</dt><dd>{env.paymentGateway}</dd>
+          </dl>
+          <p className="hint mt mb-0">Credentials are set only in the server environment (<code>.env.production</code>), never in the database or this page.</p>
+        </section>
+        <section className="card">
+          <h2>AI assistants (MCP)</h2>
+          <dl className="kv">
+            <dt>Connected users</dt><dd>{m.mcp.connectedUsers}</dd>
+            <dt>Tool calls (24h)</dt><dd>{m.mcp.toolCalls24h} ({m.mcp.toolErrors24h} errors)</dd>
+            <dt>Unauthorized (24h)</dt><dd>{m.mcp.unauthorized24h}</dd>
+            <dt>Prepared / confirmed</dt><dd>{m.mcp.prepared24h} / {m.mcp.confirmed24h}</dd>
+          </dl>
+        </section>
       </div>
-      {m.mcp.toolCalls24h > 0 && m.mcp.toolErrors24h / m.mcp.toolCalls24h > 0.2 && <p className="notice">MCP tool error rate above 20% in the last 24h.</p>}
-      <AdminClients clients={clients} />
-      <p className="muted" style={{ fontSize: 13 }}>Pricing changes: <code>POST /api/admin/pricing</code> (preview then confirm). Wallet adjustments: <code>POST /api/admin/adjustments</code> — request by one admin, approve by another.</p>
+
+      <section className="card">
+        <h2>OAuth / MCP clients</h2>
+        <AdminClients clients={clients} />
+      </section>
     </div>
   );
 }

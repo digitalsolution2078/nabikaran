@@ -55,6 +55,15 @@ export function newPaymentReference(): string {
 
 const MAX_OPEN_REQUESTS = 3;
 
+/** Identify the real file type from its first bytes; the browser-declared type is not trusted. */
+export function sniffType(b: Buffer): string | null {
+  if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 12 && b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  if (b.length >= 5 && b.subarray(0, 5).toString("latin1") === "%PDF-") return "application/pdf";
+  return null;
+}
+
 /** Step 1: customer chose an amount and "Pay via QR". Returns the reference to show beside the QR. */
 export async function startManualTopup(userId: string, amountNpr: number, db: Db = getDb()) {
   const qr = await getSetting("manual_qr", db);
@@ -91,6 +100,7 @@ export async function submitManualTopup(
   if (input.receipt) {
     if (!["image/png", "image/jpeg", "image/webp", "application/pdf"].includes(input.receipt.contentType)) throw new HttpError(400, "Receipt must be PNG, JPEG, WebP or PDF", "invalid_receipt");
     if (input.receipt.bytes.length > 3 * 1024 * 1024) throw new HttpError(400, "Receipt must be 3 MB or smaller", "receipt_too_large");
+    if (sniffType(input.receipt.bytes) !== input.receipt.contentType) throw new HttpError(400, "Receipt file content does not match its type", "invalid_receipt");
   }
   return db.tx(async (tx) => {
     const { rows } = await tx.query<Row & { user_id: string }>("select * from manual_topup_requests where id = $1 for update", [requestId]);
