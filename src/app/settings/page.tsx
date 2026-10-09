@@ -3,6 +3,7 @@ import { getRequestContext } from "@/lib/i18n/server";
 import { SettingsForm } from "@/components/SettingsForm";
 import { readWallet } from "@/lib/core/wallet";
 import { ConnectedApps } from "@/components/ConnectedApps";
+import { InstallApp } from "@/components/InstallApp";
 import { listConnections } from "@/lib/oauth/tokens";
 import { formatPhoneLocal } from "@/lib/phone";
 
@@ -24,6 +25,7 @@ export default async function SettingsPage() {
         </div>
       </div>
       <SettingsForm displayName={user.displayName ?? ""} smsLanguage={user.locale} balance={(await readWallet(user.id)).posted} />
+      <InstallApp variant="card" />
       <ConnectedApps connections={connections} />
     </div>
   );

@@ -13,7 +13,12 @@ export const metadata: Metadata = {
   description: "Save expiry dates for your Bluebook, licence, passport, insurance, tax and business renewals. Get SMS reminders on your Nepal mobile.",
   manifest: "/manifest.webmanifest",
   applicationName: "Nabikaran",
-  icons: { icon: "/icon.svg" },
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/favicon-32.png", sizes: "32x32", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
+  },
+  appleWebApp: { capable: true, title: "Nabikaran", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = { themeColor: "#55239a", width: "device-width", initialScale: 1, viewportFit: "cover" };
