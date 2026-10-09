@@ -71,6 +71,38 @@ export function idempotencyKeyFrom(req: Request, body?: { idempotencyKey?: strin
   return k ? k.slice(0, 64) : null;
 }
 
+/** OAuth endpoints are called cross-origin by browser-based MCP clients (e.g. Inspector); they carry no cookies. */
+export const CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "authorization, content-type, mcp-protocol-version, mcp-session-id",
+  "access-control-max-age": "86400",
+};
+
+export function withCors(res: Response): Response {
+  for (const [k, v] of Object.entries(CORS_HEADERS)) res.headers.set(k, v);
+  res.headers.set("cache-control", "no-store");
+  return res;
+}
+
+export function corsPreflight() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
+/** Parse application/x-www-form-urlencoded or JSON bodies into a flat string record. */
+export async function parseForm(req: Request): Promise<Record<string, string>> {
+  const ct = req.headers.get("content-type") ?? "";
+  const out: Record<string, string> = {};
+  if (ct.includes("application/json")) {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(body)) if (typeof v === "string") out[k] = v;
+    return out;
+  }
+  const text = await req.text();
+  for (const [k, v] of new URLSearchParams(text)) out[k] = v;
+  return out;
+}
+
 export async function handle(fn: () => Promise<Response>): Promise<Response> {
   try {
     return await fn();

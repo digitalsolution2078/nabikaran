@@ -32,7 +32,7 @@ Make a user admin: `update users set role = 'admin' where phone_e164 = '+977...'
 ## Tests
 
 ```bash
-npm test          # 61 tests: phone/BS/time/segments/scheduler + wallet SQL + dispatcher/payments/OTP flows
+npm test          # 75 tests: phone/BS/time/segments/scheduler + wallet SQL + dispatcher/payments/OTP flows
 npm run typecheck
 ```
 
@@ -58,6 +58,7 @@ src/lib/               phone, time (NPT), bs-date, scheduler, sms/segments+templ
 src/lib/providers/sms  SmsProvider contract: aakash, mock
 src/lib/payments       PaymentGateway contract: khalti, mock
 src/lib/auth           OTP (hashed, rate-limited), JWT cookie sessions, CSRF origin check
+src/lib/oauth          OAuth 2.1 AS for MCP clients: registration, PKCE codes, rotated opaque tokens, metadata
 src/lib/core           Principal/scopes, reminders, wallet, account, idempotency, rate-limit, audit, DTOs (shared by web + MCP)
 src/lib/services       payments, dispatcher/reconciler, admin (never exposed to MCP)
 src/app/api            routes per PRD §10 (+ /api/me export/close, /api/admin/*)

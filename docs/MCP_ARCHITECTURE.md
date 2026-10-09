@@ -1,6 +1,6 @@
 # Nabikaran — MCP-Ready Architecture Proposal
 
-Status: **approved (all five decisions in §11). Phase 0 implemented — see §12. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
+Status: **approved (all five decisions in §11). Phases 0–1 implemented — see §12–13. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
 Scope: let users manage reminders from ChatGPT, Claude and other MCP clients through a remote server at `https://mcp.nabikaran.org/mcp`, reusing the existing web app's business logic and database.
 
 ---
@@ -320,3 +320,20 @@ Total ≈ 2.5–3 weeks of engineering after the web pilot is stable. Phases 0 a
 Deviation from §5: create/update idempotency uses a generic `idempotency_keys(user_id, key)` table instead of `renewal_items.client_request_id`, so the same mechanism covers cancel/pause/resume and, in Phase 3, `confirm_reminder`.
 
 Not in Phase 0 (by design): OAuth tables/endpoints, `prepared_actions`, the `/mcp` route, DNS. Phase 1 starts on your go-ahead.
+
+## 13. Phase 1 — implemented (OAuth 2.1 authorization server)
+
+| Item | Where |
+| --- | --- |
+| Migration `0003` (additive): `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens`, `prepared_actions` | `supabase/migrations/0003_oauth.sql` |
+| Dynamic client registration (RFC 7591), redirect-URI policy (https / loopback / private scheme, exact match, loopback port variance) | `src/lib/oauth/clients.ts`, `POST /oauth/register` (CORS, 10/h/IP) |
+| Authorization request validation: `response_type=code`, PKCE **S256 only**, registered `redirect_uri`, known scopes (default: all four), `resource` must equal `MCP_PUBLIC_URL` | `src/lib/oauth/codes.ts` |
+| Consent page (phone that will receive SMS, scope text in English + Nepali, Allow/Deny), same-origin decision POST, `iss` on redirect | `src/app/oauth/authorize/page.tsx`, `.../decision/route.ts`; login supports `?next=` |
+| Token endpoint: code + PKCE → opaque 256-bit tokens stored as SHA-256; access 1 h, refresh 30 d; refresh **rotation** with family revocation on reuse; code replay revokes derived tokens; scope may narrow, never widen | `src/lib/oauth/tokens.ts`, `POST /oauth/token` (form or JSON, CORS, 60/min/client) |
+| Revocation (RFC 7009), Settings → Connected apps → Disconnect, revoke-all on account closure, admin kill-switch via `oauth_clients.disabled_at` | `POST /oauth/revoke`, `/api/me/connections`, `ConnectedApps` |
+| Resource-server validation `verifyAccessToken()` → `Principal` (checks revoked/expired/resource/client disabled/user active+verified); the only identity path for MCP | `src/lib/oauth/tokens.ts` |
+| Discovery: RFC 8414 AS metadata, RFC 9728 protected-resource metadata, `WWW-Authenticate` builder | `src/lib/oauth/metadata.ts`, `/.well-known/*` |
+| Housekeeping in reconciler: expired codes/tokens and rate-limit windows pruned | `/api/jobs/reconcile` |
+| Tests (`tests/oauth.test.ts`): redirect policy, confidential clients, PKCE/redirect/resource/scope validation, code single-use + replay revocation, hashes at rest, rotation + reuse detection, token validation failure modes, cross-token isolation, disconnect, metadata | 14 tests; suite total 75 |
+
+Env: `OAUTH_ISSUER` (web origin) and `MCP_PUBLIC_URL` (e.g. `https://mcp.nabikaran.org/mcp`). Phase 2 (the `/mcp` route + read tools, DNS for `mcp.nabikaran.org`) starts on your go-ahead.

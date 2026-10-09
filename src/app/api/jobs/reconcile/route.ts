@@ -1,6 +1,9 @@
 import { handle, json, requireWorker } from "@/lib/http";
 import { recordHeartbeat, runReconciler } from "@/lib/services/dispatcher";
 import { reconcilePendingOrders } from "@/lib/services/payments";
+import { pruneOAuth } from "@/lib/oauth/tokens";
+import { pruneRateLimitWindows } from "@/lib/core/rate-limit";
+import { getDb } from "@/lib/db";
 
 export const maxDuration = 60;
 
@@ -9,6 +12,7 @@ export async function POST(req: Request) {
   return handle(async () => {
     requireWorker(req);
     const [sms, payments] = await Promise.all([runReconciler(), reconcilePendingOrders()]);
+    await Promise.all([pruneOAuth(), pruneRateLimitWindows(getDb())]);
     await recordHeartbeat("reconcile");
     return json({ ok: true, sms, payments });
   });

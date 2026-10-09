@@ -2,6 +2,7 @@ import { z } from "zod";
 import { handle, json, parseBody, requireUser, HttpError, errorResponse } from "@/lib/http";
 import { getDb } from "@/lib/db";
 import { clearSessionCookie } from "@/lib/auth/session";
+import { revokeAllForUserClient } from "@/lib/oauth/tokens";
 
 export async function GET(req: Request) {
   return handle(async () => {
@@ -53,6 +54,7 @@ export async function POST(req: Request) {
         user.id, user.id, JSON.stringify({ reservedAtClosure: Number(rows[0]?.reserved ?? 0) }),
       ]);
     });
+    await revokeAllForUserClient(user.id, null, "account_closed");
     await clearSessionCookie();
     return json({ ok: true, note: "Account closed. Remaining prepaid credits are handled under the published closure/refund policy." });
   });
