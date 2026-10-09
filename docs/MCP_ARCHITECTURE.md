@@ -1,6 +1,6 @@
 # Nabikaran — MCP-Ready Architecture Proposal
 
-Status: **approved (all five decisions in §11). Phases 0–1 implemented — see §12–13. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
+Status: **approved (all five decisions in §11). Phases 0–2 implemented — see §12–14. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
 Scope: let users manage reminders from ChatGPT, Claude and other MCP clients through a remote server at `https://mcp.nabikaran.org/mcp`, reusing the existing web app's business logic and database.
 
 ---
@@ -337,3 +337,18 @@ Not in Phase 0 (by design): OAuth tables/endpoints, `prepared_actions`, the `/mc
 | Tests (`tests/oauth.test.ts`): redirect policy, confidential clients, PKCE/redirect/resource/scope validation, code single-use + replay revocation, hashes at rest, rotation + reuse detection, token validation failure modes, cross-token isolation, disconnect, metadata | 14 tests; suite total 75 |
 
 Env: `OAUTH_ISSUER` (web origin) and `MCP_PUBLIC_URL` (e.g. `https://mcp.nabikaran.org/mcp`). Phase 2 (the `/mcp` route + read tools, DNS for `mcp.nabikaran.org`) starts on your go-ahead.
+
+## 14. Phase 2 — implemented (remote MCP endpoint, read tools)
+
+| Item | Where |
+| --- | --- |
+| Streamable HTTP endpoint, **stateless** (one `McpServer` + transport per request, JSON responses, 64 KB body cap, CORS, 405 for the standalone GET stream) | `src/lib/mcp/handler.ts`, `src/app/mcp/route.ts` |
+| Bearer → `verifyAccessToken()` → `Principal` in `authInfo.extra`; 401 carries `WWW-Authenticate: Bearer resource_metadata=…` (+ `error="invalid_token"` with reason) | `handler.ts` |
+| Tools `get_account`, `get_credit_balance`, `list_reminders` (read-only annotations, `structuredContent` + text summary, AD/BS/NPT dates, cursor pagination, category/status filters) | `src/lib/mcp/server.ts` |
+| Per-token rate limit 60 calls/min, audit row per call (`mcp.<tool>`, via/client/token), scope errors mapped to `insufficient_scope` tool errors naming the scope | `server.ts` `run()` wrapper |
+| Host rewrite: `MCP_HOST=mcp.nabikaran.org` serves `/` as `/mcp`; `/.well-known/*` resolves on both hosts | `next.config.ts` |
+| User-facing connect instructions | `/docs/mcp` |
+| Boundary: `src/lib/mcp` and `src/app/mcp` cannot import providers, payments, dispatcher, admin | `tests/boundary.test.ts` |
+| Tests (`tests/mcp.test.ts`, 10) drive the real SDK `Client` + `StreamableHTTPClientTransport` into the handler: 401/WWW-Authenticate, preflight, 413, revocation takes effect immediately, tool list, account/balance from token only, AD+BS dates, filters + pagination, user isolation, insufficient scope, rate limit + audit | suite total 85 |
+
+Deployment checklist for Phase 2 (needs approval): DNS `mcp.nabikaran.org` → the same deployment; env `MCP_HOST=mcp.nabikaran.org`, `MCP_PUBLIC_URL=https://mcp.nabikaran.org/mcp`, `OAUTH_ISSUER=https://nabikaran.org`; apply migrations `0002`–`0003` to staging first and run the §8 Inspector smoke test.

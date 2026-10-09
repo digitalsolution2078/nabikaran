@@ -29,7 +29,7 @@ function walk(dir: string): string[] {
 }
 
 describe("import boundary", () => {
-  for (const dir of ["src/lib/core", "src/lib/oauth", "src/app/mcp"]) {
+  for (const dir of ["src/lib/core", "src/lib/oauth", "src/lib/mcp", "src/app/mcp"]) {
     it(`${dir} never imports providers, payments, dispatcher, admin or next/*`, () => {
       const files = walk(path.join(ROOT, dir));
       const violations: string[] = [];

@@ -4,6 +4,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   serverExternalPackages: ["@electric-sql/pglite"],
+  async rewrites() {
+    // mcp.nabikaran.org/ → the MCP route; /mcp and /.well-known/* already resolve on any host.
+    const mcpHost = process.env.MCP_HOST;
+    return mcpHost ? [{ source: "/", has: [{ type: "host", value: mcpHost }], destination: "/mcp" }] : [];
+  },
   async headers() {
     return [
       {
