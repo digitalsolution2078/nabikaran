@@ -24,6 +24,7 @@ export interface TemplateOption {
   description_ne: string;
   default_offsets: number[];
   popular: boolean;
+  default_channels?: string[];
 }
 
 export interface RenewalFormValues {
@@ -125,7 +126,8 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
   const toggle = (m: number) => set("offsets", v.offsets.includes(m) ? v.offsets.filter((x) => x !== m) : [...v.offsets, m]);
 
   const chooseTemplate = (tpl: TemplateOption) => {
-    setV((old) => ({ ...old, category: tpl.category, label: old.label && renewalId ? old.label : tpl.sms_label, offsets: tpl.default_offsets, templateSlug: tpl.slug }));
+    const tplChannels = (tpl.default_channels ?? ["sms"]).filter((c): c is "sms" | "whatsapp" => c === "sms" || (c === "whatsapp" && whatsapp.available));
+    setV((old) => ({ ...old, category: tpl.category, label: old.label && renewalId ? old.label : tpl.sms_label, offsets: tpl.default_offsets, templateSlug: tpl.slug, channels: renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"] }));
     setPreview(null);
     setStep(1);
   };

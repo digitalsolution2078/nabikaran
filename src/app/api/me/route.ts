@@ -30,18 +30,20 @@ export async function POST(req: Request) {
     const { action } = await parseBody(req, z.object({ action: z.enum(["export", "delete"]) }));
     const db = getDb();
     if (action === "export") {
-      const [renewals, jobs, ledger, orders] = await Promise.all([
+      const [renewals, jobs, ledger, orders, qr, consent] = await Promise.all([
         db.query("select * from renewal_items where owner_user_id = $1", [user.id]),
         db.query("select * from reminder_jobs where user_id = $1", [user.id]),
         db.query("select * from wallet_ledger where user_id = $1 order by created_at", [user.id]),
         db.query("select id, gateway, order_reference, amount_paisa, credits, status, created_at, paid_at from payment_orders where user_id = $1", [user.id]),
+        db.query("select id, reference, amount_paisa, credits, status, payer_txn_ref, created_at, decided_at from manual_topup_requests where user_id = $1", [user.id]),
+        db.query("select whatsapp_opt_in_at from users where id = $1", [user.id]),
       ]);
-      return json({ exportedAt: new Date().toISOString(), user, renewals: renewals.rows, jobs: jobs.rows, ledger: ledger.rows, orders: orders.rows });
+      return json({ exportedAt: new Date().toISOString(), user, whatsappOptInAt: consent.rows[0]?.whatsapp_opt_in_at ?? null, renewals: renewals.rows, jobs: jobs.rows, ledger: ledger.rows, orders: orders.rows, qrTopups: qr.rows });
     }
     // Account closure request: scheduled sends are cancelled and holds released; ledger/payment
     // records are retained for accounting (see /privacy). Unused prepaid credits are handled
     // under the published refund/closure policy, not deleted silently.
-    const { rows } = await db.query<{ reserved: string }>("select reserved_credits::text as reserved from wallets where user_id = $1", [user.id]);
+    const { rows } = await db.query<{ reserved: string; posted: string }>("select reserved_credits::text as reserved, posted_balance_credits::text as posted from wallets where user_id = $1", [user.id]);
     await db.tx(async (tx) => {
       const { rows: jobs } = await tx.query<{ id: string }>("select id from reminder_jobs where user_id = $1 and status in ('planned','awaiting_credits','scheduled')", [user.id]);
       for (const j of jobs) {
@@ -49,14 +51,15 @@ export async function POST(req: Request) {
         await tx.query("update reminder_jobs set status = 'cancelled', last_error = 'account closed', updated_at = now() where id = $1", [j.id]);
       }
       await tx.query("update renewal_items set status = 'deleted', updated_at = now() where owner_user_id = $1", [user.id]);
-      await tx.query("update users set status = 'closed', display_name = null, updated_at = now() where id = $1", [user.id]);
-      await tx.query("insert into audit_events (actor_user_id, action, target_type, target_id, json_detail_redacted) values ($1,'account.close_requested','user',$2,$3)", [
-        user.id, user.id, JSON.stringify({ reservedAtClosure: Number(rows[0]?.reserved ?? 0) }),
+      await tx.query("update users set status = 'closed', display_name = null, whatsapp_opt_in_at = null, updated_at = now() where id = $1", [user.id]);
+      // Balance at closure (after releasing holds) is recorded for the refund policy (Terms §4–5).
+      await tx.query("insert into audit_events (actor_user_id, action, target_type, target_id, json_detail_redacted) values ($1,'account.closed','user',$2,$3)", [
+        user.id, user.id, JSON.stringify({ releasedReserved: Number(rows[0]?.reserved ?? 0), balanceAtClosure: Number(rows[0]?.posted ?? 0), cancelledJobs: jobs.length }),
       ]);
     });
     await revokeAllForUserClient(user.id, null, "account_closed");
     await clearSessionCookie();
-    return json({ ok: true, note: "Account closed. Remaining prepaid credits are handled under the published closure/refund policy." });
+    return json({ ok: true, balanceAtClosure: Number(rows[0]?.posted ?? 0), note: "Account closed. Scheduled reminders were cancelled. Unused credits are not refundable except under Terms §4." });
   });
 }
 

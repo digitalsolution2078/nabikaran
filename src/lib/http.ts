@@ -118,3 +118,13 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     return errorResponse(e);
   }
 }
+
+/**
+ * Per-subject fixed-window limit (Postgres-backed, survives restarts).
+ * subject: "user:<id>" or "ip:<ip>". Throws RateLimitError → HTTP 429 with Retry-After.
+ */
+export async function limit(subject: string, bucket: string, max: number, windowSeconds: number): Promise<void> {
+  const { checkRateLimit } = await import("./core/rate-limit");
+  const { getDb } = await import("./db");
+  await checkRateLimit(getDb(), subject, { bucket, limit: max, windowSeconds });
+}

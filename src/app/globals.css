@@ -394,3 +394,9 @@ html[lang="ne"] .stat .value, html[lang="ne"] .num, html[lang="ne"] .days-pill {
 }
 .text-bad { color: var(--bad) !important; }
 hr.sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+.legal { max-width: 760px; margin: 0 auto; }
+.legal h2 { margin-top: 24px; font-size: 18px; }
+.legal li { margin-bottom: 6px; }
+.seo .lead { font-size: 18px; color: var(--fg-2); }
+.seo details { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.seo-index { list-style: none; padding: 0; display: grid; gap: 14px; }

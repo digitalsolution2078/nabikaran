@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { processWebhook, verifySubscription } from "@/lib/whatsapp/webhook";
 import { getDb } from "@/lib/db";
+import { clientIp, limit } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,11 @@ export async function GET(req: Request) {
 
 /** Status updates (sent/delivered/read/failed) and inbound messages. Signature-checked. */
 export async function POST(req: Request) {
+  try {
+    await limit(`ip:${clientIp(req) ?? "unknown"}`, "webhook:whatsapp", 1200, 60);
+  } catch {
+    return NextResponse.json({ error: "rate limited" }, { status: 429 });
+  }
   const raw = await req.text();
   if (raw.length > 1_000_000) return NextResponse.json({ error: "too large" }, { status: 413 });
   const r = await processWebhook(raw, req.headers.get("x-hub-signature-256"));

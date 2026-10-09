@@ -182,7 +182,8 @@ export function createMcpServer(): McpServer {
     {
       title: "Prepare a reminder (preview)",
       description:
-        "Step 1 of 2. Validates the reminder, renders the exact SMS text, cost in credits and send times, and returns a prepared_id (valid 15 minutes). " +
+        "Step 1 of 2. Validates the reminder, renders the exact message text per channel (SMS / WhatsApp), cost in credits and send times, and returns a prepared_id (valid 15 minutes). " +
+        "You MUST show confirmation_prompt (message text, channel, AD/BS date, schedule, cost) to the user and get their explicit approval before confirm_reminder. This tool cannot top up the wallet or message any other number. " +
         "Nothing is reserved yet. If requires_user_confirmation is true (BS date, or a date read from an image / inferred), show confirmation_prompt to the user and, once they agree, call prepare_reminder again with expiry.user_confirmed=true, then confirm_reminder. " +
         "Pass reminder_id to prepare an edit of an existing reminder. Never send image bytes; send the structured fields the user confirmed.",
       inputSchema: {
@@ -193,6 +194,7 @@ export function createMcpServer(): McpServer {
         offsets_minutes: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).min(1).max(20).describe("When to send, in minutes before expiry. Presets: 43200 (30d), 21600 (15d), 10080 (7d), 4320 (3d), 1440 (1d), 0 (on the day)."),
         family_member_label: z.string().max(60).nullable().optional().describe("Optional owner label; SMS still goes to the account holder's phone."),
         notes: z.string().max(500).nullable().optional(),
+        channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).optional().describe("Delivery channels; default SMS. WhatsApp works only if the user enabled it on the website (assistants cannot give WhatsApp consent). Messages always go to the account holder's own verified number."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -206,13 +208,15 @@ export function createMcpServer(): McpServer {
         }
         const r = await prepareReminderAction(p, args, db);
         const pv = r.preview;
-        const summary = `${r.requiresUserConfirmation ? "NEEDS CONFIRMATION. " : ""}${pv.lines.length} SMS for "${args.label}", expiry ${pv.expiry.local} NPT (AD ${pv.expiry.ad}${pv.expiry.bs ? `, BS ${pv.expiry.bs.display}` : ""}). Reserve ${pv.reservedOnConfirmCredits} credits now (available ${pv.wallet.available}). prepared_id ${r.preparedId}.`;
+        const summary = `${r.requiresUserConfirmation ? "NEEDS DATE CONFIRMATION. " : ""}Show this to the user and get an explicit yes before confirm_reminder: ${r.confirmationPrompt} prepared_id ${r.preparedId}.`;
         return ok(summary, {
           prepared_id: r.preparedId,
           kind: r.kind,
           expires_at: r.expiresAt,
           resolved_expiry: { utc: pv.expiry.utc, local: `${pv.expiry.local} NPT`, ad: pv.expiry.ad, bs: pv.expiry.bs?.date ?? null, bs_display: pv.expiry.bs?.display ?? null },
-          schedule: pv.lines.map((l) => ({ offset_minutes: l.offsetMinutes, send_local: `${l.due.local} NPT`, send_at_utc: l.due.utc, sms_text: l.smsText, segments: l.segments, encoding: l.encoding, credits: l.credits, horizon: l.horizon })),
+          channels: pv.channels,
+          cost_by_channel: pv.byChannel,
+          schedule: pv.lines.map((l) => ({ channel: l.channel, offset_minutes: l.offsetMinutes, send_local: `${l.due.local} NPT`, send_at_utc: l.due.utc, message_text: l.smsText, sms_text: l.smsText, whatsapp_template: l.whatsappTemplate ?? null, segments: l.segments, encoding: l.encoding, credits: l.credits, horizon: l.horizon })),
           total_credits: pv.totalCredits,
           reserved_on_confirm: pv.reservedOnConfirmCredits,
           available_credits: pv.wallet.available,

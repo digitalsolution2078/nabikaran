@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handle, json, parseBody, requireUser } from "@/lib/http";
+import { handle, json, parseBody, requireUser, limit } from "@/lib/http";
 import { createCustomTopupOrder, createTopupOrder, listPacks } from "@/lib/services/payments";
 import { startManualTopup } from "@/lib/services/manual-topups";
 import { getSetting } from "@/lib/services/settings";
@@ -29,6 +29,7 @@ const schema = z.union([
 export async function POST(req: Request) {
   return handle(async () => {
     const user = await requireUser(req);
+    if (req.method === "POST") await limit(`user:${user.id}`, "topup:start", 10, 3600);
     const body = await parseBody(req, schema);
     if ("packCode" in body) return json(await createTopupOrder(user, body.packCode), { status: 201 });
     if (body.method === "khalti") return json(await createCustomTopupOrder(user, body.amountNpr), { status: 201 });

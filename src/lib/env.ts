@@ -70,6 +70,15 @@ export const env = {
     graphBase: process.env.WHATSAPP_GRAPH_BASE ?? "https://graph.facebook.com",
   },
 
+  /** Shown on Privacy/Terms/receipts. Set to the registered operator of the service. */
+  legal: {
+    entityName: process.env.LEGAL_ENTITY_NAME ?? "",
+    address: process.env.LEGAL_ADDRESS ?? "",
+    supportEmail: process.env.SUPPORT_EMAIL ?? "",
+    supportPhone: process.env.SUPPORT_PHONE ?? "",
+    effectiveDate: process.env.LEGAL_EFFECTIVE_DATE ?? "2026-10-10",
+  },
+
   otp: {
     ttlSeconds: 300,
     maxAttempts: 5,

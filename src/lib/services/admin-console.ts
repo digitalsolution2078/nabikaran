@@ -239,15 +239,32 @@ export interface DocTemplate {
   popular: boolean;
   active: boolean;
   sort_order: number;
+  published?: boolean;
+  version?: number;
+  default_channels?: string[];
 }
 
+/**
+ * Customers see templates that are active AND published, popular first.
+ * Staff (includeInactive) see everything, including drafts.
+ */
 export async function listDocTemplates(includeInactive = false, db: Db = getDb()): Promise<DocTemplate[]> {
   const { rows } = await db.query<DocTemplate>(
-    `select slug, group_key, category, name_en, name_ne, sms_label, description_en, description_ne, default_offsets, popular, active, sort_order
-       from document_templates where $1 or active order by sort_order, name_en`,
+    `select slug, group_key, category, name_en, name_ne, sms_label, description_en, description_ne, default_offsets, popular, active, sort_order,
+            published, version, default_channels
+       from document_templates where $1 or (active and published) order by popular desc, sort_order, name_en`,
     [includeInactive],
   );
-  return rows.map((r) => ({ ...r, default_offsets: (r.default_offsets ?? []).map(Number) }));
+  return rows.map((r) => ({ ...r, default_offsets: (r.default_offsets ?? []).map(Number), default_channels: r.default_channels ?? ["sms"] }));
+}
+
+/** Phrases that would present an official validity period or deadline as fact. */
+const VALIDITY_CLAIM = /\b(is valid for|valid for \d|validity (is|of) \d|must be renewed every|expires (after|every) \d|renew(ed)? every \d+ (year|month))/i;
+
+export function checkTemplateHonesty(t: Pick<DocTemplate, "description_en" | "description_ne">): string | null {
+  if (VALIDITY_CLAIM.test(t.description_en)) return "Do not state official validity periods as fact. Ask customers to enter the date printed on their own document.";
+  if (!/own document|your document|issuing office/i.test(t.description_en)) return "English description must tell customers to use the date on their own document and confirm with the issuing office.";
+  return null;
 }
 
 export async function saveDocTemplate(actorId: string, t: DocTemplate, db: Db = getDb()) {
@@ -258,15 +275,39 @@ export async function saveDocTemplate(actorId: string, t: DocTemplate, db: Db = 
   if (!t.default_offsets.length || t.default_offsets.length > 10 || t.default_offsets.some((o) => !Number.isInteger(o) || o < 0 || o > 1051200)) {
     throw new HttpError(400, "offsets: 1-10 whole minutes", "invalid_template");
   }
-  await db.query(
-    `insert into document_templates (slug, group_key, category, name_en, name_ne, sms_label, description_en, description_ne, default_offsets, popular, active, sort_order, updated_by, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
-     on conflict (slug) do update set group_key = excluded.group_key, category = excluded.category, name_en = excluded.name_en, name_ne = excluded.name_ne,
-       sms_label = excluded.sms_label, description_en = excluded.description_en, description_ne = excluded.description_ne, default_offsets = excluded.default_offsets,
-       popular = excluded.popular, active = excluded.active, sort_order = excluded.sort_order, updated_by = excluded.updated_by, updated_at = now()`,
-    [t.slug, t.group_key, t.category, t.name_en.trim(), t.name_ne.trim(), t.sms_label.trim(), t.description_en.trim(), t.description_ne.trim(), t.default_offsets, t.popular, t.active, t.sort_order, actorId],
+  const honesty = checkTemplateHonesty(t);
+  if (honesty) throw new HttpError(400, honesty, "invalid_template");
+  const channels = (t.default_channels ?? ["sms"]).filter((c) => c === "sms" || c === "whatsapp");
+  if (!channels.length) throw new HttpError(400, "choose at least one default channel", "invalid_template");
+  return db.tx(async (tx) => {
+    const { rows: cur } = await tx.query<{ version: number }>("select version from document_templates where slug = $1 for update", [t.slug]);
+    const version = (cur[0]?.version ?? 0) + 1;
+    const { rows } = await tx.query<Record<string, unknown>>(
+      `insert into document_templates (slug, group_key, category, name_en, name_ne, sms_label, description_en, description_ne, default_offsets, popular, active, sort_order, updated_by, updated_at, published, version, default_channels)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now(), $14, $15, $16)
+       on conflict (slug) do update set group_key = excluded.group_key, category = excluded.category, name_en = excluded.name_en, name_ne = excluded.name_ne,
+         sms_label = excluded.sms_label, description_en = excluded.description_en, description_ne = excluded.description_ne, default_offsets = excluded.default_offsets,
+         popular = excluded.popular, active = excluded.active, sort_order = excluded.sort_order, updated_by = excluded.updated_by, updated_at = now(),
+         published = excluded.published, version = excluded.version, default_channels = excluded.default_channels
+       returning *`,
+      [t.slug, t.group_key, t.category, t.name_en.trim(), t.name_ne.trim(), t.sms_label.trim(), t.description_en.trim(), t.description_ne.trim(), t.default_offsets, t.popular, t.active, t.sort_order, actorId, t.published ?? true, version, channels],
+    );
+    const snapshot = { ...rows[0] };
+    delete snapshot.created_at;
+    delete snapshot.updated_at;
+    await tx.query("insert into document_template_versions (slug, version, snapshot, changed_by) values ($1,$2,$3,$4)", [t.slug, version, JSON.stringify(snapshot), actorId]);
+    await audit(tx, actorP(actorId), "templates.saved", { type: "document_template", id: t.slug }, { version, active: t.active, published: t.published ?? true });
+    return version;
+  });
+}
+
+export async function listDocTemplateVersions(slug: string, db: Db = getDb()) {
+  const { rows } = await db.query<{ version: number; snapshot: Record<string, unknown>; created_at: unknown; changed_by_phone: string | null }>(
+    `select v.version, v.snapshot, v.created_at, u.phone_e164 as changed_by_phone
+       from document_template_versions v left join users u on u.id = v.changed_by where v.slug = $1 order by v.version desc limit 50`,
+    [slug],
   );
-  await audit(db, actorP(actorId), "templates.saved", { type: "document_template", id: t.slug }, { active: t.active });
+  return rows.map((r) => ({ ...r, created_at: new Date(String(r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at)).toISOString() }));
 }
 
 // ---------------------------------------------------------------------------

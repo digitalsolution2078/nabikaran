@@ -334,6 +334,7 @@ const en = {
   "ledger.type": "Type",
   "ledger.detail": "Detail",
   "wallet.qrAuto": "Automatic: Fonepay puts the exact amount in the QR and confirms the payment; credits are added within seconds.",
+  "settings.closeBalance": "Your current balance is {n} credits. Unused credits are not refunded at closure (see Terms §4–5). Scheduled reminders will be cancelled.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -669,6 +670,7 @@ const ne: Record<MessageKey, string> = {
   "ledger.type": "प्रकार",
   "ledger.detail": "विवरण",
   "wallet.qrAuto": "स्वचालित: Fonepay ले QR मा ठ्याक्कै रकम राख्छ र भुक्तानी पुष्टि गर्छ; केही सेकेन्डमै क्रेडिट थपिन्छ।",
+  "settings.closeBalance": "तपाईंको हालको ब्यालेन्स {n} क्रेडिट छ। खाता बन्द गर्दा बाँकी क्रेडिट फिर्ता हुँदैन (सर्तहरू §४–५ हेर्नुहोस्)। तालिकाका रिमाइन्डर रद्द हुनेछन्।",
 };
 
 export const DICTS = { en: en as Record<MessageKey, string>, ne } as const;

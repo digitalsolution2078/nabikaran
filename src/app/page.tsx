@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getRequestContext } from "@/lib/i18n/server";
 import { Icon } from "@/components/Icon";
 import { listDocTemplates } from "@/lib/services/admin-console";
+import { SEO_PAGES } from "@/lib/seo-pages";
 
 export default async function Home() {
   const { t, prefs, user } = await getRequestContext();
@@ -13,7 +14,8 @@ export default async function Home() {
       <section className="hero">
         <div>
           <span className="eyebrow"><Icon name="zap" size={16} /> {t("landing.badge")}</span>
-          <h1>{prefs.lang === "ne" ? <>हरेक नवीकरण, <span className="hl">समयमै।</span></> : <>Renewals on time, <span className="hl">every time.</span></>}</h1>
+          <h1>Nepal ko personal <span className="hl">renewal command center.</span></h1>
+          <p className="small muted mb-0">{prefs.lang === "ne" ? "हरेक नवीकरण, समयमै — SMS र WhatsApp मा।" : "Every renewal, on time — by SMS and WhatsApp."}</p>
           <p className="lead">{t("landing.subtitle")}</p>
           <div className="row mt">
             <Link href={cta} className="btn btn-primary btn-lg">{user ? t("nav.dashboard") : t("landing.cta")} <Icon name="arrowRight" size={18} /></Link>
@@ -97,6 +99,13 @@ export default async function Home() {
           </details>
         ))}
         <p className="small muted mt" style={{ textAlign: "center" }}>{t("landing.disclaimer")}</p>
+      </section>
+
+      <section className="section" style={{ maxWidth: 760, margin: "0 auto" }}>
+        <div className="section-title"><h2>{prefs.lang === "ne" ? "लोकप्रिय सम्झना" : "Popular reminders"}</h2></div>
+        <div className="chips" style={{ justifyContent: "center" }}>
+          {SEO_PAGES.map((p) => <Link key={p.slug} href={`/renewal-reminder/${p.slug}`} className="chip">{p.h1.replace(/ for Nepal|, for Nepal/, "")}</Link>)}
+        </div>
       </section>
     </>
   );

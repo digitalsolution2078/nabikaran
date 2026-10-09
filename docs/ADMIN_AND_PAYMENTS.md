@@ -2,13 +2,7 @@
 
 ## 1. Roles
 
-| Role | Can do | Cannot do |
-|---|---|---|
-| `user` | Own reminders, wallet, top-ups, settings | Anything under `/admin` (pages redirect, APIs return 403) |
-| `admin` | View admin console; approve/reject QR top-ups; request credit adjustments; approve another admin's adjustment request; manage document templates; manage OAuth clients | Direct credit adjustments, SMS pricing/templates, settings, roles |
-| `super_admin` | Everything an admin can, plus direct credit/debit adjustments, SMS templates & credits-per-SMS, top-up limits & QR settings, promoting/demoting admins | Self-promotion, changing own role, adjusting own wallet, approving own top-up, removing the last super admin |
-
-Every rule is enforced in the server (route guards in `src/lib/http.ts`, permission matrix in `src/lib/auth/rbac.ts`) and, for money, again in SQL functions. Hiding a button is never the only protection.
+Six staff roles exist: super admin, operations admin, finance reviewer, support admin, template/content manager and read-only auditor. The full permission table, WhatsApp setup, refund policy and rate limits are in `docs/OPERATIONS.md`.
 
 ## 2. Becoming the owner (one time)
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handle, json, parseBody, requirePrincipal, idempotencyKeyFrom, HttpError } from "@/lib/http";
+import { handle, json, parseBody, requirePrincipal, idempotencyKeyFrom, HttpError, limit } from "@/lib/http";
 import { getReminder, reminderInputSchema, setReminderStatus, updateReminder } from "@/lib/core/reminders";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -24,6 +24,7 @@ const patchSchema = z.union([
 export async function PATCH(req: Request, ctx: Ctx) {
   return handle(async () => {
     const { principal } = await requirePrincipal(req);
+    await limit(`user:${principal.userId}`, "reminder:write", 60, 60);
     const { id } = await ctx.params;
     const renewalId = uuid.parse(id);
     const body = await parseBody(req, patchSchema);
@@ -38,6 +39,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
 export async function DELETE(req: Request, ctx: Ctx) {
   return handle(async () => {
     const { principal } = await requirePrincipal(req);
+    await limit(`user:${principal.userId}`, "reminder:write", 60, 60);
     const { id } = await ctx.params;
     return json(await setReminderStatus(principal, uuid.parse(id), "delete", { idempotencyKey: idempotencyKeyFrom(req) }));
   });

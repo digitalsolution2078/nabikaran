@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
 import { SettingsForm } from "@/components/SettingsForm";
+import { readWallet } from "@/lib/core/wallet";
 import { ConnectedApps } from "@/components/ConnectedApps";
 import { listConnections } from "@/lib/oauth/tokens";
 import { formatPhoneLocal } from "@/lib/phone";
@@ -22,7 +23,7 @@ export default async function SettingsPage() {
           <span className="hint">{t("settings.phoneHint")} · Asia/Kathmandu</span>
         </div>
       </div>
-      <SettingsForm displayName={user.displayName ?? ""} smsLanguage={user.locale} />
+      <SettingsForm displayName={user.displayName ?? ""} smsLanguage={user.locale} balance={(await readWallet(user.id)).posted} />
       <ConnectedApps connections={connections} />
     </div>
   );
