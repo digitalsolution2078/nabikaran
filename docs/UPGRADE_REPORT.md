@@ -64,14 +64,13 @@ There is no linter in this repository; adding ESLint would be a new dependency, 
 
 ## Deployment
 
+Production (`/docker/nabikaran`) deploys automatically when CI passes on `main`; see `docs/DEPLOY_VPS.md` §3. Manual equivalent on the server:
+
 ```bash
-cd ~/apps/nabikaran
-docker compose --env-file .env.production exec -T db pg_dump -U nabikaran nabikaran | gzip > ~/backups/nabikaran-pre-0006-$(date +%F-%H%M).sql.gz
-git fetch origin && git checkout main && git pull        # after PR #4 is merged
-# add new variables to .env.production (see .env.production.example): WHATSAPP_*, LEGAL_*, SUPPORT_*, FONEPAY_*
-docker compose --env-file .env.production up -d --build
-docker compose --env-file .env.production logs migrate | tail   # 0005, 0006 applied
-curl -s http://127.0.0.1:3100/api/health
+# 1. add new variables to the stack's environment first (see .env.production.example): WHATSAPP_*, LEGAL_*, SUPPORT_*, FONEPAY_*
+bash /root/nabikaran-deploy.sh                       # backup → recreate web from latest main → health check
+docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "select * from _schema_migrations order by 1"   # 0005, 0006 present
+curl -s https://nabikaran.org/api/health
 ```
 
 After deploy: promote a second person to Finance reviewer, set the sign-in fee/floor (Admin → Settings & roles), and leave WhatsApp disabled until the Meta setup in `docs/OPERATIONS.md` §2 is done.

@@ -10,8 +10,7 @@ Six staff roles exist: super admin, operations admin, finance reviewer, support 
 2. On the VPS, run once:
 
    ```bash
-   cd ~/apps/nabikaran
-   docker compose --env-file .env.production exec db psql -U nabikaran -d nabikaran \
+   docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran \
      -c "select bootstrap_super_admin('+977XXXXXXXXXX');"
    ```
 
@@ -19,7 +18,7 @@ Six staff roles exist: super admin, operations admin, finance reviewer, support 
 3. Sign out and sign in again. An **Admin** item appears in the sidebar. Open `/admin`.
 4. To add staff: the person signs in once with OTP → **Admin → Users** → search by name, phone or email → open → **Role** → `admin` → confirm.
 
-Shell access to the database server is the root of trust. Keep SSH keys and `.env.production` private.
+Shell access to the database server is the root of trust. Keep SSH keys and the stack's environment (`/docker/nabikaran`) private.
 
 ## 3. Wallet rules
 
@@ -37,7 +36,7 @@ Settings: **Admin → Settings & roles → Sign-in SMS fee**.
 
 There are two modes.
 
-**Dynamic QR (automatic, recommended).** Needs Fonepay merchant API credentials from Fonepay or your acquiring bank. Put them in `.env.production`:
+**Dynamic QR (automatic, recommended).** Needs Fonepay merchant API credentials from Fonepay or your acquiring bank. Add them to the production stack's environment (`/docker/nabikaran`, see `DEPLOY_VPS.md` §2), then apply with `bash /root/nabikaran-deploy.sh`:
 
 ```
 FONEPAY_MODE=live

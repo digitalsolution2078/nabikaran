@@ -429,7 +429,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="topup-title" onClick={(e) => e.target === e.currentTarget && setTopup(null)}>
           <div className="modal">
             <div className="row" style={{ gap: 12 }}>
-              <span className="icon-chip" style={{ background: "#fff1e6", color: "var(--accent-orange)" }}><Icon name="wallet" size={20} /></span>
+              <span className="icon-chip" style={{ background: "var(--accent-soft)", color: "var(--accent-orange)" }}><Icon name="wallet" size={20} /></span>
               <h2 id="topup-title" className="mb-0">{topup.locked ? t("lock.title") : t("topup.needTitle")}</h2>
             </div>
             <p className="mt">{topup.locked ? t("lock.body", { balance: localizeNumber(topup.available, lang), min: localizeNumber(-5, lang) }) : t("topup.needBody")}</p>

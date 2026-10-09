@@ -30,7 +30,7 @@ export default async function Home() {
         <div aria-hidden>
           <div className="phone-mock">
             <div className="screen">
-              <div className="small" style={{ fontWeight: 700, marginBottom: 12, color: "#3b0d7a" }}>Messages · NABIKARAN</div>
+              <div className="small" style={{ fontWeight: 700, marginBottom: 12, color: "var(--brand-900)" }}>Messages · NABIKARAN</div>
               <div className="sms-bubble"><div className="from">NABIKARAN</div>Nabikaran: Your Bluebook expires in 7 day(s) on 2026-11-02. Please renew on time.</div>
               <div className="sms-bubble"><div className="from">NABIKARAN</div>Nabikaran: Tapaiko Driving Licence ko myad 30 din pachhi (2026-12-15) sakinchha. Samayamai nabikaran garnuhos.</div>
               <div className="sms-bubble"><div className="from">NABIKARAN</div>Nabikaran: Your Passport expires in 180 day(s) on 2027-04-20. Please renew on time.</div>
