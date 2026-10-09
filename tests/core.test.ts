@@ -117,18 +117,19 @@ describe("idempotent mutations", () => {
 });
 
 describe("insufficient credits and scheduling warnings", () => {
-  it("preview flags BS dates, past offsets, over-cap and shortfall; confirm never overdrafts", async () => {
+  it("preview flags BS dates, past offsets, over-cap and shortfall; an underfunded create is refused", async () => {
     const poor = await createUser(db, "+9779841000503");
     await fund(db, poor, 2);
     const p = mcp(poor);
     const pv = await previewSchedule(p, { label: "Passport", calendar: "BS", expiryDate: "2085-01-01", localTime: "09:00", offsets: [365 * 1440 * 3, ...Array.from({ length: 12 }, (_, i) => i * 1440)] }, db);
     expect(pv.warnings).toEqual(expect.arrayContaining(["bs_date_needs_confirmation", "insufficient_credits", "over_cap"]));
     expect(pv.expiry.bs?.date).toBe("2085-01-01");
-    const { summary, reminder } = await createReminder(p, { ...base, category: "passport", label: "Passport", calendar: "BS", expiryDate: "2085-01-01", offsets: [1440, 0] }, {}, db);
-    expect(summary.awaiting + summary.scheduled + summary.planned).toBe(2);
-    expect(summary.awaiting).toBeGreaterThan(0);
-    expect(reminder.jobs.some((j) => j.status === "awaiting_credits")).toBe(true);
-    expect((await wallet(db, poor)).available).toBeGreaterThanOrEqual(0);
+    // Two SMS need 6 credits; the wallet holds 2 → refused, nothing saved, nothing reserved.
+    await expect(createReminder(p, { ...base, category: "passport", label: "Passport", calendar: "BS", expiryDate: "2085-01-01", offsets: [1440, 0] }, {}, db))
+      .rejects.toMatchObject({ status: 402, code: "insufficient_credits", detail: { neededCredits: 6, availableCredits: 2, shortfallCredits: 4 } });
+    expect(await wallet(db, poor)).toEqual({ posted: 2, reserved: 0, available: 2 });
+    const { rows } = await db.query("select 1 from renewal_items where owner_user_id = $1", [poor]);
+    expect(rows).toHaveLength(0);
   });
 
   it("list pagination with cursor returns each reminder exactly once", async () => {

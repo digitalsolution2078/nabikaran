@@ -149,21 +149,23 @@ describe("confirm_reminder", () => {
     await c.close();
   });
 
-  it("insufficient credits: saved as awaiting with shortfall + top-up URL, never overdrafts; top-up schedules it", async () => {
+  it("insufficient credits: confirm is refused with shortfall + top-up URL and saves nothing; after a top-up the same preparation confirms", async () => {
     const u = await createUser(db, "+9779841000808");
     await fund(db, u, 2);
     const c = await connect(u);
     const p = (await call(c, "prepare_reminder", prep())).structuredContent!;
     expect(p.warnings).toContain("insufficient_credits");
     const r = await call(c, "confirm_reminder", { prepared_id: p.prepared_id, expected_expiry_ad: p.expected_expiry_ad, idempotency_key: key() });
-    expect(r.isError).toBeFalsy();
-    const f = r.structuredContent!.funding as { status: string; shortfall_credits: number; top_up_url: string };
-    expect(f.status).toBe("awaiting_credits");
-    expect(f.shortfall_credits).toBe(Number(p.reserved_on_confirm));
-    expect(f.top_up_url).toMatch(/\/wallet$/);
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toMatchObject({ error: "insufficient_credits", neededCredits: Number(p.reserved_on_confirm), availableCredits: 2 });
+    expect(String(r.structuredContent!.top_up_url)).toMatch(/\/wallet$/);
     expect(await wallet(db, u)).toEqual({ posted: 2, reserved: 0, available: 2 });
+    const { rows } = await db.query("select 1 from renewal_items where owner_user_id = $1", [u]);
+    expect(rows).toHaveLength(0);
     await fund(db, u, 100);
-    expect(await retryAwaitingCredits(u, db)).toBe(2);
+    const ok = await call(c, "confirm_reminder", { prepared_id: p.prepared_id, expected_expiry_ad: p.expected_expiry_ad, idempotency_key: key() });
+    expect(ok.isError).toBeFalsy();
+    expect((ok.structuredContent!.funding as { status: string }).status).toBe("reserved");
     expect((await wallet(db, u)).reserved).toBe(Number(p.reserved_on_confirm));
     await c.close();
   });
@@ -226,5 +228,59 @@ describe("update_reminder / cancel_reminder", () => {
     await ic.close();
     const { rows } = await db.query<{ status: string }>("select status from renewal_items where id = $1", [rid]);
     expect(rows[0].status).toBe("active");
+  });
+});
+
+describe("MCP permission boundaries and confirmation content", () => {
+  it("the confirmation prompt states message text, channel, AD/BS date, schedule and cost", async () => {
+    const u = await createUser(db, "+9779841000851");
+    await fund(db, u, 100);
+    const c = await connect(u);
+    const r = (await call(c, "prepare_reminder", prep({ expiry: { calendar: "BS", date: "2084-02-10" } }))).structuredContent!;
+    const prompt = String(r.confirmation_prompt);
+    expect(prompt).toContain("(AD)");
+    expect(prompt).toContain("(BS)");
+    expect(prompt).toContain("Channel: SMS");
+    expect(prompt).toMatch(/SMS text: "Nabikaran: /);
+    expect(prompt).toMatch(/Sends at \(Nepal time\): \d{4}-\d{2}-\d{2} \d{2}:\d{2}, \d{4}-/);
+    expect(prompt).toMatch(/Cost: SMS 2 × 3 = 6; total 6 credits reserved now/);
+    expect(r.channels).toEqual(["sms"]);
+    expect((r.schedule as Array<{ channel: string; message_text: string }>)[0]).toMatchObject({ channel: "sms" });
+    await c.close();
+  });
+
+  it("an assistant cannot give WhatsApp consent on the user's behalf", async () => {
+    const { setWhatsAppAvailableForTests } = await import("@/lib/whatsapp/availability");
+    setWhatsAppAvailableForTests(true);
+    try {
+      const u = await createUser(db, "+9779841000852");
+      await fund(db, u, 100);
+      const c = await connect(u);
+      const p = (await call(c, "prepare_reminder", prep({ channels: ["sms", "whatsapp"] }))).structuredContent!;
+      expect(p.warnings).toContain("whatsapp_consent_required");
+      expect(String(p.confirmation_prompt)).toContain("Channel: SMS + WhatsApp");
+      const r = await call(c, "confirm_reminder", { prepared_id: p.prepared_id, expected_expiry_ad: p.expected_expiry_ad, idempotency_key: key() });
+      expect(r.structuredContent?.error).toBe("whatsapp_consent_required");
+      expect(await wallet(db, u)).toEqual({ posted: 100, reserved: 0, available: 100 });
+      await c.close();
+    } finally {
+      setWhatsAppAvailableForTests(undefined);
+    }
+  });
+
+  it("no tool can top up the wallet or address another phone number", async () => {
+    const u = await createUser(db, "+9779841000853");
+    const c = await connect(u);
+    const { tools } = await c.listTools();
+    const names = tools.map((t) => t.name);
+    expect(names.some((n) => /top.?up|pay|credit_add|send_sms|send_message/i.test(n))).toBe(false);
+    for (const t of tools) {
+      const props = Object.keys((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {});
+      expect(props.some((k) => /phone|recipient|to_number|destination|msisdn/i.test(k))).toBe(false);
+    }
+    // An unknown extra field cannot smuggle a destination either.
+    const r = (await call(c, "prepare_reminder", prep({ phone: "+9779800000000" }))).structuredContent!;
+    expect(JSON.stringify(r)).not.toContain("9800000000");
+    await c.close();
   });
 });

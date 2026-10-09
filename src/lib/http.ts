@@ -16,7 +16,7 @@ export function errorResponse(e: unknown) {
   if (e instanceof RateLimitError) {
     return json({ error: e.message, code: e.code }, { status: 429, headers: { "retry-after": String(e.retryAfterSeconds) } });
   }
-  if (e instanceof HttpError) return json({ error: e.message, code: e.code }, { status: e.status });
+  if (e instanceof HttpError) return json({ error: e.message, code: e.code, ...(e.detail ? { detail: e.detail } : {}) }, { status: e.status });
   if (e instanceof ZodError) return json({ error: "Invalid input", issues: e.issues }, { status: 400 });
   const code = (e as { code?: string })?.code;
   if (code) return json({ error: (e as Error).message, code }, { status: 400 });
@@ -117,4 +117,14 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
   } catch (e) {
     return errorResponse(e);
   }
+}
+
+/**
+ * Per-subject fixed-window limit (Postgres-backed, survives restarts).
+ * subject: "user:<id>" or "ip:<ip>". Throws RateLimitError → HTTP 429 with Retry-After.
+ */
+export async function limit(subject: string, bucket: string, max: number, windowSeconds: number): Promise<void> {
+  const { checkRateLimit } = await import("./core/rate-limit");
+  const { getDb } = await import("./db");
+  await checkRateLimit(getDb(), subject, { bucket, limit: max, windowSeconds });
 }

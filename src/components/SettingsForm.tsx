@@ -6,7 +6,7 @@ import { usePrefs } from "./Prefs";
 import type { Lang } from "@/lib/i18n/dict";
 import type { DateFormat } from "@/lib/i18n/format";
 
-export function SettingsForm({ displayName, smsLanguage }: { displayName: string; smsLanguage: string }) {
+export function SettingsForm({ displayName, smsLanguage, balance = 0 }: { displayName: string; smsLanguage: string; balance?: number }) {
   const router = useRouter();
   const { t, prefs, setPrefs } = usePrefs();
   const [name, setName] = useState(displayName);
@@ -40,7 +40,7 @@ export function SettingsForm({ displayName, smsLanguage }: { displayName: string
     a.click();
   }
   async function closeAccount() {
-    if (!confirm(t("settings.closeConfirm"))) return;
+    if (!confirm(`${t("settings.closeConfirm")}\n\n${t("settings.closeBalance", { n: balance })}`)) return;
     await api("/api/me", { method: "POST", json: { action: "delete" } });
     router.push("/");
     router.refresh();

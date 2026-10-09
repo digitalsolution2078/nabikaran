@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handle, json, requireUser, HttpError } from "@/lib/http";
+import { handle, json, requireUser, HttpError, limit } from "@/lib/http";
 import { cancelManualTopup, submitManualTopup } from "@/lib/services/manual-topups";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -8,6 +8,7 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function POST(req: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await requireUser(req);
+    await limit(`user:${user.id}`, "topup:manual", 20, 3600);
     const { id } = await ctx.params;
     const requestId = z.string().uuid().parse(id);
     const form = await req.formData().catch(() => {

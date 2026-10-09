@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
-import { getUserDetail } from "@/lib/services/admin-console";
+import { getUserDetail, listNotes, listSmsLog, listUserAudit } from "@/lib/services/admin-console";
+import { getStatement, listTopups } from "@/lib/services/wallet-report";
+import { ChannelBadge } from "@/components/ChannelBadge";
+import { NoteForm } from "@/components/admin/NoteForm";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AdjustCredits, RoleControl } from "@/components/admin/UserControls";
 import { formatPhoneLocal } from "@/lib/phone";
@@ -13,6 +16,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
   const { id } = await params;
   const [me, d] = await Promise.all([getCurrentUser(), getUserDetail(id)]);
   if (!d || !me) notFound();
+  const [st, topups, msgs, notes, auditRows] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id)]);
   const u = d.user;
   const self = me.id === u.id;
   return (
@@ -33,7 +37,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <section className="card">
           <h2>Credit adjustment</h2>
-          {self ? <p className="muted mb-0">You cannot adjust your own wallet.</p> : (
+          {self ? <p className="muted mb-0">You cannot adjust your own wallet.</p> : !can(me.role, "adjustments.request") ? <p className="muted mb-0">Your role cannot adjust credits.</p> : (
             <AdjustCredits userId={u.id} direct={can(me.role, "adjustments.direct")} />
           )}
         </section>
@@ -44,13 +48,14 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
       </div>
 
       <section>
-        <h2>Wallet transactions</h2>
+        <h2>Wallet ledger</h2>
+        <p className="small muted">Purchased {st.totals.purchased} · SMS {st.totals.spent_sms} · WhatsApp {st.totals.spent_whatsapp} · refunded {st.totals.refunded} · fees {st.totals.fee} · adjustments {st.totals.adjustment} · reversed {st.totals.reversed} → posted {st.wallet.posted} (reserved {st.wallet.reserved})</p>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>When</th><th>Type</th><th>Reference / memo</th><th className="num">Credits</th></tr></thead>
+            <thead><tr><th>When</th><th>Category</th><th>Detail</th><th className="num">Credits</th></tr></thead>
             <tbody>
-              {d.ledger.map((l) => <tr key={l.id}><td className="nowrap">{l.createdAt.replace("T", " ").slice(0, 16)}</td><td>{l.type}</td><td className="small muted">{l.memo ?? l.referenceType}</td><td className={`num ${l.credits >= 0 ? "plus" : "minus"}`}>{l.credits > 0 ? "+" : ""}{l.credits}</td></tr>)}
-              {d.ledger.length === 0 && <tr><td colSpan={4} className="muted">No transactions.</td></tr>}
+              {st.rows.map((l) => <tr key={l.id}><td className="nowrap small">{l.createdAt.replace("T", " ").slice(0, 16)}</td><td>{l.category.replace("_", " ")} {l.channel && <ChannelBadge channel={l.channel} />}</td><td className="small muted">{l.description}{l.reference ? ` · ${l.reference.slice(0, 12)}` : ""}</td><td className={`num ${l.credits >= 0 ? "plus" : "minus"}`}>{l.credits > 0 ? "+" : ""}{l.credits}</td></tr>)}
+              {st.rows.length === 0 && <tr><td colSpan={4} className="muted">No transactions.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -71,13 +76,13 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
           <p className="hint">Reminder content is the customer&apos;s; manage it only when they ask or for abuse/billing investigations.</p>
         </section>
         <section>
-          <h2>QR top-ups</h2>
+          <h2>Top-ups</h2>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Reference</th><th className="num">NPR</th><th>Status</th></tr></thead>
+              <thead><tr><th>Reference</th><th>Method</th><th className="num">NPR</th><th>Status</th></tr></thead>
               <tbody>
-                {d.topups.map((t) => <tr key={t.id}><td className="mono">{t.reference}<br /><span className="small muted">{t.createdAt.slice(0, 10)}</span></td><td className="num">{t.amountNpr}</td><td><StatusBadge status={t.status} /></td></tr>)}
-                {d.topups.length === 0 && <tr><td colSpan={3} className="muted">None.</td></tr>}
+                {topups.map((t) => <tr key={`${t.kind}-${t.id}`}><td className="mono small">{t.reference}<br /><span className="muted">{t.createdAt.slice(0, 10)}</span></td><td className="small">{t.method}</td><td className="num">{t.amountNpr}</td><td><StatusBadge status={t.status} /></td></tr>)}
+                {topups.length === 0 && <tr><td colSpan={4} className="muted">None.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -85,17 +90,41 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
       </div>
 
       <section>
-        <h2>SMS log</h2>
+        <h2>Message log (SMS + WhatsApp)</h2>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Due</th><th>Reminder</th><th>Status</th><th className="hide-mobile">Attempts / error</th></tr></thead>
+            <thead><tr><th>Sent</th><th>Channel</th><th>Reminder</th><th>Status</th><th className="hide-mobile">Provider / report</th></tr></thead>
             <tbody>
-              {d.sms.map((s) => <tr key={s.id}><td className="nowrap">{s.dueAtUtc.replace("T", " ").slice(0, 16)}</td><td>{s.label}</td><td><StatusBadge status={s.status} /></td><td className="small muted hide-mobile">{s.attempts}{s.lastError ? ` · ${s.lastError}` : ""}</td></tr>)}
-              {d.sms.length === 0 && <tr><td colSpan={4} className="muted">None.</td></tr>}
+              {msgs.map((m) => <tr key={m.attempt_id}><td className="nowrap small">{m.request_at.replace("T", " ").slice(0, 16)}</td><td><ChannelBadge channel={m.channel} /></td><td>{m.label}</td><td><StatusBadge status={m.status} />{m.error_text ? <div className="small muted">{m.error_text}</div> : null}{m.refunded_at ? <div className="small">refunded</div> : null}</td><td className="small muted hide-mobile">{m.provider} · {m.api_state} · {m.reported_status ?? "no report"}</td></tr>)}
+              {msgs.length === 0 && <tr><td colSpan={5} className="muted">No messages sent yet.</td></tr>}
             </tbody>
           </table>
         </div>
+        <p className="hint">Scheduled messages: <Link href="/admin/messages?status=scheduled">queue</Link>.</p>
       </section>
+
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
+        <section className="card">
+          <h2>Support notes</h2>
+          {can(me.role, "notes.write") ? <NoteForm userId={u.id} /> : <p className="small muted">Your role can read notes but not add them.</p>}
+          <div className="list mt">
+            {notes.map((n) => <div key={n.id} className="list-item"><span className="grow"><span style={{ whiteSpace: "pre-wrap" }}>{n.body}</span><br /><span className="meta">{n.author_name ?? n.author_phone} · {n.created_at.replace("T", " ").slice(0, 16)} UTC</span></span></div>)}
+            {notes.length === 0 && <p className="muted mb-0">No notes.</p>}
+          </div>
+        </section>
+        <section className="card">
+          <h2>Audit history</h2>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>When (UTC)</th><th>Action</th><th>By</th></tr></thead>
+              <tbody>
+                {auditRows.map((e) => <tr key={e.id}><td className="nowrap small">{e.created_at.replace("T", " ").slice(0, 16)}</td><td className="mono small">{e.action}</td><td className="small">{e.actor_phone ?? e.actor_via ?? "system"}</td></tr>)}
+                {auditRows.length === 0 && <tr><td colSpan={3} className="muted">No events.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

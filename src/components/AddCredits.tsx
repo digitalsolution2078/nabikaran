@@ -6,10 +6,10 @@ import { usePrefs } from "./Prefs";
 import { Icon } from "./Icon";
 import { localizeNumber } from "@/lib/i18n/format";
 
-export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled }: { min: number; max: number; quick: number[]; qrEnabled: boolean; khaltiEnabled: boolean }) {
+export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled, initialAmount, qrAutomatic = false }: { min: number; max: number; quick: number[]; qrEnabled: boolean; khaltiEnabled: boolean; initialAmount?: number; qrAutomatic?: boolean }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
-  const [amount, setAmount] = useState<string>(String(quick[1] ?? quick[0] ?? min));
+  const [amount, setAmount] = useState<string>(String(initialAmount ?? quick[1] ?? quick[0] ?? min));
   const [method, setMethod] = useState<"qr" | "khalti">(qrEnabled ? "qr" : "khalti");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled }: { min:
         <legend className="label" style={{ marginBottom: 6 }}>{t("wallet.method")}</legend>
         <div className="stack" style={{ gap: 8 }}>
           {qrEnabled && (
-            <label className="choice"><input type="radio" name="method" checked={method === "qr"} onChange={() => setMethod("qr")} /><span><strong><Icon name="qr" size={16} /> {t("wallet.qr")}</strong><br /><span className="small muted">{t("wallet.qrd")}</span></span></label>
+            <label className="choice"><input type="radio" name="method" checked={method === "qr"} onChange={() => setMethod("qr")} /><span><strong><Icon name="qr" size={16} /> {t("wallet.qr")}</strong><br /><span className="small muted">{qrAutomatic ? t("wallet.qrAuto") : t("wallet.qrd")}</span></span></label>
           )}
           {khaltiEnabled && (
             <label className="choice"><input type="radio" name="method" checked={method === "khalti"} onChange={() => setMethod("khalti")} /><span><strong><Icon name="wallet" size={16} /> {t("wallet.khalti")}</strong><br /><span className="small muted">{t("wallet.khaltid")}</span></span></label>

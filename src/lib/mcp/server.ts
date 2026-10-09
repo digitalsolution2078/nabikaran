@@ -1,3 +1,4 @@
+import { env } from "../env";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -62,7 +63,7 @@ async function run(tool: string, extra: { authInfo?: AuthInfo }, fn: (p: Princip
     }
     if (e instanceof HttpError) {
       await audit(db, p, `mcp.${tool}`, null, { ok: false, error: e.code ?? e.status });
-      return fail(e.code ?? "error", e.message);
+      return fail(e.code ?? "error", e.message, e.code === "insufficient_credits" ? { ...e.detail, top_up_url: `${env.appUrl}/wallet` } : e.detail);
     }
     console.error(`[mcp] ${tool} failed`, e);
     await countEvent(db, "mcp:tool_error");
@@ -181,7 +182,8 @@ export function createMcpServer(): McpServer {
     {
       title: "Prepare a reminder (preview)",
       description:
-        "Step 1 of 2. Validates the reminder, renders the exact SMS text, cost in credits and send times, and returns a prepared_id (valid 15 minutes). " +
+        "Step 1 of 2. Validates the reminder, renders the exact message text per channel (SMS / WhatsApp), cost in credits and send times, and returns a prepared_id (valid 15 minutes). " +
+        "You MUST show confirmation_prompt (message text, channel, AD/BS date, schedule, cost) to the user and get their explicit approval before confirm_reminder. This tool cannot top up the wallet or message any other number. " +
         "Nothing is reserved yet. If requires_user_confirmation is true (BS date, or a date read from an image / inferred), show confirmation_prompt to the user and, once they agree, call prepare_reminder again with expiry.user_confirmed=true, then confirm_reminder. " +
         "Pass reminder_id to prepare an edit of an existing reminder. Never send image bytes; send the structured fields the user confirmed.",
       inputSchema: {
@@ -192,6 +194,7 @@ export function createMcpServer(): McpServer {
         offsets_minutes: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).min(1).max(20).describe("When to send, in minutes before expiry. Presets: 43200 (30d), 21600 (15d), 10080 (7d), 4320 (3d), 1440 (1d), 0 (on the day)."),
         family_member_label: z.string().max(60).nullable().optional().describe("Optional owner label; SMS still goes to the account holder's phone."),
         notes: z.string().max(500).nullable().optional(),
+        channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).optional().describe("Delivery channels; default SMS. WhatsApp works only if the user enabled it on the website (assistants cannot give WhatsApp consent). Messages always go to the account holder's own verified number."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -205,13 +208,15 @@ export function createMcpServer(): McpServer {
         }
         const r = await prepareReminderAction(p, args, db);
         const pv = r.preview;
-        const summary = `${r.requiresUserConfirmation ? "NEEDS CONFIRMATION. " : ""}${pv.lines.length} SMS for "${args.label}", expiry ${pv.expiry.local} NPT (AD ${pv.expiry.ad}${pv.expiry.bs ? `, BS ${pv.expiry.bs.display}` : ""}). Reserve ${pv.reservedOnConfirmCredits} credits now (available ${pv.wallet.available}). prepared_id ${r.preparedId}.`;
+        const summary = `${r.requiresUserConfirmation ? "NEEDS DATE CONFIRMATION. " : ""}Show this to the user and get an explicit yes before confirm_reminder: ${r.confirmationPrompt} prepared_id ${r.preparedId}.`;
         return ok(summary, {
           prepared_id: r.preparedId,
           kind: r.kind,
           expires_at: r.expiresAt,
           resolved_expiry: { utc: pv.expiry.utc, local: `${pv.expiry.local} NPT`, ad: pv.expiry.ad, bs: pv.expiry.bs?.date ?? null, bs_display: pv.expiry.bs?.display ?? null },
-          schedule: pv.lines.map((l) => ({ offset_minutes: l.offsetMinutes, send_local: `${l.due.local} NPT`, send_at_utc: l.due.utc, sms_text: l.smsText, segments: l.segments, encoding: l.encoding, credits: l.credits, horizon: l.horizon })),
+          channels: pv.channels,
+          cost_by_channel: pv.byChannel,
+          schedule: pv.lines.map((l) => ({ channel: l.channel, offset_minutes: l.offsetMinutes, send_local: `${l.due.local} NPT`, send_at_utc: l.due.utc, message_text: l.smsText, sms_text: l.smsText, whatsapp_template: l.whatsappTemplate ?? null, segments: l.segments, encoding: l.encoding, credits: l.credits, horizon: l.horizon })),
           total_credits: pv.totalCredits,
           reserved_on_confirm: pv.reservedOnConfirmCredits,
           available_credits: pv.wallet.available,
@@ -231,7 +236,7 @@ export function createMcpServer(): McpServer {
       title: "Confirm a prepared reminder",
       description:
         "Step 2 of 2. Creates (or updates) the reminder from a prepared_id and reserves the credits shown in the preview. Safe to retry with the same idempotency_key. " +
-        "expected_expiry_ad must be the resolved Gregorian date returned by prepare_reminder — this proves the date was shown to the user. If credits are insufficient the reminder is saved as awaiting credits (never overdrafts) and the response includes the shortfall and top-up URL.",
+        "expected_expiry_ad must be the resolved Gregorian date returned by prepare_reminder — this proves the date was shown to the user. If the wallet cannot cover every SMS the reminder is NOT saved: the tool returns insufficient_credits with the shortfall, and the user must top up on the website first.",
       inputSchema: {
         prepared_id: z.string().uuid(),
         expected_expiry_ad: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The resolved_expiry.ad value from prepare_reminder."),

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handle, json, parseBody, requirePermission, HttpError } from "@/lib/http";
+import { handle, json, parseBody, requirePermission, HttpError, limit } from "@/lib/http";
 import { approveManualTopup, rejectManualTopup } from "@/lib/services/manual-topups";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -16,6 +16,7 @@ const schema = z.discriminatedUnion("action", [
 export async function POST(req: Request, ctx: Ctx) {
   return handle(async () => {
     const admin = await requirePermission(req, "topups.decide");
+    await limit(`user:${admin.id}`, "admin:topup", 60, 60);
     const { id } = await ctx.params;
     const requestId = z.string().uuid().parse(id);
     const body = await parseBody(req, schema).catch((e) => {

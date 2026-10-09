@@ -41,6 +41,8 @@ export const prepareInputSchema = z.object({
   offsets_minutes: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).min(1).max(20),
   family_member_label: z.string().trim().max(60).nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
+  /** Delivery channels. WhatsApp requires the user to have opted in on the website; assistants cannot give consent. */
+  channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).default(["sms"]),
 });
 export type PrepareInput = z.infer<typeof prepareInputSchema>;
 
@@ -64,6 +66,7 @@ function toReminderInput(i: PrepareInput): ReminderInput {
     notes: i.notes ?? null,
     familyMemberLabel: i.family_member_label ?? null,
     offsets: i.offsets_minutes,
+    channels: [...new Set(i.channels ?? ["sms"])],
   };
 }
 
@@ -71,11 +74,32 @@ function needsConfirmation(i: PrepareInput): boolean {
   return i.expiry.calendar === "BS" || i.expiry.source !== "user_typed";
 }
 
+/**
+ * What the assistant must show the user before confirming: exact message text,
+ * channel(s), AD and BS dates, the full schedule, and the credit cost.
+ */
+export function buildSummary(label: string, preview: SchedulePreview): string {
+  const bs = preview.expiry.bs?.display ?? "—";
+  const chans = preview.channels.map((c) => (c === "sms" ? "SMS" : "WhatsApp")).join(" + ");
+  const when = [...new Set(preview.lines.map((l) => l.due.local))].join(", ");
+  const sample = preview.channels.map((c) => {
+    const l = preview.lines.find((x) => x.channel === c);
+    return l ? `${c === "sms" ? "SMS" : "WhatsApp"} text: "${l.smsText}"` : "";
+  }).filter(Boolean).join(" | ");
+  const costs = preview.channels.map((c) => {
+    const b = preview.byChannel[c];
+    return b ? `${c === "sms" ? "SMS" : "WhatsApp"} ${b.messages} × ${b.creditsPerUnit} = ${b.credits}` : "";
+  }).filter(Boolean).join(", ");
+  return `Reminder "${label}". Expiry ${preview.expiry.ad} (AD) = ${bs} (BS), ${preview.expiry.local.slice(11)} Nepal time. ` +
+    `Channel: ${chans}. Sends at (Nepal time): ${when}. ${sample}. Cost: ${costs}; total ${preview.reservedOnConfirmCredits} credits reserved now ` +
+    `(wallet available ${preview.wallet.available}${preview.sufficient ? "" : `, short by ${preview.shortfallCredits} — the user must top up on the website first`}).`;
+}
+
 function buildPrompt(i: PrepareInput, preview: SchedulePreview): string {
   const ad = preview.expiry.ad;
   const bs = preview.expiry.bs?.display ?? "—";
   const why = i.expiry.calendar === "BS" ? "You entered a Bikram Sambat date" : i.expiry.source === "extracted_from_image" ? "This date was read from a document image" : "This date was inferred";
-  return `${why}. Please confirm: expiry ${ad} (AD) = ${bs} (BS), ${preview.expiry.local} Nepal time. ${preview.lines.length} SMS reminder(s), ${preview.reservedOnConfirmCredits} credits reserved now. ` +
+  return `${why}. Please confirm the converted date ${ad} (AD) = ${bs} (BS). ${buildSummary(i.label, preview)} ` +
     `म्याद सकिने मिति ${ad} (ई.सं.) = ${bs} (वि.सं.) हो? पुष्टि गर्नुहोस्।`;
 }
 
@@ -88,10 +112,10 @@ export async function prepareReminderAction(p: Principal, raw: unknown, db: Db =
   const kind = input.reminder_id ? "update_reminder" : "create_reminder";
   if (input.reminder_id && !(await getReminder(p, input.reminder_id, db))) throw new HttpError(404, "Reminder not found", "not_found");
 
-  const preview = await previewSchedule(p, toReminderInput(input), db, now);
+  const preview = await previewSchedule(p, { ...toReminderInput(input), renewalId: input.reminder_id ?? null }, db, now);
   if (preview.lines.length === 0) throw new HttpError(400, "Every reminder time is already in the past; choose an earlier offset or a later expiry.", "nothing_to_schedule");
   const requiresUserConfirmation = needsConfirmation(input);
-  const confirmationPrompt = requiresUserConfirmation ? buildPrompt(input, preview) : `Schedule ${preview.lines.length} SMS reminder(s) for ${input.label}, expiring ${preview.expiry.local} Nepal time, reserving ${preview.reservedOnConfirmCredits} credits now?`;
+  const confirmationPrompt = requiresUserConfirmation ? buildPrompt(input, preview) : `Please confirm with the user before saving. ${buildSummary(input.label, preview)}`;
 
   const { rows } = await db.query<{ id: string; expires_at: string }>(
     `insert into prepared_actions (user_id, client_id, kind, input, preview, pricing_version, expires_at)
@@ -143,8 +167,10 @@ export async function confirmPreparedAction(p: Principal, c: ConfirmInput, db: D
       }
       if (new Date(pa.expires_at).getTime() < now.getTime()) throw new HttpError(410, "Prepared action expired; call prepare_reminder again.", "prepared_expired");
 
-      const pricing = await getActivePricing(tx);
-      if (Number(pa.pricing_version) !== pricing.id) throw new HttpError(409, "Pricing changed since the preview; call prepare_reminder again to see the new cost.", "price_changed");
+      const pricing = await getActivePricing(tx, "sms");
+      const waVersion = pa.preview.byChannel?.whatsapp?.pricingVersion;
+      const waChanged = waVersion !== undefined && waVersion !== (await getActivePricing(tx, "whatsapp")).id;
+      if (Number(pa.pricing_version) !== pricing.id || waChanged) throw new HttpError(409, "Pricing changed since the preview; call prepare_reminder again to see the new cost.", "price_changed");
 
       const input = pa.input;
       const resolvedAd = pa.preview.expiry.ad;

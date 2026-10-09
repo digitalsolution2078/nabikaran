@@ -2,13 +2,7 @@
 
 ## 1. Roles
 
-| Role | Can do | Cannot do |
-|---|---|---|
-| `user` | Own reminders, wallet, top-ups, settings | Anything under `/admin` (pages redirect, APIs return 403) |
-| `admin` | View admin console; approve/reject QR top-ups; request credit adjustments; approve another admin's adjustment request; manage document templates; manage OAuth clients | Direct credit adjustments, SMS pricing/templates, settings, roles |
-| `super_admin` | Everything an admin can, plus direct credit/debit adjustments, SMS templates & credits-per-SMS, top-up limits & QR settings, promoting/demoting admins | Self-promotion, changing own role, adjusting own wallet, approving own top-up, removing the last super admin |
-
-Every rule is enforced in the server (route guards in `src/lib/http.ts`, permission matrix in `src/lib/auth/rbac.ts`) and, for money, again in SQL functions. Hiding a button is never the only protection.
+Six staff roles exist: super admin, operations admin, finance reviewer, support admin, template/content manager and read-only auditor. The full permission table, WhatsApp setup, refund policy and rate limits are in `docs/OPERATIONS.md`.
 
 ## 2. Becoming the owner (one time)
 
@@ -29,13 +23,33 @@ Shell access to the database server is the root of trust. Keep SSH keys and `.en
 
 ## 3. Wallet rules
 
-- 1 credit = NPR 1. Credits never expire. Balances can never go negative (SQL `check` constraints plus the `wallet_*` functions).
-- Customers top up with a quick amount or any custom amount between the configured minimum and maximum (default NPR 20–10,000; change in **Admin → Settings & roles**).
-- Every ledger row has a unique idempotency key. Replaying a payment callback, double-clicking Approve, or two admins approving at once credits exactly once (tested with four concurrent approvals).
+- 1 credit = NPR 1. Credits never expire.
+- **Sign-in fee.** Each *successful* sign-in charges the configured fee (default 1 credit) for the English-only login SMS. If the wallet is empty the balance goes negative. A code that is requested but never verified charges nobody.
+- **Debt is settled first.** A top-up adds to the negative balance, so a customer at -1 who tops up NPR 50 has 49 credits.
+- **Lock below the floor.** When the available balance is below -5 (configurable), the customer can still sign in, view everything and top up, but cannot add, edit or resume reminders. Staff are exempt unless *Charge admins too* is ticked.
+- **All-or-nothing funding.** A reminder is saved only when the wallet covers every one of its SMS, however far in the future. Otherwise nothing is saved and the customer gets a top-up popup with the exact shortfall, including any debt. Edits and resumes follow the same rule; an edit counts the credits its old schedule releases.
+- Only the sign-in fee can create debt. A database trigger rejects every other change that would push the available balance below zero.
+- Every ledger row has a unique idempotency key. Replays, double clicks and concurrent approvals credit exactly once.
 
-## 4. QR top-up flow (manual verification)
+Settings: **Admin → Settings & roles → Sign-in SMS fee**.
 
-Your attached QR is a **static Fonepay merchant QR** (EMVCo, point-of-initiation `11`, merchant `NARIKOT DIGITAL PRIVATE LIMITED`, terminal `2222010021806804`, MCC 7399, NPR). A static QR carries **no amount and no remarks**. The app therefore never edits the payload. It shows your unchanged QR next to the exact amount and a unique payment reference such as `NB7KQ2MX`.
+## 4. QR top-up flow
+
+There are two modes.
+
+**Dynamic QR (automatic, recommended).** Needs Fonepay merchant API credentials from Fonepay or your acquiring bank. Put them in `.env.production`:
+
+```
+FONEPAY_MODE=live
+FONEPAY_MERCHANT_CODE=...
+FONEPAY_USERNAME=...
+FONEPAY_PASSWORD=...
+FONEPAY_SECRET_KEY=...
+```
+
+Then each top-up asks Fonepay for a QR with the exact amount and our reference as the payment ID. The customer scans and confirms; the page checks with Fonepay every few seconds and adds credits automatically. A background job also checks every 5 minutes in case the customer closed the page. No admin step is needed. If Fonepay's API is unreachable, that top-up falls back to the static flow below.
+
+**Static QR (manual verification, the default).** Your attached QR is a static Fonepay merchant QR (EMVCo, point-of-initiation `11`, merchant `NARIKOT DIGITAL PRIVATE LIMITED`, terminal `2222010021806804`, MCC 7399, NPR). A static QR carries no amount, so a static image can never become dynamic by editing it; only Fonepay can issue dynamic QRs. The app shows your unchanged QR next to the exact amount and a unique reference such as `NB7KQ2MX`.
 
 Customer side:
 
@@ -66,6 +80,7 @@ Approver, time, bank reference and notes are stored on the request and in the au
 
 - **Admin → SMS & pricing** sets *credits per SMS* (default 3). Each change creates a new pricing version, and existing reservations keep the price they were booked at.
 - Your Aakash cost per SMS is a separate business number. It is not hardcoded anywhere. Margin = credits per SMS × NPR 1 − provider cost.
+- The customer is always charged exactly what the preview showed: the SMS count and credits-per-SMS price stored when the reminder was saved. A later price change or a different unit count reported by the provider does not change it. Provider counts are kept on each send attempt for your reconciliation.
 - SMS templates are English or Romanized Nepali only, and are validated to fit one GSM-7 segment (160 characters) in the worst case before they can be saved.
 
 ## 7. Audit log

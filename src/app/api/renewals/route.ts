@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handle, json, parseBody, requirePrincipal, idempotencyKeyFrom } from "@/lib/http";
+import { handle, json, parseBody, requirePrincipal, idempotencyKeyFrom, limit } from "@/lib/http";
 import { createReminder, listReminders, reminderInputSchema } from "@/lib/core/reminders";
 
 export async function GET(req: Request) {
@@ -16,6 +16,7 @@ const bodySchema = reminderInputSchema.extend({ idempotencyKey: z.string().max(6
 export async function POST(req: Request) {
   return handle(async () => {
     const { principal } = await requirePrincipal(req);
+    await limit(`user:${principal.userId}`, "reminder:write", 60, 60);
     const body = await parseBody(req, bodySchema);
     const { idempotencyKey, ...input } = body;
     const result = await createReminder(principal, input, { idempotencyKey: idempotencyKeyFrom(req, { idempotencyKey }) });

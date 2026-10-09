@@ -34,6 +34,7 @@ const PATHS: Record<string, string> = {
   arrowRight: "M5 12h14M12 5l7 7-7 7",
   chevronRight: "M9 18l6-6-6-6",
   lock: "M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4",
+  edit: "M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z",
 };
 
 export type IconName = keyof typeof PATHS;

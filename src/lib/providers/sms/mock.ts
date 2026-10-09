@@ -1,3 +1,4 @@
+import { estimateSegments } from "../../sms/segments";
 import type { ReportResult, SendOutcome, SmsProvider } from "./types";
 
 /**
@@ -20,7 +21,7 @@ export class MockSmsProvider implements SmsProvider {
     this.sent.push({ ...input, id });
     this.log(`[mock-sms] to=${input.to} id=${id} text=${input.text}`);
     if (input.to.endsWith("22")) return { kind: "unknown", reason: "mock: timeout after send" };
-    return { kind: "accepted", providerMessageId: id, units: Math.max(1, Math.ceil(input.text.length / 70)) };
+    return { kind: "accepted", providerMessageId: id, units: estimateSegments(input.text).segments };
   }
 
   async report(ids: string[]): Promise<ReportResult[]> {
