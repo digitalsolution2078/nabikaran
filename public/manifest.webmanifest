@@ -4,8 +4,8 @@
   "description": "SMS renewal reminders for Nepal",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#f7f7fb",
-  "theme_color": "#4b2e83",
+  "background_color": "#f8f7fc",
+  "theme_color": "#55239a",
   "lang": "ne",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
 }
