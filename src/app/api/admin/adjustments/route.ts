@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handle, json, parseBody, requireAdmin } from "@/lib/http";
+import { handle, json, parseBody, requireAdmin, requirePermission } from "@/lib/http";
 import { approveWalletAdjustment, requestWalletAdjustment } from "@/lib/services/admin";
 import { getDb } from "@/lib/db";
 
@@ -21,8 +21,10 @@ const schema = z.union([
 /** Two-person rule: the approving admin must differ from the requester (enforced in SQL as well). */
 export async function POST(req: Request) {
   return handle(async () => {
-    const admin = await requireAdmin(req);
+    await requireAdmin(req);
     const body = await parseBody(req, schema);
+    // Each action needs its own permission (e.g. a read-only auditor can do neither).
+    const admin = await requirePermission(req, body.action === "request" ? "adjustments.request" : "adjustments.approve");
     if (body.action === "request") {
       const id = await requestWalletAdjustment(admin.id, body.userId, body.signedCredits, body.reason);
       return json({ id, status: "pending" }, { status: 201 });

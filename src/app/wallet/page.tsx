@@ -9,6 +9,7 @@ import { AddCredits } from "@/components/AddCredits";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Icon } from "@/components/Icon";
 import { DraftResume } from "@/components/DraftResume";
+import { fonepayEnabled } from "@/lib/providers/payments/fonepay";
 import { formatDateTime, localizeNumber } from "@/lib/i18n/format";
 import { env } from "@/lib/env";
 
@@ -41,7 +42,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <section className="card" id="add">
           <h2>{t("wallet.addCredits")}</h2>
-          <AddCredits initialAmount={amount && /^\d{1,6}$/.test(amount) ? Math.min(limits.max_npr, Math.max(limits.min_npr, Number(amount))) : undefined} min={limits.min_npr} max={limits.max_npr} quick={limits.quick_amounts} qrEnabled={qr.enabled} khaltiEnabled={env.paymentGateway !== "none"} />
+          <AddCredits initialAmount={amount && /^\d{1,6}$/.test(amount) ? Math.min(limits.max_npr, Math.max(limits.min_npr, Number(amount))) : undefined} min={limits.min_npr} max={limits.max_npr} quick={limits.quick_amounts} qrEnabled={qr.enabled} khaltiEnabled={env.paymentGateway !== "none"} qrAutomatic={fonepayEnabled()} />
         </section>
         <div className="stack">
           <section className="card">

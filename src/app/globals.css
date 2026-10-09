@@ -386,3 +386,9 @@ details.faq summary { cursor: pointer; font-weight: 600; }
 html[lang="ne"] .stat .value, html[lang="ne"] .num, html[lang="ne"] .days-pill { font-variant-numeric: normal; font-feature-settings: normal; }
 .search-row { display: flex; gap: 8px; flex-wrap: nowrap; }
 .search-row .input-affix { flex: 1; min-width: 0; }
+.receipt { max-width: 640px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
+@media print {
+  .sidebar, .topbar, .bottom-nav, .no-print, .pub-header, .pub-footer { display: none !important; }
+  body { background: #fff !important; }
+  .receipt { border: 0; box-shadow: none; }
+}
