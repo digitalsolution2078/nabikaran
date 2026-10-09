@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { listRenewals, listJobsForUser } from "@/lib/services/renewals";
-import { getWallet } from "@/lib/services/wallet";
+import { webPrincipal } from "@/lib/core/principal";
+import { listReminders, listJobsForUser } from "@/lib/core/reminders";
+import { getWallet } from "@/lib/core/wallet";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatKathmandu } from "@/lib/time";
 import { describeOffset } from "@/lib/scheduler";
@@ -12,7 +13,8 @@ export const dynamic = "force-dynamic";
 export default async function Dashboard() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  const [renewals, wallet, jobs] = await Promise.all([listRenewals(user.id), getWallet(user.id), listJobsForUser(user.id, 10)]);
+  const p = webPrincipal(user);
+  const [{ reminders }, wallet, jobs] = await Promise.all([listReminders(p, { status: "active", limit: 50 }), getWallet(p), listJobsForUser(p, 10)]);
   const upcoming = jobs.filter((j) => ["scheduled", "awaiting_credits", "planned"].includes(j.status)).sort((a, b) => a.due_at_utc.localeCompare(b.due_at_utc)).slice(0, 5);
   return (
     <div>
@@ -20,7 +22,7 @@ export default async function Dashboard() {
       <div className="grid">
         <div className="stat"><div className="n">{wallet.available}</div><div className="l">Available credits</div></div>
         <div className="stat"><div className="n">{wallet.reserved}</div><div className="l">Reserved for scheduled SMS</div></div>
-        <div className="stat"><div className="n">{renewals.filter((r) => r.status === "active").length}</div><div className="l">Active renewals</div></div>
+        <div className="stat"><div className="n">{reminders.length}</div><div className="l">Active renewals</div></div>
       </div>
       <div className="row" style={{ margin: "12px 0" }}>
         <Link className="btn" href="/renewals/new">Add renewal</Link>

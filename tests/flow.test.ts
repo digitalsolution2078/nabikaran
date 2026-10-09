@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTestDb, createUser, fund, wallet } from "./helpers/db";
+import { createTestDb, createUser, fund, wallet, principalFor, inDays } from "./helpers/db";
 import type { Db } from "@/lib/db";
 import { MockSmsProvider } from "@/lib/providers/sms/mock";
 import { setSmsProviderForTests } from "@/lib/providers/sms";
 import { MockGateway } from "@/lib/payments/mock";
 import { setPaymentGatewayForTests } from "@/lib/payments";
-import { createRenewal, updateRenewal, previewSchedule, setRenewalStatus, getRenewal } from "@/lib/services/renewals";
+import { createReminder, updateReminder, previewSchedule, setReminderStatus, getReminder } from "@/lib/core/reminders";
+import { retryAwaitingCredits } from "@/lib/core/wallet";
 import { runDispatcher, runReconciler } from "@/lib/services/dispatcher";
 import { createTopupOrder, confirmPaymentByRef } from "@/lib/services/payments";
 import { requestOtp, verifyOtp, OtpError } from "@/lib/auth/otp";
@@ -15,6 +16,8 @@ let close: () => Promise<void> = async () => undefined;
 let userId: string;
 const sms = new MockSmsProvider();
 const gateway = new MockGateway("http://test.local");
+const now = new Date();
+const base = { notes: null, familyMemberLabel: null, localTime: "09:00" } as const;
 
 beforeAll(async () => {
   ({ db, close } = await createTestDb());
@@ -28,77 +31,60 @@ afterAll(async () => {
   await close();
 });
 
-const now = new Date();
-const inDays = (d: number) => {
-  const x = new Date(now.getTime() + d * 86_400_000);
-  return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, "0")}-${String(x.getUTCDate()).padStart(2, "0")}`;
-};
-
 describe("renewal lifecycle + wallet reservations", () => {
-  it("preview shows exact projected charge per reminder", async () => {
-    const p = await previewSchedule({ label: "Bluebook", calendar: "AD", expiryDate: inDays(40), localTime: "09:00", offsets: [30 * 1440, 7 * 1440, 0] }, "ne-NP", db, now);
+  it("preview shows exact projected charge per reminder and warnings", async () => {
+    const p = await previewSchedule(principalFor(userId), { label: "Bluebook", calendar: "AD", expiryDate: inDays(40), localTime: "09:00", offsets: [30 * 1440, 7 * 1440, 0] }, db, now);
     expect(p.lines).toHaveLength(3);
     expect(p.creditsPerUnit).toBe(3);
     expect(p.totalCredits).toBe(p.lines.reduce((s, l) => s + l.segments * 3, 0));
-    expect(p.lines[0].body).toContain("Bluebook");
+    expect(p.lines[0].smsText).toContain("Bluebook");
+    expect(p.warnings).toContain("insufficient_credits");
+    expect(p.shortfallCredits).toBe(p.reservedOnConfirmCredits);
   });
 
   it("creating with insufficient credits marks jobs awaiting; top-up schedules them", async () => {
-    const { summary, renewal } = await createRenewal(userId, "ne-NP", {
-      category: "bluebook", label: "Bluebook", calendar: "AD", expiryDate: inDays(40), localTime: "09:00", offsets: [30 * 1440, 7 * 1440, 0], notes: null, familyMemberLabel: null,
-    }, db, now);
+    const { summary, reminder } = await createReminder(principalFor(userId), { category: "bluebook", label: "Bluebook", calendar: "AD", expiryDate: inDays(40), offsets: [30 * 1440, 7 * 1440, 0], ...base }, {}, db, now);
     expect(summary.awaiting).toBe(3);
     expect(summary.scheduled).toBe(0);
     await fund(db, userId, 100);
-    const { retryAwaitingCredits } = await import("@/lib/services/wallet");
     expect(await retryAwaitingCredits(userId, db)).toBe(3);
-    const w = await wallet(db, userId);
-    expect(w.reserved).toBeGreaterThan(0);
-    const detail = await getRenewal(userId, renewal.id, db);
+    expect((await wallet(db, userId)).reserved).toBeGreaterThan(0);
+    const detail = await getReminder(principalFor(userId), reminder.id, db);
     expect(detail!.jobs.every((j) => j.status === "scheduled")).toBe(true);
   });
 
   it("editing starts a new cycle, cancels old jobs and releases holds", async () => {
-    const { renewal } = await createRenewal(userId, "ne-NP", {
-      category: "licence", label: "Licence", calendar: "AD", expiryDate: inDays(20), localTime: "09:00", offsets: [7 * 1440, 1440], notes: null, familyMemberLabel: null,
-    }, db, now);
+    const { reminder } = await createReminder(principalFor(userId), { category: "licence", label: "Licence", calendar: "AD", expiryDate: inDays(20), offsets: [7 * 1440, 1440], ...base }, {}, db, now);
     const before = await wallet(db, userId);
-    const { renewal: updated, summary } = await updateRenewal(userId, "ne-NP", renewal.id, {
-      category: "licence", label: "Licence", calendar: "AD", expiryDate: inDays(25), localTime: "10:00", offsets: [1440], notes: null, familyMemberLabel: null,
-    }, db, now);
-    expect(updated.cycle_no).toBe(2);
+    const { reminder: updated, summary } = await updateReminder(principalFor(userId), reminder.id, { category: "licence", label: "Licence", calendar: "AD", expiryDate: inDays(25), offsets: [1440], ...base, localTime: "10:00" }, {}, db, now);
+    expect(updated.cycleNo).toBe(2);
     expect(summary.cancelled).toBe(2);
     expect(summary.scheduled).toBe(1);
-    const after = await wallet(db, userId);
-    expect(after.reserved).toBeLessThan(before.reserved);
-    const { rows } = await db.query<{ status: string; cycle_no: number }>("select status, cycle_no from reminder_jobs where renewal_id = $1 order by cycle_no", [renewal.id]);
+    expect((await wallet(db, userId)).reserved).toBeLessThan(before.reserved);
+    const { rows } = await db.query<{ status: string; cycle_no: number }>("select status, cycle_no from reminder_jobs where renewal_id = $1 order by cycle_no", [reminder.id]);
     expect(rows.filter((r) => r.cycle_no === 1).every((r) => r.status === "cancelled")).toBe(true);
+    expect(updated.jobs.every((j) => j.status !== "cancelled")).toBe(true); // DTO shows current cycle only
   });
 
-  it("BS date input persists canonical Gregorian/UTC", async () => {
-    const { renewal } = await createRenewal(userId, "ne-NP", {
-      category: "passport", label: "Passport", calendar: "BS", expiryDate: "2085-01-01", localTime: "09:00", offsets: [0], notes: null, familyMemberLabel: null,
-    }, db, now);
-    expect(renewal.date_input_calendar).toBe("BS");
-    const { bsToAd } = await import("@/lib/bs-date");
-    const { kathmanduToUtc } = await import("@/lib/time");
-    const expected = kathmanduToUtc(bsToAd({ year: 2085, month: 1, day: 1 }), "09:00");
-    expect(new Date(renewal.expiry_at_utc).toISOString()).toBe(expected.toISOString());
-    expect(expected.toISOString()).toMatch(/^2028-04-1[34]T03:15:00.000Z$/);
+  it("BS date input persists canonical Gregorian/UTC and the DTO carries both calendars", async () => {
+    const { reminder } = await createReminder(principalFor(userId), { category: "passport", label: "Passport", calendar: "BS", expiryDate: "2085-01-01", offsets: [0], ...base }, {}, db, now);
+    expect(reminder.inputCalendar).toBe("BS");
+    expect(reminder.expiry.bs?.date).toBe("2085-01-01");
+    expect(reminder.expiry.utc).toMatch(/^2028-04-1[34]T03:15:00.000Z$/);
+    expect(reminder.expiry.local.endsWith("09:00")).toBe(true);
   });
 
-  it("pause releases holds; cancel after pause is clean", async () => {
-    const { renewal } = await createRenewal(userId, "ne-NP", {
-      category: "insurance", label: "Insurance", calendar: "AD", expiryDate: inDays(10), localTime: "09:00", offsets: [1440], notes: null, familyMemberLabel: null,
-    }, db, now);
+  it("pause releases holds; resume re-reserves; cancel releases", async () => {
+    const p = principalFor(userId);
+    const { reminder } = await createReminder(p, { category: "insurance", label: "Insurance", calendar: "AD", expiryDate: inDays(10), offsets: [1440], ...base }, {}, db, now);
     const before = await wallet(db, userId);
-    const hold = Number((await getRenewal(userId, renewal.id, db))!.jobs[0].estimated_credits);
+    const hold = reminder.jobs[0].estimatedCredits;
     expect(hold).toBeGreaterThan(0);
-    await setRenewalStatus(userId, renewal.id, "paused", db);
+    await setReminderStatus(p, reminder.id, "pause", {}, db);
     expect((await wallet(db, userId)).reserved).toBe(before.reserved - hold);
-    await setRenewalStatus(userId, renewal.id, "active", db);
+    await setReminderStatus(p, reminder.id, "resume", {}, db);
     expect((await wallet(db, userId)).reserved).toBe(before.reserved);
-    await setRenewalStatus(userId, renewal.id, "cancelled", db);
+    await setReminderStatus(p, reminder.id, "cancel", {}, db);
     expect((await wallet(db, userId)).reserved).toBe(before.reserved - hold);
   });
 });
@@ -151,7 +137,7 @@ describe("dispatcher", () => {
     expect((await wallet(db, uid)).reserved).toBe(6);
     const { rows } = await db.query<{ next_attempt_at: string }>("select next_attempt_at from reminder_jobs where id = $1", [jobId]);
     expect(new Date(rows[0].next_attempt_at).getTime()).toBeGreaterThan(Date.now());
-    expect((await runDispatcher(db, new Date())).claimed).toBe(0); // not yet due for retry
+    expect((await runDispatcher(db, new Date())).claimed).toBe(0);
   });
 
   it("unknown outcome is never blindly resent; reconciler finds it and charges once", async () => {
@@ -160,7 +146,7 @@ describe("dispatcher", () => {
     const s = await runDispatcher(db, new Date());
     expect(s.unknown).toBe(1);
     expect(await status(jobId)).toBe("unknown");
-    expect((await wallet(db, uid)).reserved).toBe(6); // hold kept
+    expect((await wallet(db, uid)).reserved).toBe(6);
     await runDispatcher(db, new Date());
     expect(sms.sent.length).toBe(sentBefore + 1);
     const r = await runReconciler(db, new Date());
@@ -168,7 +154,7 @@ describe("dispatcher", () => {
     expect(await status(jobId)).toBe("delivered");
     const w = await wallet(db, uid);
     expect(w.reserved).toBe(0);
-    expect(w.posted).toBe(30 - 3); // provider reported 1 unit
+    expect(w.posted).toBe(30 - 3);
     await runReconciler(db, new Date());
     expect((await wallet(db, uid)).posted).toBe(27);
   });
@@ -197,14 +183,11 @@ describe("payments", () => {
     const uid = await createUser(db, "+9779841000200");
     const order = await createTopupOrder({ id: uid, phoneE164: "+9779841000200" }, "NPR50", db);
     expect(order.paymentUrl).toContain("/pay/mock");
-    // Pending: nothing
     expect((await confirmPaymentByRef("mock", order.gatewayRef, db)).result).toBe("not_completed");
     expect((await wallet(db, uid)).posted).toBe(0);
-    // Completed with tampered amount: mismatch, no credit
     gateway.settle(order.gatewayRef, "completed", { amountPaisa: 100 });
     expect((await confirmPaymentByRef("mock", order.gatewayRef, db)).result).toBe("mismatch");
     expect((await wallet(db, uid)).posted).toBe(0);
-    // Completed with correct amount: credited once even on replay/concurrency
     gateway.settle(order.gatewayRef, "completed", { amountPaisa: 5000 });
     const results = await Promise.all([1, 2, 3].map(() => confirmPaymentByRef("mock", order.gatewayRef, db)));
     expect(results.filter((r) => r.result === "credited")).toHaveLength(1);

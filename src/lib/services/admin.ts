@@ -1,5 +1,5 @@
 import { getDb, type Db } from "../db";
-import { HttpError } from "../http";
+import { HttpError } from "../core/errors";
 
 export interface Metrics {
   users: { total: number; verified: number; last7d: number };

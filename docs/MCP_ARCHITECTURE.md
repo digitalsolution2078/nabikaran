@@ -1,6 +1,6 @@
 # Nabikaran — MCP-Ready Architecture Proposal
 
-Status: **proposal for approval — no infrastructure, schema or financial changes have been made.**
+Status: **approved (all five decisions in §11). Phase 0 implemented — see §12. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
 Scope: let users manage reminders from ChatGPT, Claude and other MCP clients through a remote server at `https://mcp.nabikaran.org/mcp`, reusing the existing web app's business logic and database.
 
 ---
@@ -299,3 +299,24 @@ Total ≈ 2.5–3 weeks of engineering after the web pilot is stable. Phases 0 a
 3. Approve the scope set (`account:read`, `wallet:read`, `reminders:read`, `reminders:write`) and that top-ups remain web-only.
 4. Approve the BS/extracted-date double-confirmation rule (`user_confirmed` + `expected_expiry_ad`).
 5. Green-light Phase 0 (code-only refactor) to start now.
+
+---
+
+## 12. Phase 0 — implemented (code-only)
+
+| Item | Where |
+| --- | --- |
+| `Principal` + scopes, scope checks inside core | `src/lib/core/principal.ts`; every core function calls `requireScope` |
+| Transport-agnostic errors (`HttpError`, `ScopeError`, `RateLimitError`) | `src/lib/core/errors.ts` (re-exported by `src/lib/http.ts`) |
+| Idempotent mutations (`idempotency_keys`, per user + operation, concurrent-safe, stored response replayed) | `src/lib/core/idempotency.ts`; used by create/update/status in `core/reminders.ts`; web form sends one key per confirmation |
+| `ReminderDTO` / `InstantDTO` (UTC + NPT + AD + BS) and `SchedulePreview` with `warnings[]` | `src/lib/core/dto.ts`, `previewSchedule` |
+| `getAccount`, `getWalletSummary` (`topUpUrl`, price), `listReminders` with cursor pagination | `src/lib/core/account.ts`, `core/wallet.ts`, `core/reminders.ts` |
+| DB-backed fixed-window rate limiter | `src/lib/core/rate-limit.ts` (`request_counters`) |
+| Audit actor channel/client/token | migration `0002`, `src/lib/core/audit.ts` |
+| Web routes/pages migrated to `requirePrincipal()` → core | `src/app/api/renewals/**`, `/api/wallet`, dashboard/renewals/wallet pages |
+| Import boundary test (core and future `src/app/mcp` cannot import providers, payments, dispatcher, admin or `next/*`) | `tests/boundary.test.ts` |
+| Tests: scopes, isolation, duplicate/concurrent confirms, key binding, insufficient credits, BS warnings, pagination, audit, rate limit | `tests/core.test.ts` (+ existing suites updated) — 61 tests |
+
+Deviation from §5: create/update idempotency uses a generic `idempotency_keys(user_id, key)` table instead of `renewal_items.client_request_id`, so the same mechanism covers cancel/pause/resume and, in Phase 3, `confirm_reminder`.
+
+Not in Phase 0 (by design): OAuth tables/endpoints, `prepared_actions`, the `/mcp` route, DNS. Phase 1 starts on your go-ahead.

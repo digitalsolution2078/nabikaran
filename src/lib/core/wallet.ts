@@ -1,9 +1,19 @@
 import { getDb, type Db } from "../db";
+import { env } from "../env";
+import { requireScope, type Principal } from "./principal";
 
 export interface WalletView {
   posted: number;
   reserved: number;
   available: number;
+}
+
+export interface WalletSummary extends WalletView {
+  creditValue: string;
+  creditsPerSmsSegment: number;
+  pricingVersion: number;
+  /** Top-ups are completed on the website only; MCP clients hand the user this link. */
+  topUpUrl: string;
 }
 
 export interface LedgerEntry {
@@ -16,7 +26,8 @@ export interface LedgerEntry {
   createdAt: string;
 }
 
-export async function getWallet(userId: string, db: Db = getDb()): Promise<WalletView> {
+/** Internal (no scope check): used by services that already own the user context. */
+export async function readWallet(userId: string, db: Db = getDb()): Promise<WalletView> {
   const { rows } = await db.query<{ posted_balance_credits: string; reserved_credits: string }>(
     "select posted_balance_credits::text, reserved_credits::text from wallets where user_id = $1",
     [userId],
@@ -26,12 +37,30 @@ export async function getWallet(userId: string, db: Db = getDb()): Promise<Walle
   return { posted, reserved, available: posted - reserved };
 }
 
-export async function getLedger(userId: string, limit = 50, db: Db = getDb()): Promise<LedgerEntry[]> {
+export async function getWallet(p: Principal, db: Db = getDb()): Promise<WalletView> {
+  requireScope(p, "wallet:read");
+  return readWallet(p.userId, db);
+}
+
+export async function getWalletSummary(p: Principal, db: Db = getDb()): Promise<WalletSummary> {
+  requireScope(p, "wallet:read");
+  const [w, pricing] = await Promise.all([readWallet(p.userId, db), getActivePricing(db)]);
+  return {
+    ...w,
+    creditValue: "1 credit = NPR 1",
+    creditsPerSmsSegment: pricing.creditsPerUnit,
+    pricingVersion: pricing.id,
+    topUpUrl: `${env.appUrl}/wallet`,
+  };
+}
+
+export async function getLedger(p: Principal, limit = 50, db: Db = getDb()): Promise<LedgerEntry[]> {
+  requireScope(p, "wallet:read");
   const { rows } = await db.query<{
     id: number | string; type: string; signed_credits: string; reference_type: string | null; reference_id: string | null; memo: string | null; created_at: string;
   }>(
     "select id, type, signed_credits::text, reference_type, reference_id, memo, created_at from wallet_ledger where user_id = $1 order by created_at desc, id desc limit $2",
-    [userId, limit],
+    [p.userId, limit],
   );
   return rows.map((r) => ({
     id: Number(r.id),
@@ -52,7 +81,7 @@ export async function getActivePricing(db: Db = getDb()): Promise<{ id: number; 
   return { id: Number(rows[0].id), creditsPerUnit: Number(rows[0].credits_per_billable_unit) };
 }
 
-/** Re-attempt reservations for jobs waiting on credits (after a top-up). */
+/** Re-attempt reservations for jobs waiting on credits (after a top-up). Internal. */
 export async function retryAwaitingCredits(userId: string, db: Db = getDb()): Promise<number> {
   const { rows } = await db.query<{ id: string }>(
     "select id from reminder_jobs where user_id = $1 and status = 'awaiting_credits' order by due_at_utc",

@@ -3,24 +3,26 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
 import { PRESET_OFFSET_DAYS, describeOffset, offsetFromParts } from "@/lib/scheduler";
+import type { SchedulePreview } from "@/lib/core/dto";
 
 const CATEGORIES = [
   ["bluebook", "Bluebook (vehicle)"], ["licence", "Driving licence"], ["passport", "Passport"], ["insurance", "Insurance"],
   ["warranty", "Warranty"], ["subscription", "Subscription"], ["other", "Other"],
 ] as const;
 
-interface PreviewLine { offsetMinutes: number; dueAtUtc: string; horizon: string; body: string; segments: number; encoding: string; credits: number }
-interface PreviewResp {
-  preview: { expiryAtUtc: string; lines: PreviewLine[]; totalCredits: number; reservedNowCredits: number; creditsPerUnit: number; dropped: { past: number; duplicate: number; overCap: number } };
-  wallet: { available: number };
-  sufficient: boolean;
-}
-
 export interface RenewalFormValues {
   category: string; label: string; calendar: "AD" | "BS"; expiryDate: string; localTime: string; notes: string; familyMemberLabel: string; offsets: number[];
 }
 
-const fmt = (iso: string) => new Date(iso).toLocaleString("en-GB", { timeZone: "Asia/Kathmandu", dateStyle: "medium", timeStyle: "short" });
+const WARNING_TEXT: Record<string, string> = {
+  expiry_in_past: "This expiry date is already in the past.",
+  some_offsets_in_past: "Some reminders would fall in the past and were skipped.",
+  duplicate_offsets: "Duplicate reminder times were merged.",
+  over_cap: "Only the first 10 reminders are kept.",
+  beyond_two_year_horizon: "Reminders more than 2 years away are saved as planned and reserved later.",
+  bs_date_needs_confirmation: "Please check the converted Gregorian date below is the one on your document.",
+  insufficient_credits: "Not enough credits: reminders will be saved as Awaiting credits and scheduled automatically after you top up. Nothing is overdrawn.",
+};
 
 export function RenewalForm({ initial, renewalId }: { initial?: Partial<RenewalFormValues>; renewalId?: string }) {
   const router = useRouter();
@@ -29,7 +31,9 @@ export function RenewalForm({ initial, renewalId }: { initial?: Partial<RenewalF
     offsets: [30 * 1440, 7 * 1440, 1440, 0], ...initial,
   });
   const [custom, setCustom] = useState({ days: 0, hours: 0, minutes: 0 });
-  const [preview, setPreview] = useState<PreviewResp | null>(null);
+  const [preview, setPreview] = useState<SchedulePreview | null>(null);
+  // One key per confirmed submission: a double-click or retry cannot create two renewals.
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,18 +43,20 @@ export function RenewalForm({ initial, renewalId }: { initial?: Partial<RenewalF
   async function doPreview() {
     setBusy(true); setError(null);
     try {
-      setPreview(await api<PreviewResp>("/api/renewals/preview", { method: "POST", json: { label: v.label, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets } }));
+      const r = await api<{ preview: SchedulePreview }>("/api/renewals/preview", { method: "POST", json: { label: v.label, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets } });
+      setPreview(r.preview);
+      setIdempotencyKey(crypto.randomUUID());
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
 
   async function confirm() {
     setBusy(true); setError(null);
     try {
-      const body = { ...v, notes: v.notes || null, familyMemberLabel: v.familyMemberLabel || null };
+      const body = { ...v, notes: v.notes || null, familyMemberLabel: v.familyMemberLabel || null, idempotencyKey };
       const r = renewalId
-        ? await api<{ renewal: { id: string } }>(`/api/renewals/${renewalId}`, { method: "PATCH", json: body })
-        : await api<{ renewal: { id: string } }>("/api/renewals", { method: "POST", json: body });
-      router.push(`/renewals/${r.renewal.id}`);
+        ? await api<{ reminder: { id: string } }>(`/api/renewals/${renewalId}`, { method: "PATCH", json: body })
+        : await api<{ reminder: { id: string } }>("/api/renewals", { method: "POST", json: body });
+      router.push(`/renewals/${r.reminder.id}`);
       router.refresh();
     } catch (e) { setError((e as Error).message); setBusy(false); }
   }
@@ -101,26 +107,23 @@ export function RenewalForm({ initial, renewalId }: { initial?: Partial<RenewalF
       {preview && (
         <div className="card">
           <h2 style={{ marginTop: 0 }}>Confirm</h2>
-          <p>Expiry: <strong>{fmt(preview.preview.expiryAtUtc)}</strong> (Nepal time)</p>
+          <p>Expiry: <strong>{preview.expiry.local}</strong> (Nepal time){preview.expiry.bs && <> · BS <strong>{preview.expiry.bs.display}</strong></>}</p>
+          {preview.warnings.map((w) => <p key={w} className="notice">{WARNING_TEXT[w] ?? w}</p>)}
           <table>
             <thead><tr><th>Send at</th><th>Message</th><th>Credits</th></tr></thead>
             <tbody>
-              {preview.preview.lines.map((l) => (
+              {preview.lines.map((l) => (
                 <tr key={l.offsetMinutes}>
-                  <td>{fmt(l.dueAtUtc)}<br /><span className="muted">{describeOffset(l.offsetMinutes)}{l.horizon === "beyond" ? " · planned (beyond 2 years)" : ""}</span></td>
-                  <td><pre className="sms">{l.body}</pre><span className="muted">{l.encoding}, {l.segments} segment(s)</span></td>
+                  <td>{l.due.local}<br /><span className="muted">{describeOffset(l.offsetMinutes)}{l.horizon === "beyond" ? " · planned (beyond 2 years)" : ""}</span></td>
+                  <td><pre className="sms">{l.smsText}</pre><span className="muted">{l.encoding}, {l.segments} segment(s)</span></td>
                   <td>{l.credits}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p>Total projected: <strong>{preview.preview.totalCredits} credits</strong> ({preview.preview.creditsPerUnit} credits per SMS segment). Reserved now: {preview.preview.reservedNowCredits}. Available: {preview.wallet.available}.</p>
-          {(preview.preview.dropped.past > 0 || preview.preview.dropped.overCap > 0) && (
-            <p className="notice">{preview.preview.dropped.past} reminder(s) are already in the past and were skipped{preview.preview.dropped.overCap ? `; ${preview.preview.dropped.overCap} over the 10-reminder cap` : ""}.</p>
-          )}
-          {!preview.sufficient && <p className="notice">Not enough credits: reminders will be saved as <em>Awaiting credits</em> and scheduled automatically after you <a href="/wallet">top up</a>. Nothing is overdrawn.</p>}
+          <p>Total projected: <strong>{preview.totalCredits} credits</strong> ({preview.creditsPerUnit} credits per SMS segment). Reserved now: {preview.reservedOnConfirmCredits}. Available: {preview.wallet.available}.{preview.shortfallCredits > 0 && <> Shortfall: {preview.shortfallCredits} — <a href="/wallet">top up</a>.</>}</p>
           <p className="muted" style={{ fontSize: 13 }}>Reserving is not charging. You are charged only when the provider accepts the SMS, for the actual segments sent; unused holds are released.</p>
-          <button type="button" disabled={busy} onClick={confirm}>{busy ? "Saving…" : renewalId ? "Save changes" : "Confirm & schedule"}</button>
+          <button type="button" disabled={busy || preview.lines.length === 0} onClick={confirm}>{busy ? "Saving…" : renewalId ? "Save changes" : "Confirm & schedule"}</button>
         </div>
       )}
     </div>

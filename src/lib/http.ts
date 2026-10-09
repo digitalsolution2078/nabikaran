@@ -2,18 +2,19 @@ import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
 import { assertSameOrigin, getCurrentUser, type SessionUser } from "./auth/session";
 import { env } from "./env";
+import { HttpError, RateLimitError } from "./core/errors";
+import { webPrincipal, type Principal } from "./core/principal";
 
-export class HttpError extends Error {
-  constructor(public readonly status: number, message: string, public readonly code?: string) {
-    super(message);
-  }
-}
+export { HttpError };
 
 export function json<T>(data: T, init?: ResponseInit) {
   return NextResponse.json(data, init);
 }
 
 export function errorResponse(e: unknown) {
+  if (e instanceof RateLimitError) {
+    return json({ error: e.message, code: e.code }, { status: 429, headers: { "retry-after": String(e.retryAfterSeconds) } });
+  }
   if (e instanceof HttpError) return json({ error: e.message, code: e.code }, { status: e.status });
   if (e instanceof ZodError) return json({ error: "Invalid input", issues: e.issues }, { status: 400 });
   const code = (e as { code?: string })?.code;
@@ -38,6 +39,12 @@ export async function requireUser(req: Request): Promise<SessionUser> {
   return user;
 }
 
+/** Web transport → core Principal (all scopes; identity from the session cookie only). */
+export async function requirePrincipal(req: Request): Promise<{ user: SessionUser; principal: Principal }> {
+  const user = await requireUser(req);
+  return { user, principal: webPrincipal(user) };
+}
+
 export async function requireAdmin(req: Request): Promise<SessionUser> {
   const user = await requireUser(req);
   if (user.role !== "admin") throw new HttpError(403, "Admin only", "forbidden");
@@ -55,6 +62,13 @@ export function clientIp(req: Request): string | null {
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0]!.trim();
   return req.headers.get("x-real-ip");
+}
+
+/** Optional client-supplied idempotency key (header or body field). */
+export function idempotencyKeyFrom(req: Request, body?: { idempotencyKey?: string | null }): string | null {
+  const h = req.headers.get("idempotency-key");
+  const k = (h ?? body?.idempotencyKey ?? "").trim();
+  return k ? k.slice(0, 64) : null;
 }
 
 export async function handle(fn: () => Promise<Response>): Promise<Response> {

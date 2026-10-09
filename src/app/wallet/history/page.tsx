@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { getLedger } from "@/lib/services/wallet";
+import { webPrincipal } from "@/lib/core/principal";
+import { getLedger } from "@/lib/core/wallet";
 import { listOrders } from "@/lib/services/payments";
-import { listJobsForUser } from "@/lib/services/renewals";
+import { listJobsForUser } from "@/lib/core/reminders";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatKathmandu } from "@/lib/time";
 
@@ -11,7 +12,8 @@ export const dynamic = "force-dynamic";
 export default async function HistoryPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  const [ledger, orders, jobs] = await Promise.all([getLedger(user.id, 200), listOrders(user.id), listJobsForUser(user.id, 200)]);
+  const p = webPrincipal(user);
+  const [ledger, orders, jobs] = await Promise.all([getLedger(p, 200), listOrders(user.id), listJobsForUser(p, 200)]);
   return (
     <div>
       <h1>History</h1>
