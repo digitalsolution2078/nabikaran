@@ -4,7 +4,19 @@ Target: a VPS that already runs other projects in Docker behind a reverse proxy.
 
 Requirements: Ubuntu 22.04/24.04 VPS, Docker Engine + Compose plugin, ≥ 2 GB RAM (the Next build needs ~1.5 GB briefly; add swap if you have 1–2 GB), two DNS records.
 
-## 1. DNS (Hostinger hPanel → Domains → nabikaran.org → DNS)
+## 1. DNS — use the authoritative provider, not the hosting provider
+
+`nabikaran.org` was registered at Namecheap on 2026-10-09 for one year.
+At the 2026-10-09/10 audit, recursive DNS returned
+`dns1.registrar-servers.com` and `dns2.registrar-servers.com`, with apex A
+`69.62.75.166`. Reconfirm delegation and query both authoritative servers
+before any write. If these nameservers remain active, use Namecheap Advanced
+DNS; Hostinger hPanel is not authoritative merely because the VPS is there.
+Export current records first; preserve MX/TXT/CAA/DNSSEC and existing services.
+Do not change nameservers. Do not change apex/www/mcp during staging setup.
+
+For private mock staging use [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md).
+The following production records are a plan, not authorization to publish:
 
 | Type | Name | Value | TTL |
 | --- | --- | --- | --- |
@@ -172,26 +184,13 @@ Rules that keep auto-deploy safe:
 - Do not edit tracked files on the server; the deploy refuses to overwrite them.
 - To deploy an older commit, run the workflow by hand with that commit SHA.
 
-## Prompt for Claude for Chrome
+## Before using production automation
 
-Claude for Chrome works in your browser, so it can handle the Hostinger hPanel parts (DNS) and, if you use Hostinger's **Browser terminal** or Nginx Proxy Manager's web UI, the server parts too. Paste this, filling the placeholders:
-
-```
-You are helping me deploy a Next.js app called Nabikaran to my Hostinger VPS, which already runs other Docker projects behind <Nginx Proxy Manager | Traefik | Caddy | Nginx>. Work step by step, show me each command or form before submitting it, and stop and ask me if anything looks different from what you expect. Never print or paste secrets into chat; keep them only in the terminal.
-
-Facts:
-- VPS IPv4: <IP>
-- Domain: nabikaran.org (DNS managed in Hostinger hPanel)
-- Repo: https://github.com/digitalsolution2078/nabikaran (branch main)
-- Deployment guide to follow: docs/DEPLOY_VPS.md in that repo
-- Reverse proxy in use: <...>; it listens on 80/443 and <runs in Docker on network "<name>" | runs on the host>
-
-Steps:
-1. In Hostinger hPanel → Domains → nabikaran.org → DNS, create A records for @, www and mcp pointing to the VPS IP (TTL 300). Confirm each record after saving.
-2. Open the VPS terminal (hPanel → VPS → Browser terminal, or tell me to SSH). Run the commands in guide section 2: clone into /opt/apps/nabikaran, copy .env.production.example to .env.production, generate four secrets with openssl and put them in the file with nano, chmod 600.
-3. Run section 3: docker compose --env-file .env.production up -d --build, then `ps` and wait until migrate has exited 0 and app is up. Show me the output of curl http://127.0.0.1:3100/api/health.
-4. Configure the reverse proxy per section 4 for the hosts nabikaran.org + www.nabikaran.org and mcp.nabikaran.org with HTTPS certificates. If it is Nginx Proxy Manager, do it in its web UI and enable Websockets support and Force SSL.
-5. Run the verification curls in section 5 and report the results. Then open https://nabikaran.org/login, request an OTP for my number, read the code from `docker compose logs app`, log in, and tell me when the dashboard loads.
-6. Run the admin SQL from section 5 for my phone number <+977...>, then open https://nabikaran.org/admin and confirm the "Scheduler health" notice is gone after two minutes.
-Do not change SMS_PROVIDER or PAYMENT_GATEWAY from mock, and do not touch any other container on the server.
-```
+The repository default branch at audit time is `claude/bold-brahmagupta-zglkbf`,
+while production Actions target `main`. Explicitly clone `--branch main` for
+production. Never assume a default-branch clone matches the release.
+A successful SSH run on 2026-10-09 logged `recreating web (clone main, npm ci,
+build)`, unlike the tracked Docker deploy script. Inspect the installed script,
+containers, proxy, secrets policy and backups before reusing automation.
+Do not overwrite the server script or trigger production deployment to resolve
+this discrepancy. Establish private staging first.
