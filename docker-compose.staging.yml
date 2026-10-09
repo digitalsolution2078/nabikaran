@@ -1,0 +1,88 @@
+# Standalone staging stack. Never combine with docker-compose.yml.
+name: nabikaran-staging
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nabikaran_staging
+      POSTGRES_USER: nabikaran_staging
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?generate a staging-only secret}
+    volumes: [staging_pgdata:/var/lib/postgresql/data]
+    networks: [staging]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U nabikaran_staging -d nabikaran_staging"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGHOST: db
+      PGUSER: nabikaran_staging
+      PGDATABASE: nabikaran_staging
+    volumes:
+      - ./supabase/migrations:/migrations:ro
+      - ./deploy/migrate.sh:/migrate.sh:ro
+      - ./deploy/staging-settings.sql:/staging-settings.sql:ro
+    entrypoint: [sh, -ec, "sh /migrate.sh && psql -v ON_ERROR_STOP=1 -1 -f /staging-settings.sql"]
+    networks: [staging]
+  app:
+    build:
+      context: .
+      args: {MCP_HOST: mcp-staging.nabikaran.org}
+    image: nabikaran-staging:local
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    env_file: .env.staging
+    environment:
+      SESSION_SECRET: ${SESSION_SECRET:?generate a staging-only secret}
+      OTP_PEPPER: ${OTP_PEPPER:?generate a staging-only secret}
+      WORKER_TOKEN: ${WORKER_TOKEN:?generate a staging-only secret}
+      NODE_ENV: production
+      APP_URL: https://staging.nabikaran.org
+      OAUTH_ISSUER: https://staging.nabikaran.org
+      MCP_PUBLIC_URL: https://mcp-staging.nabikaran.org/mcp
+      MCP_HOST: mcp-staging.nabikaran.org
+      DATABASE_URL: postgresql://nabikaran_staging:${POSTGRES_PASSWORD}@db:5432/nabikaran_staging
+      # Force mocks even if env_file contains a live setting accidentally.
+      SMS_PROVIDER: mock
+      PAYMENT_GATEWAY: mock
+      FONEPAY_MODE: mock
+      WHATSAPP_PROVIDER: "off"
+      AAKASH_AUTH_TOKEN: ""
+      KHALTI_SECRET_KEY: ""
+      FONEPAY_MERCHANT_CODE: ""
+      FONEPAY_USERNAME: ""
+      FONEPAY_PASSWORD: ""
+      FONEPAY_SECRET_KEY: ""
+      WHATSAPP_ACCESS_TOKEN: ""
+      WHATSAPP_APP_SECRET: ""
+      WHATSAPP_VERIFY_TOKEN: ""
+    ports: ["127.0.0.1:3200:3000"]
+    networks: [staging]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "3"}
+  cron:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    depends_on:
+      app: {condition: service_started}
+    environment:
+      WORKER_TOKEN: ${WORKER_TOKEN:?generate a staging-only secret}
+      APP_INTERNAL_URL: http://app:3000
+    volumes: [./deploy/cron.sh:/cron.sh:ro]
+    entrypoint: [sh, /cron.sh]
+    networks: [staging]
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "3"}
+volumes:
+  staging_pgdata:
+networks:
+  staging:

@@ -1,0 +1,15 @@
+# Add to an existing HOST-level Caddy config only after confirming its topology.
+# Set STAGING_ALLOWED_CIDRS to the testers' verified public IPs/CIDRs in Caddy's
+# service environment. No trusted_proxies override; remote_ip is the direct peer.
+# Use a VPN gateway IP if testers' IPs change. Do not put a CDN in front of this
+# configuration without separately reviewing the access control.
+staging.nabikaran.org, mcp-staging.nabikaran.org {
+    @tester remote_ip {$STAGING_ALLOWED_CIDRS}
+    handle @tester {
+        reverse_proxy 127.0.0.1:3200
+    }
+    handle {
+        respond "Private staging" 403
+    }
+    header X-Robots-Tag "noindex, nofollow, noarchive"
+}

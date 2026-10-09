@@ -2,15 +2,21 @@
 
 Everything below is operational; the code on `claude/bold-brahmagupta-zglkbf` is complete through Phase 4. Each step names who approves it.
 
-## A. Staging environment (needs approval: infra)
+## A. Private staging (current path: VPS / Docker)
 
-| # | Step | Verify |
-| --- | --- | --- |
-| A1 | Create Supabase project (staging). Apply `supabase/migrations/0001..0003` in order. | `select count(*) from pricing_versions` = 1; `\df wallet_*` lists 7 functions |
-| A2 | Deploy the repo to Vercel (staging project). Set env from `.env.example`: `APP_URL=https://staging.nabikaran.org`, `OAUTH_ISSUER` = same, `MCP_HOST=mcp-staging.nabikaran.org`, `MCP_PUBLIC_URL=https://mcp-staging.nabikaran.org/mcp`, `SESSION_SECRET`/`OTP_PEPPER`/`WORKER_TOKEN` (`openssl rand -hex 32`), `CRON_SECRET` = `WORKER_TOKEN`, `SMS_PROVIDER=mock`, `PAYMENT_GATEWAY=mock`, `TOKEN_CACHE_SECONDS=30`. | `GET /api/health` → 200 after the first cron run |
-| A3 | DNS: `staging.nabikaran.org` and `mcp-staging.nabikaran.org` → the staging deployment; add both domains to the Vercel project. | `curl https://mcp-staging.nabikaran.org/.well-known/oauth-protected-resource` returns `resource` = `MCP_PUBLIC_URL` |
-| A4 | Vercel Cron active (`vercel.json`): dispatch every minute, reconcile every 5. | Admin page shows no "scheduler health" notice |
-| A5 | Promote one test account to admin: `update users set role='admin' where phone_e164='+977…'`. | `/admin` renders MCP section |
+Follow [STAGING_DEPLOYMENT.md](STAGING_DEPLOYMENT.md). Vercel/Supabase is an
+alternative requiring a separately verified account, plan, DB and cron setup;
+it is not evidence of the installed deployment. Apply **all** migrations,
+currently `0001` through `0006`, rather than the old `0001..0003` subset.
+
+- [ ] Confirm host ownership, installed deploy script, capacity and proxy.
+- [ ] Start the standalone staging Compose project with independent secrets/DB.
+- [ ] Check forced SMS/payment mocks, WhatsApp off and real manual QR disabled.
+- [ ] Confirm authoritative NS, snapshot records, add only staging records.
+- [ ] Configure restricted HTTPS proxy for both staging hosts.
+- [ ] Verify DB + worker health and OAuth discovery; test account isolation.
+- [ ] Use synthetic accounts only; production-mode OTP is in restricted app logs,
+      never returned to the browser. Disable indexing; restrict tester access.
 
 ## B. MCP protocol smoke test (no AI) — run after A
 
@@ -39,7 +45,7 @@ Negative checks: forged bearer → 401 with `WWW-Authenticate`; 61 calls/min →
 ## D. Security review sign-off (needs approval: founder + reviewer)
 
 - [ ] `docs/MCP_ARCHITECTURE.md` §7 controls walked through against the code (`src/lib/oauth`, `src/lib/mcp`, `tests/boundary.test.ts`).
-- [ ] Secrets only in Vercel env / Supabase vault; none in the repo (`git grep -i "secret\|token" -- ':!*.md' ':!tests'` reviewed).
+- [ ] Secrets only in protected runtime env / secrets vault; none in the repo (`git grep -i "secret\|token" -- ':!*.md' ':!tests'` reviewed).
 - [ ] `TOKEN_CACHE_SECONDS` ≤ 60 accepted as the maximum revocation delay across instances (same-instance revocations are immediate).
 - [ ] Privacy and Terms updated for connected apps reviewed by counsel.
 - [ ] Backup + restore drill on the staging database.
@@ -48,7 +54,7 @@ Negative checks: forged bearer → 401 with `WWW-Authenticate`; 61 calls/min →
 
 | # | Step |
 | --- | --- |
-| E1 | Production Supabase: apply `0001..0003`; daily backups on. |
+| E1 | Production PostgreSQL: apply every approved migration; backup and restore verified. |
 | E2 | Production env: `SMS_PROVIDER=aakash` + `AAKASH_AUTH_TOKEN` (after written quote, sender ID and Unicode billing confirmed), `PAYMENT_GATEWAY=khalti` + live key, `KHALTI_BASE_URL=https://a.khalti.com`, `OAUTH_ISSUER=https://nabikaran.org`, `MCP_HOST=mcp.nabikaran.org`, `MCP_PUBLIC_URL=https://mcp.nabikaran.org/mcp`. |
 | E3 | DNS `nabikaran.org`, `mcp.nabikaran.org`. Re-run section B against production with a founder phone. |
 | E4 | Uptime monitor on `GET /api/health` (alert on 503 ≥ 3 min). Alert on admin "tool error rate > 20%". |
@@ -57,7 +63,7 @@ Negative checks: forged bearer → 401 with `WWW-Authenticate`; 61 calls/min →
 
 ## F. Go / no-go gate
 
-- 95/95 automated tests green on the release commit (`npm test`, `npm run typecheck`, `npm run build`).
+- All automated tests green on the release commit (`npm test`, `npm run typecheck`, `npm run build`).
 - Sections B and C recorded on staging with no deviations.
 - Section D signed.
 - Aakash + Khalti production approvals in hand (PRD §14).
