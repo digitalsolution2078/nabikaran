@@ -1,92 +1,112 @@
-import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
-import { listSmsLog, listSmsTemplates } from "@/lib/services/admin-console";
+import { listSmsTemplates } from "@/lib/services/admin-console";
+import { listWaTemplates } from "@/lib/services/whatsapp-admin";
 import { getActivePricing } from "@/lib/core/wallet";
+import { getSetting } from "@/lib/services/settings";
+import { getOps } from "@/lib/services/ops";
 import { getDb } from "@/lib/db";
-import { StatusBadge } from "@/components/StatusBadge";
 import { SmsTemplateEditor, PricingEditor } from "@/components/admin/SmsControls";
+import { WhatsAppSettingsForm, WaTemplateEditor } from "@/components/admin/WhatsAppControls";
 import { validateTemplateBody } from "@/lib/sms/templates";
 import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
-const FILTERS = ["all", "submitted", "delivered", "failed", "unknown"] as const;
+const when = (s: string | null) => (s ? new Date(s).toLocaleString("en-GB", { timeZone: "Asia/Kathmandu", dateStyle: "medium", timeStyle: "short" }) + " NPT" : "never");
 
-export default async function AdminSms({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
-  const { status: raw } = await searchParams;
-  const status = (FILTERS as readonly string[]).includes(raw ?? "") ? raw! : "all";
+/** Channels & pricing: SMS and WhatsApp prices (with history), templates, WhatsApp provider settings. */
+export default async function AdminChannels() {
   const me = await getCurrentUser();
-  const manage = can(me?.role, "sms.manage");
-  const [log, templates, pricing, versions] = await Promise.all([
-    listSmsLog(status === "all" ? null : status, 200),
+  const managePrice = can(me?.role, "sms.manage");
+  const manageTemplates = can(me?.role, "templates.manage") || managePrice;
+  const manageWa = can(me?.role, "whatsapp.manage");
+  const [smsT, waT, smsPrice, waPrice, versions, wa, ops] = await Promise.all([
     listSmsTemplates(),
-    getActivePricing(),
-    getDb().query<{ id: string; credits_per_billable_unit: number; effective_at: string }>("select id::text, credits_per_billable_unit, effective_at from pricing_versions order by effective_at desc, id desc limit 10"),
+    listWaTemplates(),
+    getActivePricing(undefined, "sms"),
+    getActivePricing(undefined, "whatsapp"),
+    getDb().query<{ id: string; channel: string; credits_per_billable_unit: number; effective_at: unknown }>("select id::text, channel, credits_per_billable_unit, effective_at from pricing_versions order by effective_at desc, id desc limit 30"),
+    getSetting("whatsapp"),
+    getOps(),
   ]);
-  const active = templates.filter((t) => t.active);
+  const activeSms = smsT.filter((t) => t.active);
+  const activeWa = waT.filter((t) => t.active);
+  const webhookUrl = `${env.appUrl}/api/webhooks/whatsapp`;
   return (
     <div className="stack">
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <section className="card">
-          <h2>Customer price per SMS</h2>
-          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{pricing.creditsPerUnit}</span> credits per billable SMS unit <span className="muted small">(1 credit = NPR 1 of wallet value)</span></p>
-          <p className="hint">Provider cost is separate (e.g. Aakash list price per SMS plus tax). Set the customer charge from your actual provider quote and margin; reminders are kept to one GSM-7 unit.</p>
-          {manage ? <PricingEditor current={pricing.creditsPerUnit} /> : <p className="small muted">Only a Super Admin can change pricing.</p>}
-          <details className="mt"><summary className="small">Price history</summary>
-            <ul className="small">{versions.rows.map((v) => <li key={v.id}>v{v.id}: {v.credits_per_billable_unit} credits from {new Date(v.effective_at).toISOString().slice(0, 16).replace("T", " ")} UTC</li>)}</ul>
-          </details>
+          <h2>SMS price</h2>
+          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{smsPrice.creditsPerUnit}</span> credits per SMS unit</p>
+          <p className="hint">Provider: {env.smsProvider} · token {env.aakash.authToken ? "configured (hidden)" : "not set"}. Set the customer charge from your actual Aakash rate plus margin; reminders stay within one GSM-7 unit.</p>
+          {managePrice ? <PricingEditor current={smsPrice.creditsPerUnit} channel="sms" /> : <p className="small muted">Only a Super Admin can change pricing.</p>}
         </section>
         <section className="card">
-          <h2>Provider</h2>
-          <dl className="kv">
-            <dt>Adapter</dt><dd>{env.smsProvider}</dd>
-            <dt>Token</dt><dd>{env.aakash.authToken ? "configured (hidden)" : "not set"}</dd>
-            <dt>Send URL</dt><dd className="small mono" style={{ wordBreak: "break-all" }}>{env.aakash.sendUrl}</dd>
-            <dt>Encoding policy</dt><dd>GSM-7, 1 segment (≤160 chars), English / Romanized Nepali</dd>
-          </dl>
-          <p className="hint mt mb-0">Change provider and credentials in <code>.env.production</code> on the server and restart the app container.</p>
+          <h2>WhatsApp price</h2>
+          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{waPrice.creditsPerUnit}</span> credits per accepted WhatsApp template message</p>
+          <p className="hint">Charged when Meta accepts the message; refunded automatically if Meta later reports it failed. Set it from your Meta rate card for utility templates in Nepal.</p>
+          {managePrice ? <PricingEditor current={waPrice.creditsPerUnit} channel="whatsapp" /> : <p className="small muted">Only a Super Admin can change pricing.</p>}
         </section>
       </div>
 
       <section className="card">
-        <h2>SMS templates</h2>
-        <p className="small muted">Placeholders: <code>{"{label}"}</code> (≤30 chars), <code>{"{days}"}</code>, <code>{"{date}"}</code>. Saved only if the worst case fits one GSM-7 SMS (160 characters) with no Devanagari, emoji or double-width characters. “ne-NP” = Romanized Nepali.</p>
+        <h2>Price history</h2>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Version</th><th>Channel</th><th className="num">Credits</th><th>Effective from</th></tr></thead>
+            <tbody>{versions.rows.map((v) => <tr key={v.id}><td>v{v.id}</td><td>{v.channel === "whatsapp" ? "WhatsApp" : "SMS"}</td><td className="num">{v.credits_per_billable_unit}</td><td className="small">{when(new Date(String(v.effective_at instanceof Date ? v.effective_at.toISOString() : v.effective_at)).toISOString())}</td></tr>)}</tbody>
+          </table>
+        </div>
+        <p className="hint mt mb-0">Scheduled messages keep the price they were reserved at; a new price applies to new reminders only.</p>
+      </section>
+
+      <section className="card">
+        <h2>WhatsApp (Meta Cloud API)</h2>
+        <dl className="kv">
+          <dt>Server provider</dt><dd>{env.whatsapp.provider}{env.whatsapp.provider === "off" ? " — set WHATSAPP_PROVIDER=meta in .env.production" : ""}</dd>
+          <dt>Access token</dt><dd>{env.whatsapp.accessToken ? "configured (hidden)" : "not set (WHATSAPP_ACCESS_TOKEN)"}</dd>
+          <dt>App secret</dt><dd>{env.whatsapp.appSecret ? "configured (hidden)" : "not set (WHATSAPP_APP_SECRET) — webhooks will be rejected"}</dd>
+          <dt>Verify token</dt><dd>{env.whatsapp.verifyToken ? "configured (hidden)" : "not set (WHATSAPP_VERIFY_TOKEN)"}</dd>
+          <dt>Webhook URL</dt><dd className="mono small" style={{ wordBreak: "break-all" }}>{webhookUrl}</dd>
+          <dt>Webhook verified</dt><dd>{when(ops.whatsapp.webhookVerifiedAt)}</dd>
+          <dt>Last webhook received</dt><dd>{when(ops.whatsapp.lastWebhookAt)}{ops.whatsapp.lastWebhookSignatureOk === false ? " — signature FAILED" : ""}</dd>
+          <dt>Last send attempt</dt><dd>{when(ops.whatsapp.lastAttemptAt)} · {ops.whatsapp.lastAttemptState ?? "—"}{ops.whatsapp.lastError ? ` · ${ops.whatsapp.lastError}` : ""}</dd>
+        </dl>
+        <hr className="sep" />
+        <WhatsAppSettingsForm initial={wa} canEdit={manageWa} />
+      </section>
+
+      <section className="card">
+        <h2>WhatsApp templates (Meta-approved)</h2>
+        <p className="small muted">Create these as <strong>Utility</strong> templates in Meta Business Manager with three body variables, wait for approval, then map them here. Nabikaran never sends free text on WhatsApp.</p>
         <div className="grid grid-2">
           {(["en-NP", "ne-NP"] as const).flatMap((locale) => (["default", "today"] as const).map((category) => {
-            const t = active.find((x) => x.locale === locale && x.category === category);
-            const v = t ? validateTemplateBody(t.body, category) : null;
+            const t = activeWa.find((x) => x.locale === locale && x.category === category);
             return (
               <div key={`${locale}-${category}`} className="card" style={{ margin: 0 }}>
-                <div className="row between"><strong>{locale === "en-NP" ? "English" : "Romanized Nepali"} · {category}</strong><span className="badge info">v{t?.template_version ?? "-"} · {v && v.ok ? `${v.worstCaseSeptets}/160 worst case` : "invalid"}</span></div>
-                {manage ? <SmsTemplateEditor locale={locale} category={category} body={t?.body ?? ""} /> : <pre className="sms mt">{t?.body}</pre>}
+                <div className="row between"><strong>{locale === "en-NP" ? "English" : "Nepali"} · {category}</strong><span className="badge info">v{t?.version ?? "-"}</span></div>
+                <WaTemplateEditor locale={locale} category={category} canEdit={manageWa} initial={{ meta_name: t?.meta_name ?? "", meta_language: t?.meta_language ?? (locale === "en-NP" ? "en" : "ne"), body_preview: t?.body_preview ?? "" }} />
               </div>
             );
           }))}
         </div>
       </section>
 
-      <section>
-        <div className="row between"><h2 className="mb-0">Sending log</h2>
-          <nav className="admin-tabs" style={{ margin: 0 }}>{FILTERS.map((f) => <Link key={f} href={`/admin/sms?status=${f}`} className={f === status ? "active" : ""}>{f}</Link>)}</nav>
-        </div>
-        <div className="table-wrap mt">
-          <table>
-            <thead><tr><th>Sent</th><th>To</th><th>Reminder</th><th>Job</th><th className="hide-mobile">Provider</th><th className="hide-mobile">Units / report</th></tr></thead>
-            <tbody>
-              {log.map((l) => (
-                <tr key={l.attempt_id}>
-                  <td className="nowrap small">{l.request_at.replace("T", " ").slice(0, 16)}</td>
-                  <td className="small">{l.phone_e164.slice(0, 8)}****{l.phone_e164.slice(-2)}</td>
-                  <td>{l.label}</td>
-                  <td><StatusBadge status={l.status} />{l.error_text ? <div className="small muted">{l.error_text}</div> : null}</td>
-                  <td className="small hide-mobile">{l.provider} · {l.api_state}{l.provider_message_id ? <><br /><span className="mono">{l.provider_message_id}</span></> : null}</td>
-                  <td className="small hide-mobile">{l.reported_units ?? "—"} · {l.reported_status ?? "—"}</td>
-                </tr>
-              ))}
-              {log.length === 0 && <tr><td colSpan={6} className="muted">No SMS attempts yet.</td></tr>}
-            </tbody>
-          </table>
+      <section className="card">
+        <h2>SMS templates</h2>
+        <p className="small muted">Placeholders: <code>{"{label}"}</code> (≤30 chars), <code>{"{days}"}</code>, <code>{"{date}"}</code>. Saved only if the worst case fits one GSM-7 SMS (160 characters). “ne-NP” = Romanized Nepali.</p>
+        <div className="grid grid-2">
+          {(["en-NP", "ne-NP"] as const).flatMap((locale) => (["default", "today"] as const).map((category) => {
+            const t = activeSms.find((x) => x.locale === locale && x.category === category);
+            const v = t ? validateTemplateBody(t.body, category) : null;
+            return (
+              <div key={`${locale}-${category}`} className="card" style={{ margin: 0 }}>
+                <div className="row between"><strong>{locale === "en-NP" ? "English" : "Romanized Nepali"} · {category}</strong><span className="badge info">v{t?.template_version ?? "-"} · {v && v.ok ? `${v.worstCaseSeptets}/160 worst case` : "invalid"}</span></div>
+                {manageTemplates && managePrice ? <SmsTemplateEditor locale={locale} category={category} body={t?.body ?? ""} /> : <pre className="sms mt">{t?.body}</pre>}
+              </div>
+            );
+          }))}
         </div>
       </section>
     </div>

@@ -54,15 +54,15 @@ export async function getMetrics(db: Db = getDb()): Promise<Metrics> {
 }
 
 /** Prospective price change: inserted with a future effective_at; existing reservations keep their cost snapshot. */
-export async function createPricingVersion(actorId: string, creditsPerUnit: number, effectiveAt: Date, db: Db = getDb()) {
+export async function createPricingVersion(actorId: string, creditsPerUnit: number, effectiveAt: Date, db: Db = getDb(), channel: "sms" | "whatsapp" = "sms") {
   if (!Number.isInteger(creditsPerUnit) || creditsPerUnit <= 0) throw new HttpError(400, "creditsPerUnit must be a positive integer");
   if (effectiveAt.getTime() < Date.now() - 60_000) throw new HttpError(400, "Price changes are prospective only");
   const { rows } = await db.query<{ id: number }>(
-    "insert into pricing_versions (credits_per_billable_unit, effective_at, created_by) values ($1,$2,$3) returning id",
-    [creditsPerUnit, effectiveAt.toISOString(), actorId],
+    "insert into pricing_versions (credits_per_billable_unit, effective_at, created_by, channel) values ($1,$2,$3,$4) returning id",
+    [creditsPerUnit, effectiveAt.toISOString(), actorId, channel],
   );
   await db.query("insert into audit_events (actor_user_id, action, target_type, target_id, json_detail_redacted) values ($1,'pricing.create','pricing_version',$2,$3)", [
-    actorId, String(rows[0].id), JSON.stringify({ creditsPerUnit, effectiveAt }),
+    actorId, String(rows[0].id), JSON.stringify({ channel, creditsPerUnit, effectiveAt }),
   ]);
   return rows[0].id;
 }

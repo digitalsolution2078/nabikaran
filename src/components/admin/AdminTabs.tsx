@@ -5,8 +5,9 @@ import { usePathname } from "next/navigation";
 const TABS: [string, string, boolean][] = [
   ["/admin", "Overview", false],
   ["/admin/users", "Users", false],
+  ["/admin/messages", "Messages", false],
   ["/admin/wallet/topups", "Top-ups", false],
-  ["/admin/sms", "SMS & pricing", false],
+  ["/admin/sms", "Channels & pricing", false],
   ["/admin/templates", "Templates", false],
   ["/admin/audit", "Audit log", false],
   ["/admin/settings", "Settings & roles", true],

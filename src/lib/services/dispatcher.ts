@@ -213,6 +213,13 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   if (submitted.length) {
     const reports = await provider.report(submitted.map((s) => s.provider_message_id));
     out.reportsPolled = reports.length;
+    // Diagnostics: if the provider returned nothing usable, record a sample so operators
+    // can confirm the delivery-report API with the provider (shown on the admin overview).
+    if (reports.length > 0 && reports.every((r) => r.status === "unknown")) {
+      await db.query("insert into audit_events (actor_via, action, json_detail_redacted) values ('worker','sms.report_unavailable',$1)", [
+        JSON.stringify({ polled: reports.length, sample: JSON.stringify(reports[0].raw ?? null).slice(0, 300) }),
+      ]);
+    }
     for (const r of reports) {
       const a = submitted.find((s) => s.provider_message_id === r.providerMessageId);
       if (!a) continue;

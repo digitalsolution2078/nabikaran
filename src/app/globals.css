@@ -392,3 +392,5 @@ html[lang="ne"] .stat .value, html[lang="ne"] .num, html[lang="ne"] .days-pill {
   body { background: #fff !important; }
   .receipt { border: 0; box-shadow: none; }
 }
+.text-bad { color: var(--bad) !important; }
+hr.sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }

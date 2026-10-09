@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db";
 export async function GET(req: Request) {
   return handle(async () => {
     await requirePermission(req, "sms.manage");
-    const { rows } = await getDb().query("select id, effective_at, credits_per_billable_unit, created_by, created_at from pricing_versions order by effective_at desc limit 20");
+    const { rows } = await getDb().query("select id, channel, effective_at, credits_per_billable_unit, created_by, created_at from pricing_versions order by effective_at desc limit 40");
     return json({ versions: rows });
   });
 }
@@ -15,11 +15,11 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   return handle(async () => {
     const admin = await requirePermission(req, "sms.manage");
-    const body = await parseBody(req, z.object({ creditsPerUnit: z.number().int().positive(), effectiveAt: z.string().datetime().optional(), confirm: z.boolean().default(false) }));
+    const body = await parseBody(req, z.object({ channel: z.enum(["sms", "whatsapp"]).default("sms"), creditsPerUnit: z.number().int().positive().max(1000), effectiveAt: z.string().datetime().optional(), confirm: z.boolean().default(false) }));
     const effectiveAt = body.effectiveAt ? new Date(body.effectiveAt) : new Date();
-    const preview = { creditsPerUnit: body.creditsPerUnit, effectiveAt: effectiveAt.toISOString(), note: "Existing reservations keep their cost snapshot; only new schedules use the new price." };
+    const preview = { channel: body.channel, creditsPerUnit: body.creditsPerUnit, effectiveAt: effectiveAt.toISOString(), note: "Existing reservations keep their cost snapshot; only new schedules use the new price." };
     if (!body.confirm) return json({ preview });
-    const id = await createPricingVersion(admin.id, body.creditsPerUnit, effectiveAt);
+    const id = await createPricingVersion(admin.id, body.creditsPerUnit, effectiveAt, undefined, body.channel);
     return json({ preview, id }, { status: 201 });
   });
 }

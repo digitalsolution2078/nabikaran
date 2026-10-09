@@ -101,14 +101,17 @@ export class AakashSmsProvider implements SmsProvider {
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify({ auth_token: this.cfg.authToken, ids: ids.join(",") }),
     });
-    if (!res.ok) return ids.map((id) => ({ providerMessageId: id, status: "unknown" as const }));
+    if (!res.ok) {
+      const body = (await res.text().catch(() => "")).slice(0, 200);
+      return ids.map((id) => ({ providerMessageId: id, status: "unknown" as const, raw: { http: res.status, body } }));
+    }
     const body = (await res.json().catch(() => ({}))) as {
       data?: Array<{ id?: string | number; status?: string; credit?: number | string }>;
     };
     const rows = body.data ?? [];
     return ids.map((id) => {
       const r = rows.find((x) => String(x.id) === id);
-      if (!r) return { providerMessageId: id, status: "unknown" as const };
+      if (!r) return { providerMessageId: id, status: "unknown" as const, raw: { note: "id not in report response", keys: Object.keys(body ?? {}) } };
       const s = (r.status ?? "").toLowerCase();
       const status: ReportResult["status"] = /deliver/.test(s)
         ? "delivered"
