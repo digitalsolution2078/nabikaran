@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Nabikaran production deploy (run on the VPS; GitHub Actions calls it over SSH).
+# Nabikaran deploy for the repo-compose layout (docs/DEPLOY_VPS.md §7).
+# Production (/docker/nabikaran) uses /root/nabikaran-deploy.sh instead (§3).
 #
 #   deploy/deploy.sh [commit-sha]      default: latest origin/main
 #
@@ -10,7 +11,7 @@
 # rebuilt and started again, and the script exits non-zero.
 #
 # Migrations are additive and are NOT rolled back automatically. If you must
-# restore data, use the backup this run printed (see docs/DEPLOY_VPS.md §7).
+# restore data, use the backup this run printed (repo-compose layout, docs/DEPLOY_VPS.md §7).
 set -Eeuo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

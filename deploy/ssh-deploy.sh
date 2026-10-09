@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Forced command for the GitHub Actions deploy key (see docs/DEPLOY_VPS.md §7):
+# Forced command for the GitHub Actions deploy key (repo-compose layout, docs/DEPLOY_VPS.md §7):
 #   command="/opt/apps/nabikaran/deploy/ssh-deploy.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA... github-actions-deploy
 # Whatever the client asks to run, this key can only deploy a commit of origin/main.
 set -euo pipefail

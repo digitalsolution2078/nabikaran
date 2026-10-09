@@ -1,197 +1,213 @@
-# Deploying Nabikaran on a Hostinger VPS (Docker)
+# Deploying and running Nabikaran on the Hostinger VPS
 
-Target: a VPS that already runs other projects in Docker behind a reverse proxy. Nabikaran adds four containers (`db`, `migrate`, `app`, `cron`) on its own internal network and is reached only through your existing proxy. Nothing else on the server is touched.
+Production runs as a **Hostinger Docker Manager stack in `/docker/nabikaran`**. Sections 1–6 describe that setup. Section 7 is the alternative layout for a fresh server, using this repository's own `docker-compose.yml` and `deploy/deploy.sh`. Production does **not** use it.
 
-Requirements: Ubuntu 22.04/24.04 VPS, Docker Engine + Compose plugin, ≥ 2 GB RAM (the Next build needs ~1.5 GB briefly; add swap if you have 1–2 GB), two DNS records.
+The VPS also hosts other projects (n8n, ssf-guide, ds_academy_lms, narikot-books, rabinpaudel, himexa, digital-solution-oms20, shram-app, idp-app). Never stop, recreate or prune anything outside the `nabikaran-*` containers.
 
-## 1. DNS (Hostinger hPanel → Domains → nabikaran.org → DNS)
+## 1. Production at a glance
 
-| Type | Name | Value | TTL |
-| --- | --- | --- | --- |
-| A | `@` | `<VPS IPv4>` | 300 |
-| A | `www` | `<VPS IPv4>` | 300 |
-| A | `mcp` | `<VPS IPv4>` | 300 |
+| Item | Value |
+|---|---|
+| Stack directory | `/docker/nabikaran` |
+| Compose file | `/docker/nabikaran/docker-compose.yml` (managed by Hostinger Docker Manager, not in this repo) |
+| Web app | container `nabikaran-web-1` (`node:22-alpine`, port 3000 inside). On every recreate it clones `main` from GitHub, runs `npm ci` and builds. |
+| Scheduler | container `nabikaran-scheduler-1` (`alpine:3.20`), calls the worker endpoints on a timer |
+| Database | container `nabikaran-db-1` (`postgres:16-alpine`), user and database `nabikaran` |
+| Migration ledger | table `_schema_migrations` (not `schema_migrations`) |
+| Public proxy | `n8n-traefik-1` owns ports 80/443 and routes `nabikaran.org` to the web container |
+| Deploy script | `/root/nabikaran-deploy.sh` (server only, not in this repo) |
+| Backups and deploy log | `/root/backups/nabikaran/` (`deploys.log` is in the same folder) |
+| Health | `https://nabikaran.org/api/health` → `{"status":"ok","db":"ok",…}` |
+| Not used | `/opt/apps/nabikaran`, an old clone on a feature branch. It is safe to delete once you are sure nothing points to it (see §6). |
 
-Both `nabikaran.org` and `mcp.nabikaran.org` point at the same app; the app itself serves `/` on `mcp.nabikaran.org` as the MCP endpoint. `MCP_HOST` is baked in at image build time (compose passes it as a build arg from `.env.production`), so changing it means `up -d --build`.
-
-## 2. Get the code and secrets onto the VPS
-
-```bash
-ssh root@<VPS IP>
-mkdir -p /opt/apps && cd /opt/apps
-git clone https://github.com/digitalsolution2078/nabikaran.git
-cd nabikaran
-cp .env.production.example .env.production
-# generate four secrets and paste them into .env.production
-for k in POSTGRES_PASSWORD SESSION_SECRET OTP_PEPPER WORKER_TOKEN; do echo "$k=$(openssl rand -hex 32)"; done
-nano .env.production      # set the four secrets; keep SMS_PROVIDER=mock and PAYMENT_GATEWAY=mock for the first run
-chmod 600 .env.production
-```
-
-Private repo? Create a read-only deploy key (`ssh-keygen -t ed25519 -f ~/.ssh/nabikaran_deploy`), add the public key under GitHub → repo → Settings → Deploy keys, and clone with the SSH URL.
-
-## 3. Start
+Shorthand used below:
 
 ```bash
-docker compose --env-file .env.production up -d --build
-docker compose --env-file .env.production ps          # db healthy, migrate exited (0), app + cron up
-docker compose --env-file .env.production logs -f migrate app cron   # Ctrl-C to stop following
-curl -s http://127.0.0.1:3100/api/health             # {"status":"ok"...} after the first cron tick (≤ 1–2 min)
+NB="docker compose --project-directory /docker/nabikaran -f /docker/nabikaran/docker-compose.yml"
 ```
 
-The `migrate` container applies `supabase/migrations/*.sql` once each (tracked in `schema_migrations`) on every `up`, so upgrades are just `git pull && docker compose --env-file .env.production up -d --build`.
-
-## 4. Reverse proxy — pick the one you already run
-
-**Nginx Proxy Manager (Docker)** — two proxy hosts, both → scheme `http`, forward host `nabikaran-app`, port `3000` (if NPM is on a shared Docker network: uncomment `proxy` under `networks` in `docker-compose.yml` and set `external: true`), or forward host `host.docker.internal` / the VPS private IP, port `3100`. Enable *Websockets support* and *Block common exploits*; SSL tab → *Request a new certificate*, *Force SSL*, *HTTP/2*.
-- Host 1: `nabikaran.org`, `www.nabikaran.org`
-- Host 2: `mcp.nabikaran.org`
-
-**Traefik (Docker)** — uncomment the `labels` block and the `proxy` network in `docker-compose.yml`, adjust the entrypoint/certresolver names to yours, `docker compose up -d`.
-
-**Caddy / Nginx on the host** — add:
-
-```caddy
-nabikaran.org, www.nabikaran.org, mcp.nabikaran.org {
-    reverse_proxy 127.0.0.1:3100
-}
-```
-
-```nginx
-server {
-    server_name nabikaran.org www.nabikaran.org mcp.nabikaran.org;
-    location / {
-        proxy_pass http://127.0.0.1:3100;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
-        proxy_buffering off;          # MCP responses may stream
-    }
-}
-# then: certbot --nginx -d nabikaran.org -d www.nabikaran.org -d mcp.nabikaran.org
-```
-
-## 5. Verify
+To see how the stack itself is wired (env file, start commands, Traefik labels) without printing secret values:
 
 ```bash
-curl -sI https://nabikaran.org | head -3
-curl -s https://mcp.nabikaran.org/.well-known/oauth-protected-resource      # resource = https://mcp.nabikaran.org/mcp
-curl -s https://nabikaran.org/.well-known/oauth-authorization-server | head -c 300
-curl -s -o /dev/null -w '%{http_code}\n' https://mcp.nabikaran.org/            # 401 (needs a token — correct)
+grep -nE "image:|command:|entrypoint:|env_file|labels:|traefik|networks:" /docker/nabikaran/docker-compose.yml
 ```
 
-Then: open `https://nabikaran.org/login`, enter your number; with `SMS_PROVIDER=mock` the OTP is printed in `docker compose logs app` (and shown on the page). Make yourself the owner (Super Admin). This works **once**: the database refuses it when a super admin already exists.
-
-```bash
-docker compose --env-file .env.production exec db psql -U nabikaran -d nabikaran -c "select bootstrap_super_admin('+977XXXXXXXXXX');"
-```
-
-Sign out and back in, then open `/admin`. Add further admins from **Admin → Users → (user) → Role**. Full procedure: `docs/ADMIN_AND_PAYMENTS.md`.
-
-Finally run the MCP smoke test from `docs/LAUNCH_CHECKLIST.md` §B (Inspector) and connect Claude/ChatGPT.
-
-## 6. Operations
+## 2. Everyday commands
 
 | Task | Command |
-| --- | --- |
-| Upgrade | `cd /opt/apps/nabikaran && git pull && docker compose --env-file .env.production up -d --build` |
-| Logs | `docker compose --env-file .env.production logs -f app` |
-| DB backup (daily cron) | `docker compose --env-file .env.production exec -T db pg_dump -U nabikaran nabikaran \| gzip > /opt/backups/nabikaran-$(date +%F).sql.gz` |
-| Restore | `gunzip -c file.sql.gz \| docker compose --env-file .env.production exec -T db psql -U nabikaran nabikaran` |
-| Switch SMS to live | set `SMS_PROVIDER=aakash` + `AAKASH_AUTH_TOKEN`, then `up -d` |
-| Switch payments to live | set `PAYMENT_GATEWAY=khalti`, `KHALTI_SECRET_KEY`, `KHALTI_BASE_URL=https://a.khalti.com`, then `up -d` |
+|---|---|
+| Container status | `docker ps --filter name=nabikaran- --format 'table {{.Names}}\t{{.Status}}'` |
+| Health (from the server) | `curl -s https://nabikaran.org/api/health` |
+| Health (inside the web container) | `docker exec nabikaran-web-1 node -e 'fetch("http://127.0.0.1:3000/api/health").then(r=>r.text()).then(console.log)'` |
+| Web logs | `docker logs --since 1h nabikaran-web-1 2>&1 \| tail -200` |
+| Errors only | `docker logs --since 1h nabikaran-web-1 2>&1 \| grep -iE "error\|dashboard"` |
+| Scheduler logs | `docker logs --since 1h nabikaran-scheduler-1 2>&1 \| tail -50` |
+| SQL shell | `docker exec -it nabikaran-db-1 psql -U nabikaran -d nabikaran` |
+| Applied migrations | `docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "select * from _schema_migrations order by 1"` |
+| Manual backup | `docker exec nabikaran-db-1 sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \| gzip > /root/backups/nabikaran/manual-$(date +%F-%H%M).sql.gz` |
+| Deploy latest `main` now | `bash /root/nabikaran-deploy.sh` |
+| Deploy history | `tail -20 /root/backups/nabikaran/deploys.log` |
 | Uptime monitor | `GET https://nabikaran.org/api/health` (503 = dispatcher stalled ≥ 3 min or DB down) |
 
-Add the backup line to `crontab -e` as `15 2 * * * …` and keep 14 days (`find /opt/backups -mtime +14 -delete`).
+### Changing environment variables
 
----
+Variables such as `SMS_PROVIDER`, `AAKASH_AUTH_TOKEN`, `PAYMENT_GATEWAY`, `KHALTI_*`, `FONEPAY_*`, `WHATSAPP_*`, `LEGAL_ENTITY_NAME`, `LEGAL_ADDRESS`, `SUPPORT_EMAIL` and `SUPPORT_PHONE` belong to the stack, not to the repository. `.env.production.example` lists every variable with a comment.
 
-## 7. Automatic deploys (GitHub Actions)
+1. Edit them where the compose file reads them: the `env_file` it names, or the stack's environment in **hPanel → VPS → Docker Manager → nabikaran**. Never paste their values into chat, GitHub or the admin panel.
+2. Apply them:
+   - **Web only:** `bash /root/nabikaran-deploy.sh` (it backs up first and recreates `web`).
+   - **Scheduler too:** `$NB up -d --no-deps --force-recreate web scheduler`.
 
-After this is set up, every push to `main` that passes CI is deployed automatically. The workflow (`.github/workflows/deploy.yml`) connects over SSH and runs `deploy/deploy.sh`, which:
+Because the web container rebuilds when it is recreated, **the site is unavailable for a few minutes**, until `/api/health` answers again. Do it at a quiet time.
 
-1. refuses to run if someone edited tracked files on the server, or if another deploy is running;
-2. backs up the database to `~/backups/nabikaran/` (keeps the newest 14);
-3. checks out the exact commit that passed CI (only commits on `main` are accepted);
-4. builds the new image while the old version keeps serving;
-5. runs `docker compose up -d` — migrations run first, and the app starts only if they succeed;
-6. checks `/api/health` inside the app container;
-7. if the build, migrations or health check fail, rebuilds and starts the previous commit and marks the run failed.
+## 3. Automatic deploys (as they run today)
 
-Migrations are additive and are not rolled back automatically. To restore data after a bad release, use the backup printed in the failed run:
+`.github/workflows/deploy.yml` runs after **CI** passes on a push to `main`, or by hand from **Actions → Deploy → Run workflow**. It connects over SSH as `DEPLOY_USER@DEPLOY_HOST`.
 
-```bash
-cd /opt/apps/nabikaran
-C="docker compose --env-file .env.production"
-$C stop app cron
-$C exec -T db psql -U nabikaran -d postgres -c "drop database nabikaran" -c "create database nabikaran owner nabikaran"
-gunzip -c ~/backups/nabikaran/<file>.sql.gz | $C exec -T db psql -q -U nabikaran -d nabikaran
-$C up -d
+The key in `/root/.ssh/authorized_keys` carries a forced command, so the server ignores the command the workflow sends and runs only `/root/nabikaran-deploy.sh`:
+
+```
+command="/root/nabikaran-deploy.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA… github-actions-deploy
 ```
 
-### One-time setup (about 10 minutes)
+`/root/nabikaran-deploy.sh` does this:
 
-On the **VPS** (as the user that runs Docker, e.g. `root`):
+1. takes a lock, so only one deploy runs at a time;
+2. reads the latest `origin/main` commit (`git ls-remote`);
+3. backs up the database from `nabikaran-db-1` to `/root/backups/nabikaran/` (keeps the newest 14);
+4. recreates **only** the web service (`$NB up -d --no-deps --force-recreate web`), which clones `main`, installs and builds inside the container;
+5. polls `/api/health` inside `nabikaran-web-1` every 5 s for up to 10 minutes;
+6. writes the result to `/root/backups/nabikaran/deploys.log`.
 
-```bash
-cd /opt/apps/nabikaran && git pull            # makes sure deploy/deploy.sh exists
-chmod +x deploy/deploy.sh deploy/ssh-deploy.sh
-ssh-keygen -t ed25519 -N "" -C github-actions-deploy -f ~/nabikaran_actions
-# Allow this key to do ONE thing: deploy. Paste as a single line:
-echo "command=\"/opt/apps/nabikaran/deploy/ssh-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty $(cat ~/nabikaran_actions.pub)" >> ~/.ssh/authorized_keys
-cat ~/nabikaran_actions        # copy the PRIVATE key for the next step, then:
-rm ~/nabikaran_actions ~/nabikaran_actions.pub
-```
+What that means in practice:
 
-On **your computer** (to pin the server's identity):
+- **It always deploys the latest `main`.** A commit SHA chosen in *Run workflow* is logged but not honoured. To run an older version, revert on `main`.
+- **There is no automatic rollback.** If the health check fails, the run turns red and the broken build stays up until you act (see "Recovering" below).
+- **The scheduler and database are not recreated.** Restart the scheduler yourself when its environment changes (§2).
+- **Expect a few minutes of downtime per deploy**, because the build happens after the old container is replaced.
+- Migrations are applied by the stack itself (recorded in `_schema_migrations`). After a deploy that adds a migration, confirm it with the *Applied migrations* command in §2.
 
-```bash
-ssh-keyscan -p 22 <VPS IP>     # copy all lines of output
-```
-
-In **GitHub → repository → Settings → Secrets and variables → Actions → New repository secret**:
+GitHub secrets (**Settings → Secrets and variables → Actions**):
 
 | Secret | Value |
 |---|---|
 | `DEPLOY_HOST` | VPS IP or hostname |
-| `DEPLOY_USER` | `root` (or the Docker user) |
-| `DEPLOY_SSH_KEY` | the private key you copied (including the BEGIN/END lines) |
-| `DEPLOY_KNOWN_HOSTS` | the `ssh-keyscan` output |
+| `DEPLOY_USER` | `root` |
+| `DEPLOY_SSH_KEY` | the private key whose public half has the forced command above |
+| `DEPLOY_KNOWN_HOSTS` | output of `ssh-keyscan -p 22 <VPS IP>` |
 | `DEPLOY_PORT` | only if SSH is not on 22 |
-| `DEPLOY_PATH` | only if the app is not in `/opt/apps/nabikaran` |
-
-Optional: **Settings → Environments → production → Required reviewers** makes every deploy wait for your click.
-
-Test it: **Actions → Deploy → Run workflow** (leave the commit empty to deploy the latest `main`). Until the secrets exist, the workflow skips itself with a notice.
+| `DEPLOY_PATH` | not needed. The forced command overrides the path the workflow sends. |
 
 Rules that keep auto-deploy safe:
 
-- New environment variables (for example `WHATSAPP_*`) must be added to `.env.production` **before** merging the code that needs them; the deploy never edits that file.
-- Do not edit tracked files on the server; the deploy refuses to overwrite them.
-- To deploy an older commit, run the workflow by hand with that commit SHA.
+- Add new environment variables to the stack **before** merging code that needs them; the deploy never edits them.
+- Keep `/root/nabikaran-deploy.sh` and the stack's `docker-compose.yml` backed up outside the server. Neither is in this repository.
+- Optional: **Settings → Environments → production → Required reviewers** makes every deploy wait for your approval.
 
-## Prompt for Claude for Chrome
+### Recovering from a bad release
 
-Claude for Chrome works in your browser, so it can handle the Hostinger hPanel parts (DNS) and, if you use Hostinger's **Browser terminal** or Nginx Proxy Manager's web UI, the server parts too. Paste this, filling the placeholders:
+Fix forward if you can: revert the commit on `main` and let the next deploy (or `bash /root/nabikaran-deploy.sh`) rebuild.
+
+Migrations are additive, so code rollback rarely needs a data restore. If data must be restored, use the backup taken just before the failed deploy (newest file in `/root/backups/nabikaran/`):
+
+```bash
+ls -1t /root/backups/nabikaran/*.sql.gz | head -3
+docker stop nabikaran-web-1 nabikaran-scheduler-1
+docker exec nabikaran-db-1 psql -U nabikaran -d postgres \
+  -c "drop database nabikaran" -c "create database nabikaran owner nabikaran"
+gunzip -c /root/backups/nabikaran/<file>.sql.gz | docker exec -i nabikaran-db-1 psql -q -U nabikaran -d nabikaran
+docker start nabikaran-scheduler-1 nabikaran-web-1
+curl -s https://nabikaran.org/api/health
+```
+
+A restore discards every top-up, sign-in fee and message charge made after the backup was taken. Reconcile with the bank or Fonepay statement before you reopen top-ups.
+
+## 4. Owner bootstrap (one time)
+
+Sign in once at `https://nabikaran.org/login` with your own number, then:
+
+```bash
+docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "select bootstrap_super_admin('+977XXXXXXXXXX');"
+```
+
+This works only once; the database refuses it when a super admin already exists. Sign out and back in, then open `/admin`. Full procedure: `docs/ADMIN_AND_PAYMENTS.md`.
+
+## 5. DNS and proxy
+
+| Type | Name | Value |
+|---|---|---|
+| A | `@` | `<VPS IPv4>` |
+| A | `www` | `<VPS IPv4>` |
+| A | `mcp` | `<VPS IPv4>` |
+
+`n8n-traefik-1` terminates HTTPS for `nabikaran.org`, `www` and `mcp`. The routing rules are labels on the web service in the stack's compose file. Check them with:
+
+```bash
+docker inspect nabikaran-web-1 --format '{{json .Config.Labels}}' | tr ',' '\n' | grep -i traefik
+```
+
+`MCP_HOST` must match the MCP hostname (`mcp.nabikaran.org`).
+
+A second Traefik (`traefik-tzhk-traefik-1`) cannot bind 80/443 because `n8n-traefik-1` already holds them, so it restarts endlessly. It serves nothing. Stopping it (`docker update --restart=no traefik-tzhk-traefik-1 && docker stop traefik-tzhk-traefik-1`) removes the noise. Before you do, confirm that no other project relies on it.
+
+Verify after any proxy change:
+
+```bash
+curl -sI https://nabikaran.org | head -3
+curl -s https://mcp.nabikaran.org/.well-known/oauth-protected-resource   # resource = https://mcp.nabikaran.org/mcp
+curl -s -o /dev/null -w '%{http_code}\n' https://mcp.nabikaran.org/      # 401 (needs a token — correct)
+```
+
+## 6. Housekeeping
+
+- `/opt/apps/nabikaran` is not used by production. Before deleting it, remove the matching unused line `command="/opt/apps/nabikaran/deploy/ssh-deploy.sh"` from `/root/.ssh/authorized_keys`. Back up the file first (`cp /root/.ssh/authorized_keys /root/.ssh/authorized_keys.bak`), and keep the `/root/nabikaran-deploy.sh` line, because GitHub uses it.
+- `/root/nabikaran-deploy.sh` already keeps 14 backups. For a daily backup independent of deploys, add to `crontab -e`:
+  ```
+  15 2 * * * docker exec nabikaran-db-1 sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > /root/backups/nabikaran/daily-$(date +\%F).sql.gz && find /root/backups/nabikaran -name 'daily-*.sql.gz' -mtime +14 -delete
+  ```
+- Copy backups off the server regularly. A backup on the same disk does not survive losing the VPS.
+
+---
+
+## 7. Alternative: fresh install with this repository's compose file
+
+Use this only on a new server. It is a different layout from production, so do not mix it into `/docker/nabikaran`.
+
+It runs four containers (`db`, `migrate`, `app`, `cron`); migrations go in `schema_migrations` through `deploy/migrate.sh`:
+
+```bash
+mkdir -p /opt/apps && cd /opt/apps
+git clone https://github.com/digitalsolution2078/nabikaran.git && cd nabikaran
+cp .env.production.example .env.production
+for k in POSTGRES_PASSWORD SESSION_SECRET OTP_PEPPER WORKER_TOKEN; do echo "$k=$(openssl rand -hex 32)"; done
+nano .env.production && chmod 600 .env.production   # keep SMS_PROVIDER=mock, PAYMENT_GATEWAY=mock at first
+docker compose --env-file .env.production up -d --build
+docker compose --env-file .env.production ps        # db healthy, migrate exited (0), app + cron up
+curl -s http://127.0.0.1:3100/api/health
+```
+
+For proxy options (Nginx Proxy Manager, Traefik labels, Caddy, Nginx), see the commented blocks in `docker-compose.yml`. The app listens on `127.0.0.1:3100`.
+
+For automatic deploys in this layout, point the forced command at `/opt/apps/nabikaran/deploy/ssh-deploy.sh`. It hands the CI-tested commit to `deploy/deploy.sh`, which:
+
+1. refuses local edits and commits that are not on `main`;
+2. backs up the database;
+3. builds while the old version keeps serving;
+4. runs migrations before the app starts;
+5. health-checks the app;
+6. rolls back to the previous commit on failure.
+
+Set `DEPLOY_PATH` only if the clone is elsewhere.
+
+## Prompt for Claude for Chrome (production checks)
 
 ```
-You are helping me deploy a Next.js app called Nabikaran to my Hostinger VPS, which already runs other Docker projects behind <Nginx Proxy Manager | Traefik | Caddy | Nginx>. Work step by step, show me each command or form before submitting it, and stop and ask me if anything looks different from what you expect. Never print or paste secrets into chat; keep them only in the terminal.
+You are helping me operate Nabikaran on my Hostinger VPS. Production is the Docker Manager stack in /docker/nabikaran with containers nabikaran-web-1, nabikaran-scheduler-1 and nabikaran-db-1; follow docs/DEPLOY_VPS.md §1–§6 in github.com/digitalsolution2078/nabikaran. Use the hPanel Browser terminal. Show me each command before running it and stop if the output differs from what the guide expects.
 
-Facts:
-- VPS IPv4: <IP>
-- Domain: nabikaran.org (DNS managed in Hostinger hPanel)
-- Repo: https://github.com/digitalsolution2078/nabikaran (branch main)
-- Deployment guide to follow: docs/DEPLOY_VPS.md in that repo
-- Reverse proxy in use: <...>; it listens on 80/443 and <runs in Docker on network "<name>" | runs on the host>
+Never print environment files or secret values. Do not stop, recreate or prune any container whose name does not start with nabikaran-. Do not run DROP, DELETE, UPDATE or a restore without my explicit approval.
 
-Steps:
-1. In Hostinger hPanel → Domains → nabikaran.org → DNS, create A records for @, www and mcp pointing to the VPS IP (TTL 300). Confirm each record after saving.
-2. Open the VPS terminal (hPanel → VPS → Browser terminal, or tell me to SSH). Run the commands in guide section 2: clone into /opt/apps/nabikaran, copy .env.production.example to .env.production, generate four secrets with openssl and put them in the file with nano, chmod 600.
-3. Run section 3: docker compose --env-file .env.production up -d --build, then `ps` and wait until migrate has exited 0 and app is up. Show me the output of curl http://127.0.0.1:3100/api/health.
-4. Configure the reverse proxy per section 4 for the hosts nabikaran.org + www.nabikaran.org and mcp.nabikaran.org with HTTPS certificates. If it is Nginx Proxy Manager, do it in its web UI and enable Websockets support and Force SSL.
-5. Run the verification curls in section 5 and report the results. Then open https://nabikaran.org/login, request an OTP for my number, read the code from `docker compose logs app`, log in, and tell me when the dashboard loads.
-6. Run the admin SQL from section 5 for my phone number <+977...>, then open https://nabikaran.org/admin and confirm the "Scheduler health" notice is gone after two minutes.
-Do not change SMS_PROVIDER or PAYMENT_GATEWAY from mock, and do not touch any other container on the server.
+1. Show container status, the health endpoint and the last 20 lines of /root/backups/nabikaran/deploys.log.
+2. List applied migrations from _schema_migrations and compare them with supabase/migrations in the repo.
+3. Show web errors from the last hour (docker logs --since 1h nabikaran-web-1 2>&1 | grep -iE "error|dashboard") and summarise them.
+4. Report anything unexpected, and propose a fix before running it.
 ```

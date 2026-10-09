@@ -27,14 +27,14 @@ Rules enforced on the server (and for top-ups also inside the database):
    - The same two in Nepali (`ne`) if you want Nepali WhatsApp messages.
    Wait until Meta marks them **Approved**.
 3. Create a permanent System User access token with `whatsapp_business_messaging`. Copy the app secret from the app's Basic settings. Choose any long random verify token.
-4. On the server, add to `.env.production` (never in the admin panel):
+4. On the server, add to the production stack's environment in `/docker/nabikaran` (never in the admin panel; see `docs/DEPLOY_VPS.md` §2):
    ```
    WHATSAPP_PROVIDER=meta
    WHATSAPP_ACCESS_TOKEN=<system user token>
    WHATSAPP_APP_SECRET=<app secret>
    WHATSAPP_VERIFY_TOKEN=<your random string>
    ```
-   Then run `docker compose --env-file .env.production up -d`.
+   Then apply it with `bash /root/nabikaran-deploy.sh` (recreates the web container; a few minutes of downtime).
 5. In Meta → WhatsApp → Configuration → Webhook, set the callback URL to `https://<your-domain>/api/webhooks/whatsapp` and the verify token. Subscribe to the **messages** field. Admin → Channels & pricing then shows *Webhook verified*.
 6. In **Admin → Channels & pricing**:
    - enter the Phone number ID and WABA ID;
@@ -89,5 +89,5 @@ Closure cancels all scheduled messages and releases their reservations. Unused c
 The dashboard isolates its data. A failing query renders a short notice instead of a server error, and the server log contains `[dashboard] summary failed for user <id>: <error>`. Any other page error shows an **Error ID** that matches the server log:
 
 ```bash
-docker compose --env-file .env.production logs app --since 1h | grep -iE "error|dashboard"
+docker logs --since 1h nabikaran-web-1 2>&1 | grep -iE "error|dashboard"
 ```

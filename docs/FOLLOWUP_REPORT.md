@@ -135,19 +135,13 @@ No credentials are committed; only `.env.example` files are tracked.
 
 ## 14. Hostinger VPS deployment (update)
 
-```bash
-cd ~/apps/nabikaran
-git pull
-docker compose --env-file .env.production up -d --build
-docker compose --env-file .env.production ps        # migrate exited 0, app + cron up
-docker compose --env-file .env.production logs migrate | tail   # shows 0004 applied
-```
+Production runs in `/docker/nabikaran` and deploys automatically from `main`; commands are in `docs/DEPLOY_VPS.md` §1–§3.
 
 Then:
 
 1. Make yourself super admin once (`docs/ADMIN_AND_PAYMENTS.md` §2).
 2. Admin → Settings & roles: confirm QR merchant details and tick *verified*.
 3. Admin → SMS & pricing: set credits per SMS after confirming your Aakash rate.
-4. If Khalti is not ready, set `PAYMENT_GATEWAY=none` in `.env.production`. Customers then see QR top-up only.
+4. If Khalti is not ready, set `PAYMENT_GATEWAY=none` in the stack's environment. Customers then see QR top-up only.
 
-Back up before upgrading: `docker compose --env-file .env.production exec -T db pg_dump -U nabikaran nabikaran | gzip > pre-0004.sql.gz`.
+Every deploy backs up the database to `/root/backups/nabikaran/` first.

@@ -72,6 +72,9 @@ jobs:
         run: |
           set -euo pipefail
           PORT="${PORT:-22}"
+          # Production's key has a forced command (/root/nabikaran-deploy.sh) that
+          # ignores this command line; it matters only for the repo-compose layout.
+          # See docs/DEPLOY_VPS.md §3 and §7.
           APP_PATH="${APP_PATH:-/opt/apps/nabikaran}"
           install -m 700 -d ~/.ssh
           umask 077
