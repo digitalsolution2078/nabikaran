@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     await limit(`user:${principal.userId}`, "reminder:preview", 120, 60);
     const input = await parseBody(
       req,
-      reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true, category: true, channels: true }).extend({ renewalId: z.string().uuid().nullish() }),
+      reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true, category: true, channels: true, repeatYearly: true }).extend({ renewalId: z.string().uuid().nullish() }),
     );
     return json({ preview: await previewSchedule(principal, input) });
   });

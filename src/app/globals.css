@@ -423,3 +423,14 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .install-banner .install-actions { flex-wrap: nowrap; margin-left: auto; }
 @media (prefers-color-scheme: dark) { .install-banner { background: #221a3d; border-color: #3a2d63; } .install-banner > svg { color: var(--brand-300); } }
 @media (display-mode: standalone) { .install-banner { display: none; } }
+
+/* Groups & bulk import */
+tr.row-bad td { background: var(--bad-bg); }
+.group-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.group-chips::-webkit-scrollbar { display: none; }
+.group-chips .chip { white-space: nowrap; }
+.rr-group { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--brand-600); background: var(--brand-50); border-radius: 999px; padding: 1px 8px; margin-left: 6px; }
+@media (prefers-color-scheme: dark) { .rr-group { background: #2a2050; color: var(--brand-200); } }
+.group-row { flex-wrap: wrap; align-items: center; }
+.group-row .rr-main { flex: 1 1 180px; min-width: 0; }
+.group-row .group-actions { flex-wrap: nowrap; gap: 6px; margin-left: auto; }

@@ -1,5 +1,6 @@
 import { estimateSegments, isGsm7, type SegmentEstimate } from "./segments";
 import { formatKathmandu, daysBetween } from "../time";
+import { isOccasion } from "../categories";
 
 /**
  * Outgoing reminder SMS are English or Romanized Nepali only, encoded as
@@ -25,6 +26,8 @@ export interface RenderInput {
   expiryAtUtc: Date;
   dueAtUtc: Date;
   locale?: string;
+  /** Reminder category; occasions (birthday, anniversary, event) use their own wording. */
+  category?: string;
 }
 
 export interface RenderedMessage {
@@ -42,6 +45,19 @@ export const FALLBACK_TEMPLATES: TemplateRow[] = [
   { locale: "en-NP", category: "today", body: "Nabikaran: Your {label} expires today ({date}). Please renew on time." },
   { locale: "ne-NP", category: "default", body: "Nabikaran: Tapaiko {label} ko myad {days} din pachhi ({date}) sakinchha. Samayamai nabikaran garnuhos." },
   { locale: "ne-NP", category: "today", body: "Nabikaran: Tapaiko {label} ko myad aaja ({date}) sakinchha. Samayamai nabikaran garnuhos." },
+  // Occasions: {label} is the person or event name typed by the customer. Sent to the customer only.
+  { locale: "en-NP", category: "birthday", body: "Nabikaran: {label}'s birthday is in {days} day(s), on {date}. Don't forget to wish!" },
+  { locale: "en-NP", category: "birthday_today", body: "Nabikaran: Today ({date}) is {label}'s birthday. Don't forget to wish!" },
+  { locale: "ne-NP", category: "birthday", body: "Nabikaran: {label} ko janmadin {days} din pachhi ({date}) chha. Shubhakamana dina nabirsinuhos!" },
+  { locale: "ne-NP", category: "birthday_today", body: "Nabikaran: Aaja ({date}) {label} ko janmadin ho. Shubhakamana dina nabirsinuhos!" },
+  { locale: "en-NP", category: "anniversary", body: "Nabikaran: {label} anniversary is in {days} day(s), on {date}." },
+  { locale: "en-NP", category: "anniversary_today", body: "Nabikaran: Today ({date}) is {label} anniversary." },
+  { locale: "ne-NP", category: "anniversary", body: "Nabikaran: {label} ko barshik utsav {days} din pachhi ({date}) chha." },
+  { locale: "ne-NP", category: "anniversary_today", body: "Nabikaran: Aaja ({date}) {label} ko barshik utsav ho." },
+  { locale: "en-NP", category: "event", body: "Nabikaran: {label} is in {days} day(s), on {date}." },
+  { locale: "en-NP", category: "event_today", body: "Nabikaran: {label} is today ({date})." },
+  { locale: "ne-NP", category: "event", body: "Nabikaran: {label} {days} din pachhi ({date}) chha." },
+  { locale: "ne-NP", category: "event_today", body: "Nabikaran: {label} aaja ({date}) chha." },
 ];
 
 const GSM_EXTENDED = /[\^{}\\[\]~|€]/g;
@@ -79,8 +95,13 @@ export function isSmsSafeLabel(label: string): boolean {
 }
 
 function pickTemplate(templates: TemplateRow[], locale: string, category: string): TemplateRow {
-  const pick = (loc: string, cat: string) => templates.find((t) => t.locale === loc && t.category === cat);
-  return pick(locale, category) ?? pick("en-NP", category) ?? FALLBACK_TEMPLATES.find((t) => t.locale === "en-NP" && t.category === category)!;
+  const pick = (list: TemplateRow[], loc: string, cat: string) => list.find((t) => t.locale === loc && t.category === cat);
+  return (
+    pick(templates, locale, category) ??
+    pick(FALLBACK_TEMPLATES, locale, category) ??
+    pick(templates, "en-NP", category) ??
+    pick(FALLBACK_TEMPLATES, "en-NP", category)!
+  );
 }
 
 function fill(body: string, label: string, days: number, date: string): string {
@@ -90,7 +111,8 @@ function fill(body: string, label: string, days: number, date: string): string {
 export function renderReminder(input: RenderInput, templates: TemplateRow[] = FALLBACK_TEMPLATES): RenderedMessage {
   const locale = input.locale ?? "en-NP";
   const days = Math.max(0, daysBetween(input.dueAtUtc, input.expiryAtUtc));
-  const category = days === 0 ? "today" : "default";
+  const kind = isOccasion(input.category) ? input.category : null;
+  const category = kind ? (days === 0 ? `${kind}_today` : kind) : days === 0 ? "today" : "default";
   const tpl = pickTemplate(templates, locale, category);
   const date = formatKathmandu(input.expiryAtUtc, false);
 

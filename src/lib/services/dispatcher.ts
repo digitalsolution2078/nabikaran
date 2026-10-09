@@ -9,7 +9,7 @@ import { whatsappAvailable } from "../whatsapp/availability";
 import { getSetting } from "./settings";
 import { BOOKED_COMMIT } from "./billing";
 import { categorySmsName } from "../categories";
-import { loadTemplates, loadWaTemplates } from "../core/reminders";
+import { loadTemplates, loadWaTemplates, rolloverYearly } from "../core/reminders";
 import { getActivePricing } from "../core/wallet";
 import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../scheduler";
 
@@ -112,7 +112,7 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         [job.id, attemptNo, isWa ? waProvider!.name : provider.name, idempotencyKey, isWa ? "whatsapp" : "sms"],
       );
       await tx.query("update reminder_jobs set attempts = $2, updated_at = now() where id = $1", [job.id, attemptNo]);
-      const base = { label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale };
+      const base = { label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale, category: s.category };
       if (isWa) {
         const w = renderWhatsApp(base, waTemplates);
         return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: w.preview, estimatedSegments: 1, wa: w };
@@ -193,6 +193,7 @@ export interface ReconcileSummary {
   failed: number;
   unknownResolved: number;
   promotedPlanned: number;
+  rolledYearly: number;
 }
 
 /**
@@ -203,7 +204,7 @@ export interface ReconcileSummary {
 export async function runReconciler(db: Db = getDb(), now: Date = new Date()): Promise<ReconcileSummary> {
   const provider = getSmsProvider();
   const pricing = await getActivePricing(db);
-  const out: ReconcileSummary = { reportsPolled: 0, delivered: 0, failed: 0, unknownResolved: 0, promotedPlanned: 0 };
+  const out: ReconcileSummary = { reportsPolled: 0, delivered: 0, failed: 0, unknownResolved: 0, promotedPlanned: 0, rolledYearly: 0 };
 
   // 1. Delivery reports for submitted jobs (last 3 days).
   const { rows: submitted } = await db.query<{ job_id: string; provider_message_id: string; idempotency_key: string; reported_units: number | null }>(
@@ -307,6 +308,9 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
     await db.query("select wallet_reserve_for_job($1)", [p.id]);
     out.promotedPlanned++;
   }
+
+  // 4. Yearly reminders (birthdays, anniversaries) move to next year's date.
+  out.rolledYearly = (await rolloverYearly(db, now)).rolled;
   return out;
 }
 

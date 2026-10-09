@@ -116,10 +116,13 @@ export interface RenewalListRow {
   awaitingMessages: number;
   heldCredits: number;
   expired: boolean;
+  groupId: string | null;
+  groupName: string | null;
+  repeatYearly: boolean;
 }
 
 /** Customer renewals list with filters and search (label, family member, notes). */
-export async function listRenewalsForUser(userId: string, opts: { filter?: RenewalFilter; q?: string; limit?: number } = {}, db: Db = getDb()): Promise<RenewalListRow[]> {
+export async function listRenewalsForUser(userId: string, opts: { filter?: RenewalFilter; q?: string; limit?: number; groupId?: string | null } = {}, db: Db = getDb()): Promise<RenewalListRow[]> {
   const filter = opts.filter ?? "active";
   const where: string[] = ["i.owner_user_id = $1", "i.status <> 'deleted'"];
   const params: unknown[] = [userId];
@@ -129,6 +132,10 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
   if (filter === "due") where.push("i.status = 'active' and i.expiry_at_utc >= now() and i.expiry_at_utc < now() + interval '30 days'");
   if (filter === "awaiting") where.push("exists (select 1 from reminder_jobs a where a.renewal_id = i.id and a.cycle_no = i.cycle_no and a.status = 'awaiting_credits')");
   if (filter === "all") where.push("i.status in ('active','paused','cancelled')");
+  if (opts.groupId && /^[0-9a-f-]{36}$/i.test(opts.groupId)) {
+    params.push(opts.groupId);
+    where.push(`i.group_id = $${params.length}`);
+  }
   const q = (opts.q ?? "").trim().slice(0, 60);
   if (q) {
     params.push(`%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`);
@@ -138,14 +145,17 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
   const { rows } = await db.query<{
     id: string; label: string; category: string; family_member_label: string | null; status: RenewalListRow["status"]; expiry_at_utc: unknown;
     channels: string[] | null; next_at: unknown; next_channel: string | null; pending: string; awaiting: string; held: string;
+    group_id: string | null; group_name: string | null; repeat_yearly: boolean;
   }>(
     `select i.id, i.label, i.category, i.family_member_label, i.status, i.expiry_at_utc, i.channels,
+            i.group_id, g.name as group_name, i.repeat_yearly,
             n.due_at_utc as next_at, n.channel as next_channel,
             (select count(*) from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status in ('scheduled','planned','awaiting_credits'))::text as pending,
             (select count(*) from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status = 'awaiting_credits')::text as awaiting,
             (select coalesce(sum(r.held_credits),0) from credit_reservations r join reminder_jobs j on j.id = r.reminder_job_id
               where j.renewal_id = i.id and r.status = 'active')::text as held
        from renewal_items i
+       left join reminder_groups g on g.id = i.group_id
        left join lateral (
          select j.due_at_utc, j.channel from reminder_jobs j
           where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status in ('scheduled','planned') and j.due_at_utc > now()
@@ -165,6 +175,7 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
       nextAt: r.next_at ? iso(r.next_at) : null, nextChannel: r.next_channel === "whatsapp" ? "whatsapp" : r.next_channel ? "sms" : null,
       pendingMessages: Number(r.pending), awaitingMessages: Number(r.awaiting), heldCredits: Number(r.held),
       expired: new Date(expiryAt).getTime() < now,
+      groupId: r.group_id, groupName: r.group_name, repeatYearly: Boolean(r.repeat_yearly),
     };
   });
 }

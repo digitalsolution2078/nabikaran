@@ -27,6 +27,9 @@ const PATHS: Record<string, string> = {
   zap: "M13 2 3 14h9l-1 8 10-12h-9z",
   globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z",
   sparkle: "M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8",
+  gift: "M20 12v9H4v-9M2 7h20v5H2zM12 21V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z",
+  folder: "M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+  repeat: "M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3",
   phone: "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM12 18h.01",
   alert: "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
@@ -61,11 +64,12 @@ export function Icon({ name, size = 20, className, label }: { name: IconName; si
   );
 }
 
-const GROUP_ICON: Record<string, IconName> = { vehicle: "car", personal: "passport", insurance: "umbrella", business: "briefcase", custom: "star" };
+const GROUP_ICON: Record<string, IconName> = { vehicle: "car", personal: "passport", insurance: "umbrella", business: "briefcase", custom: "star", occasions: "gift" };
 const CATEGORY_GROUP: Record<string, string> = {
   bluebook: "vehicle", licence: "vehicle", vehicle_tax: "vehicle", vehicle_permit: "vehicle",
   passport: "personal", visa: "personal", work_permit: "personal",
   insurance: "insurance", health_insurance: "insurance", life_insurance: "insurance",
+  birthday: "occasions", anniversary: "occasions", event: "occasions",
   tax_filing: "business", company: "business", domain: "business", hosting: "business", subscription: "business", contract: "business",
 };
 

@@ -21,12 +21,15 @@ export const CATEGORY_INFO = {
   contract: { en: "Contract", ne: "सम्झौता", sms: "Contract", group: "business" },
   warranty: { en: "Warranty", ne: "वारेन्टी", sms: "Warranty", group: "custom" },
   other: { en: "Other", ne: "अन्य", sms: "Renewal", group: "custom" },
+  birthday: { en: "Birthday", ne: "जन्मदिन", sms: "Birthday", group: "occasions" },
+  anniversary: { en: "Anniversary", ne: "वार्षिकोत्सव", sms: "Anniversary", group: "occasions" },
+  event: { en: "Event", ne: "कार्यक्रम", sms: "Event", group: "occasions" },
 } as const;
 
 export type Category = keyof typeof CATEGORY_INFO;
 export const CATEGORIES = Object.keys(CATEGORY_INFO) as [Category, ...Category[]];
 
-export const TEMPLATE_GROUPS = ["vehicle", "personal", "insurance", "business", "custom"] as const;
+export const TEMPLATE_GROUPS = ["vehicle", "personal", "insurance", "business", "custom", "occasions"] as const;
 export type TemplateGroup = (typeof TEMPLATE_GROUPS)[number];
 
 export function categorySmsName(category: string): string {
@@ -36,4 +39,11 @@ export function categorySmsName(category: string): string {
 export function categoryName(category: string, lang: "ne" | "en"): string {
   const c = (CATEGORY_INFO as Record<string, { en: string; ne: string }>)[category];
   return c ? c[lang] : category;
+}
+
+/** Occasions (birthday, anniversary, event) use their own SMS wording and are SMS-only. */
+export const OCCASION_CATEGORIES = ["birthday", "anniversary", "event"] as const;
+export type OccasionCategory = (typeof OCCASION_CATEGORIES)[number];
+export function isOccasion(category: string | null | undefined): category is OccasionCategory {
+  return (OCCASION_CATEGORIES as readonly string[]).includes(category ?? "");
 }
