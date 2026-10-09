@@ -32,7 +32,7 @@ Make a user admin: `update users set role = 'admin' where phone_e164 = '+977...'
 ## Tests
 
 ```bash
-npm test          # 85 tests: phone/BS/time/segments/scheduler + wallet SQL + dispatcher/payments/OTP flows
+npm test          # 95 tests: phone/BS/time/segments/scheduler + wallet SQL + dispatcher/payments/OTP flows
 npm run typecheck
 ```
 

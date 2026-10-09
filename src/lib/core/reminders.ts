@@ -230,6 +230,22 @@ async function loadDto(tx: Db, renewalId: string): Promise<ReminderDTO> {
   return toReminderDTO(rows[0], jobs);
 }
 
+/** Transaction-scoped create (no idempotency wrapper). Used by createReminder and by prepared-action confirmation. */
+export async function createReminderIn(tx: Db, p: Principal, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
+  requireScope(p, "reminders:write");
+  const expiryAtUtc = resolveExpiry(input);
+  const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
+  const { rows } = await tx.query<RenewalRow>(
+    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
+    [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null],
+  );
+  const renewal = rows[0];
+  const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates);
+  await audit(tx, p, "reminder.create", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
+  return { reminder: await loadDto(tx, renewal.id), summary };
+}
+
 /** Create a renewal and its reminder plan; reserves credits per job (never overdrafts). */
 export async function createReminder(
   p: Principal,
@@ -239,22 +255,36 @@ export async function createReminder(
   now = new Date(),
 ): Promise<MutationResult> {
   requireScope(p, "reminders:write");
-  const expiryAtUtc = resolveExpiry(input);
-  const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
+  resolveExpiry(input);
   return db.tx(async (tx) => {
-    const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "create_reminder", async () => {
-      const { rows } = await tx.query<RenewalRow>(
-        `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
-        [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null],
-      );
-      const renewal = rows[0];
-      const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates);
-      await audit(tx, p, "reminder.create", { type: "renewal", id: renewal.id }, { ...summary, idempotencyKey: opts.idempotencyKey ?? null });
-      return { reminder: await loadDto(tx, renewal.id), summary };
-    });
+    const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "create_reminder", () =>
+      createReminderIn(tx, p, input, now, { idempotencyKey: opts.idempotencyKey ?? null }),
+    );
     return { ...result, replayed };
   });
+}
+
+/** Transaction-scoped full edit (no idempotency wrapper). */
+export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
+  requireScope(p, "reminders:write");
+  const expiryAtUtc = resolveExpiry(input);
+  const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
+  const { rows: existing } = await tx.query<RenewalRow>(
+    "select * from renewal_items where id = $1 and owner_user_id = $2 and status <> 'deleted' for update",
+    [renewalId, p.userId],
+  );
+  if (!existing[0]) throw new HttpError(404, "Reminder not found", "not_found");
+  const cancelled = await cancelUnsentJobs(tx, renewalId, "superseded by edit");
+  const { rows } = await tx.query<RenewalRow>(
+    `update renewal_items set category=$3, label=$4, expiry_at_utc=$5, local_time=$6, date_input_calendar=$7, date_input_raw=$8, notes=$9,
+       family_member_label=$10, status='active', cycle_no = cycle_no + 1, updated_at = now()
+     where id = $1 and owner_user_id = $2 returning *`,
+    [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null],
+  );
+  const renewal = rows[0];
+  const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates)), cancelled };
+  await audit(tx, p, "reminder.update", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
+  return { reminder: await loadDto(tx, renewal.id), summary };
 }
 
 /** Full edit: starts a new cycle, cancels unsent jobs (releasing holds) and re-plans. */
@@ -267,27 +297,11 @@ export async function updateReminder(
   now = new Date(),
 ): Promise<MutationResult> {
   requireScope(p, "reminders:write");
-  const expiryAtUtc = resolveExpiry(input);
-  const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
+  resolveExpiry(input);
   return db.tx(async (tx) => {
-    const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "update_reminder", async () => {
-      const { rows: existing } = await tx.query<RenewalRow>(
-        "select * from renewal_items where id = $1 and owner_user_id = $2 and status <> 'deleted' for update",
-        [renewalId, p.userId],
-      );
-      if (!existing[0]) throw new HttpError(404, "Reminder not found", "not_found");
-      const cancelled = await cancelUnsentJobs(tx, renewalId, "superseded by edit");
-      const { rows } = await tx.query<RenewalRow>(
-        `update renewal_items set category=$3, label=$4, expiry_at_utc=$5, local_time=$6, date_input_calendar=$7, date_input_raw=$8, notes=$9,
-           family_member_label=$10, status='active', cycle_no = cycle_no + 1, updated_at = now()
-         where id = $1 and owner_user_id = $2 returning *`,
-        [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null],
-      );
-      const renewal = rows[0];
-      const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates)), cancelled };
-      await audit(tx, p, "reminder.update", { type: "renewal", id: renewal.id }, { ...summary, idempotencyKey: opts.idempotencyKey ?? null });
-      return { reminder: await loadDto(tx, renewal.id), summary };
-    });
+    const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "update_reminder", () =>
+      updateReminderIn(tx, p, renewalId, input, now, { idempotencyKey: opts.idempotencyKey ?? null }),
+    );
     return { ...result, replayed };
   });
 }

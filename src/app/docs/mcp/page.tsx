@@ -15,8 +15,10 @@ export default function McpDocs() {
           <li><code>get_account</code> — your name and masked phone</li>
           <li><code>get_credit_balance</code> — available / reserved credits and price per SMS</li>
           <li><code>list_reminders</code> — your renewals with AD and BS dates and SMS status</li>
+          <li><code>prepare_reminder</code> → <code>confirm_reminder</code> — add or edit a reminder: you see the exact SMS text, dates (AD + BS) and credit cost, then confirm; credits are reserved only after you confirm</li>
+          <li><code>update_reminder</code> — pause or resume; <code>cancel_reminder</code> — cancel unsent SMS and release credits</li>
         </ul>
-        <p className="muted" style={{ fontSize: 13 }}>Creating and changing reminders from the assistant (with a preview-then-confirm step) arrives in the next release. The assistant can never top up your wallet, see payment details, or send SMS to any other number.</p>
+        <p className="muted" style={{ fontSize: 13 }}>Bikram Sambat dates and dates read from a document photo always require your explicit confirmation of the converted Gregorian date. The assistant can never top up your wallet, see payment details, or send SMS to any other number.</p>
         <h2>Connect</h2>
         <ol>
           <li><strong>Claude</strong>: Settings → Connectors → Add custom connector → paste the server URL.</li>

@@ -1,6 +1,6 @@
 # Nabikaran — MCP-Ready Architecture Proposal
 
-Status: **approved (all five decisions in §11). Phases 0–2 implemented — see §12–14. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
+Status: **approved (all five decisions in §11). Phases 0–3 implemented — see §12–15. No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
 Scope: let users manage reminders from ChatGPT, Claude and other MCP clients through a remote server at `https://mcp.nabikaran.org/mcp`, reusing the existing web app's business logic and database.
 
 ---
@@ -352,3 +352,17 @@ Env: `OAUTH_ISSUER` (web origin) and `MCP_PUBLIC_URL` (e.g. `https://mcp.nabikar
 | Tests (`tests/mcp.test.ts`, 10) drive the real SDK `Client` + `StreamableHTTPClientTransport` into the handler: 401/WWW-Authenticate, preflight, 413, revocation takes effect immediately, tool list, account/balance from token only, AD+BS dates, filters + pagination, user isolation, insufficient scope, rate limit + audit | suite total 85 |
 
 Deployment checklist for Phase 2 (needs approval): DNS `mcp.nabikaran.org` → the same deployment; env `MCP_HOST=mcp.nabikaran.org`, `MCP_PUBLIC_URL=https://mcp.nabikaran.org/mcp`, `OAUTH_ISSUER=https://nabikaran.org`; apply migrations `0002`–`0003` to staging first and run the §8 Inspector smoke test.
+
+## 15. Phase 3 — implemented (write tools, prepare → confirm)
+
+| Item | Where |
+| --- | --- |
+| `prepareReminderAction`: validates structured input (zod; no image fields exist, extra keys are dropped), resolves AD/BS/NPT, renders SMS text + cost, pins `pricing_version`, stores a 15-minute snapshot in `prepared_actions`; `requires_user_confirmation` when calendar is BS or `expiry.source ≠ user_typed`, with a bilingual `confirmation_prompt` | `src/lib/core/prepared-actions.ts` |
+| `confirmPreparedAction`: `FOR UPDATE` on the snapshot, owner check (404 for others), expiry (410 `prepared_expired`), pricing re-check (409 `price_changed`), `expected_expiry_ad` must equal the resolved date (409 `expiry_mismatch`), `user_confirmed` required for BS/extracted dates (409 `confirmation_required`), live re-resolution must match the preview; then `createReminderIn` / `updateReminderIn` run **in the same transaction**, `consumed_at`/`result_ref` set. Wrapped in `withIdempotency` → same key replays; a consumed snapshot with a new key also replays (never a second renewal) | same |
+| Core refactor: `createReminderIn` / `updateReminderIn` transaction-scoped internals; public functions unchanged for the web | `src/lib/core/reminders.ts` |
+| Tools `prepare_reminder` (readOnlyHint, +20/10 min/user limit, 200 reminders/account cap), `confirm_reminder` (idempotent; returns `funding.status` reserved / awaiting_credits / partially_reserved + shortfall + `top_up_url`), `update_reminder` (pause/resume only; edits go through prepare with `reminder_id`), `cancel_reminder` (`confirm=true` required, releases holds, sent history kept) | `src/lib/mcp/server.ts` |
+| Charging model unchanged: confirm only reserves via `wallet_reserve_for_job`; debit happens solely in the dispatcher on provider accept | — |
+| Reconciler prunes unconsumed expired snapshots | `/api/jobs/reconcile` |
+| Tests (`tests/mcp-write.test.ts`, 10, via the SDK client): no-confirmation AD path, BS/image confirmation prompt with AD+BS pair, invalid BS/AD dates, nothing-to-schedule, unknown id; create once + replay (same key and new key), 5-way concurrent confirm, wrong `expected_expiry_ad`, unconfirmed BS, foreign prepared_id, expired snapshot, price change, insufficient credits → awaiting + top-up → auto-schedule, scope, edit cycle + pause/resume + cancel (confirm flag, replay releases 0), cross-user 404s | suite total 95 |
+
+All seven tools from §6 are now live behind OAuth. Phase 4 (hardening, monitoring, directory submission) is next.

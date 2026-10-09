@@ -9,7 +9,9 @@ import { principalSubject, type Principal } from "../core/principal";
 import { checkRateLimit } from "../core/rate-limit";
 import { getAccount } from "../core/account";
 import { getWalletSummary } from "../core/wallet";
-import { listReminders, CATEGORIES } from "../core/reminders";
+import { listReminders, setReminderStatus, CATEGORIES } from "../core/reminders";
+import { prepareReminderAction, confirmPreparedAction } from "../core/prepared-actions";
+import { MAX_OFFSET_MINUTES } from "../scheduler";
 
 /**
  * MCP tool surface (docs/MCP_ARCHITECTURE.md §6). Phase 2: read tools.
@@ -21,6 +23,8 @@ import { listReminders, CATEGORIES } from "../core/reminders";
  */
 export const MCP_SERVER_INFO = { name: "nabikaran", version: "0.2.0" } as const;
 export const TOOL_RATE_LIMIT = { bucket: "mcp:call", limit: 60, windowSeconds: 60 } as const;
+export const PREPARE_RATE_LIMIT = { bucket: "mcp:prepare", limit: 20, windowSeconds: 600 } as const;
+export const MAX_REMINDERS_PER_USER = 200;
 
 export function principalFromAuthInfo(authInfo: AuthInfo | undefined): Principal | null {
   const p = authInfo?.extra?.principal as Principal | undefined;
@@ -158,7 +162,149 @@ export function createMcpServer(): McpServer {
       }),
   );
 
+  // ---------------------------------------------------------------------------
+  // Write tools (Phase 3): two-step prepare → confirm. Confirm only RESERVES
+  // credits; the dispatcher charges on provider accept (docs §7).
+  // ---------------------------------------------------------------------------
+  const expirySchema = z.object({
+    calendar: z.enum(["AD", "BS"]).describe("AD = Gregorian, BS = Bikram Sambat (Nepali calendar)."),
+    date: z.string().min(8).max(12).describe("YYYY-MM-DD in the chosen calendar."),
+    local_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default("09:00").describe("Expiry time in Nepal time (HH:MM). Default 09:00."),
+    source: z.enum(["user_typed", "extracted_from_image", "inferred"]).default("user_typed").describe("Where the date came from. Anything but user_typed requires explicit user confirmation."),
+    user_confirmed: z.boolean().default(false).describe("Set true only after the user has explicitly confirmed the resolved date shown by a previous prepare_reminder call."),
+  });
+
+  server.registerTool(
+    "prepare_reminder",
+    {
+      title: "Prepare a reminder (preview)",
+      description:
+        "Step 1 of 2. Validates the reminder, renders the exact SMS text, cost in credits and send times, and returns a prepared_id (valid 15 minutes). " +
+        "Nothing is reserved yet. If requires_user_confirmation is true (BS date, or a date read from an image / inferred), show confirmation_prompt to the user and, once they agree, call prepare_reminder again with expiry.user_confirmed=true, then confirm_reminder. " +
+        "Pass reminder_id to prepare an edit of an existing reminder. Never send image bytes; send the structured fields the user confirmed.",
+      inputSchema: {
+        reminder_id: z.string().uuid().optional().describe("Existing reminder to update; omit to create."),
+        category: z.enum(CATEGORIES),
+        label: z.string().min(1).max(80).describe("Short name shown in the SMS, e.g. 'Ba 2 Pa 1234 Bluebook'."),
+        expiry: expirySchema,
+        offsets_minutes: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).min(1).max(20).describe("When to send, in minutes before expiry. Presets: 43200 (30d), 21600 (15d), 10080 (7d), 4320 (3d), 1440 (1d), 0 (on the day)."),
+        family_member_label: z.string().max(60).nullable().optional().describe("Optional owner label; SMS still goes to the account holder's phone."),
+        notes: z.string().max(500).nullable().optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("prepare_reminder", extra, async (p) => {
+        const db = getDb();
+        await checkRateLimit(db, `user:${p.userId}`, PREPARE_RATE_LIMIT);
+        if (!args.reminder_id) {
+          const { rows } = await db.query<{ n: string }>("select count(*)::text as n from renewal_items where owner_user_id = $1 and status <> 'deleted'", [p.userId]);
+          if (Number(rows[0].n) >= MAX_REMINDERS_PER_USER) return fail("limit_reached", `Maximum ${MAX_REMINDERS_PER_USER} reminders per account.`);
+        }
+        const r = await prepareReminderAction(p, args, db);
+        const pv = r.preview;
+        const summary = `${r.requiresUserConfirmation ? "NEEDS CONFIRMATION. " : ""}${pv.lines.length} SMS for "${args.label}", expiry ${pv.expiry.local} NPT (AD ${pv.expiry.ad}${pv.expiry.bs ? `, BS ${pv.expiry.bs.display}` : ""}). Reserve ${pv.reservedOnConfirmCredits} credits now (available ${pv.wallet.available}). prepared_id ${r.preparedId}.`;
+        return ok(summary, {
+          prepared_id: r.preparedId,
+          kind: r.kind,
+          expires_at: r.expiresAt,
+          resolved_expiry: { utc: pv.expiry.utc, local: `${pv.expiry.local} NPT`, ad: pv.expiry.ad, bs: pv.expiry.bs?.date ?? null, bs_display: pv.expiry.bs?.display ?? null },
+          schedule: pv.lines.map((l) => ({ offset_minutes: l.offsetMinutes, send_local: `${l.due.local} NPT`, send_at_utc: l.due.utc, sms_text: l.smsText, segments: l.segments, encoding: l.encoding, credits: l.credits, horizon: l.horizon })),
+          total_credits: pv.totalCredits,
+          reserved_on_confirm: pv.reservedOnConfirmCredits,
+          available_credits: pv.wallet.available,
+          shortfall_credits: pv.shortfallCredits,
+          credits_per_sms_segment: pv.creditsPerUnit,
+          warnings: r.warnings,
+          requires_user_confirmation: r.requiresUserConfirmation,
+          confirmation_prompt: r.confirmationPrompt,
+          expected_expiry_ad: pv.expiry.ad,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "confirm_reminder",
+    {
+      title: "Confirm a prepared reminder",
+      description:
+        "Step 2 of 2. Creates (or updates) the reminder from a prepared_id and reserves the credits shown in the preview. Safe to retry with the same idempotency_key. " +
+        "expected_expiry_ad must be the resolved Gregorian date returned by prepare_reminder — this proves the date was shown to the user. If credits are insufficient the reminder is saved as awaiting credits (never overdrafts) and the response includes the shortfall and top-up URL.",
+      inputSchema: {
+        prepared_id: z.string().uuid(),
+        expected_expiry_ad: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The resolved_expiry.ad value from prepare_reminder."),
+        idempotency_key: z.string().min(1).max(64).describe("Client-generated unique key for this confirmation; reuse it on retry."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("confirm_reminder", extra, async (p) => {
+        const r = await confirmPreparedAction(p, { preparedId: args.prepared_id, expectedExpiryAd: args.expected_expiry_ad, idempotencyKey: args.idempotency_key });
+        const w = await getWalletSummary(p);
+        const text = r.funding.status === "reserved"
+          ? `Reminder "${r.reminder.label}" ${r.replayed ? "already " : ""}scheduled: ${r.reminder.jobs.length} SMS, ${r.reservedCredits} credits reserved.`
+          : `Reminder "${r.reminder.label}" saved but ${r.funding.shortfallCredits} more credits are needed; it will be scheduled automatically after a top-up at ${w.topUpUrl}.`;
+        return ok(text, { reminder: reminderOut(r.reminder), reserved_credits: r.reservedCredits, funding: { status: r.funding.status, shortfall_credits: r.funding.shortfallCredits, top_up_url: w.topUpUrl }, replayed: r.replayed });
+      }),
+  );
+
+  server.registerTool(
+    "update_reminder",
+    {
+      title: "Pause or resume a reminder",
+      description: "Pause (releases reserved credits, keeps the reminder) or resume (re-reserves) an existing reminder. To change dates, label or times, use prepare_reminder with reminder_id followed by confirm_reminder.",
+      inputSchema: {
+        reminder_id: z.string().uuid(),
+        action: z.enum(["pause", "resume"]),
+        idempotency_key: z.string().min(1).max(64),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("update_reminder", extra, async (p) => {
+        const r = await setReminderStatus(p, args.reminder_id, args.action, { idempotencyKey: args.idempotency_key });
+        return ok(`Reminder ${args.action === "pause" ? "paused" : "resumed"}: "${r.reminder?.label}".`, { reminder: r.reminder ? reminderOut(r.reminder) : null, cancelled_jobs: r.cancelled, resumed_jobs: r.resumed, replayed: r.replayed });
+      }),
+  );
+
+  server.registerTool(
+    "cancel_reminder",
+    {
+      title: "Cancel a reminder",
+      description: "Cancels all unsent SMS for a reminder and releases their reserved credits. Already-sent SMS stay in history and are not refunded. Requires confirm=true after the user agrees.",
+      inputSchema: {
+        reminder_id: z.string().uuid(),
+        confirm: z.boolean().describe("Must be true; ask the user first."),
+        idempotency_key: z.string().min(1).max(64),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("cancel_reminder", extra, async (p) => {
+        if (!args.confirm) return fail("confirmation_required", "Ask the user to confirm cancellation, then call again with confirm=true.");
+        const r = await setReminderStatus(p, args.reminder_id, "cancel", { idempotencyKey: args.idempotency_key });
+        const released = r.reminder?.jobs.filter((j) => j.status === "cancelled").reduce((s, j) => s + j.estimatedCredits, 0) ?? 0;
+        return ok(`Cancelled ${r.cancelled} unsent SMS for "${r.reminder?.label}".`, { reminder_id: args.reminder_id, cancelled_jobs: r.cancelled, released_credits: r.replayed ? 0 : released, sent_history_kept: true, replayed: r.replayed });
+      }),
+  );
+
   return server;
 }
 
-export const TOOL_NAMES = ["get_account", "get_credit_balance", "list_reminders"] as const;
+function reminderOut(r: import("../core/dto").ReminderDTO) {
+  return {
+    id: r.id,
+    label: r.label,
+    category: r.category,
+    status: r.status,
+    cycle_no: r.cycleNo,
+    expiry_at_utc: r.expiry.utc,
+    expiry_local: `${r.expiry.local} NPT`,
+    expiry_ad: r.expiry.ad,
+    expiry_bs: r.expiry.bs?.date ?? null,
+    expiry_bs_display: r.expiry.bs?.display ?? null,
+    jobs: r.jobs.map((j) => ({ id: j.id, offset_minutes: j.offsetMinutes, due_local: `${j.due.local} NPT`, due_at_utc: j.due.utc, status: j.status, estimated_credits: j.estimatedCredits })),
+  };
+}
+
+export const TOOL_NAMES = ["get_account", "get_credit_balance", "list_reminders", "prepare_reminder", "confirm_reminder", "update_reminder", "cancel_reminder"] as const;
