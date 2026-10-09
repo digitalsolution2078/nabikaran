@@ -1,0 +1,91 @@
+name: Deploy
+
+# Deploys to the VPS only after CI passed for a push to main (or when run by hand).
+# Does nothing until the DEPLOY_* repository secrets are set (docs/DEPLOY_VPS.md §7).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Commit SHA on main to deploy (empty = latest main)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - name: Check deploy configuration
+        id: cfg
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER_: ${{ secrets.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER_" ] || [ -z "$KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auto-deploy is not configured yet (set DEPLOY_HOST, DEPLOY_USER and DEPLOY_SSH_KEY). Skipping."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Choose commit
+        if: steps.cfg.outputs.configured == 'true'
+        id: sha
+        env:
+          INPUT_REF: ${{ github.event.inputs.ref }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          SHA="${INPUT_REF:-$RUN_SHA}"
+          if [ -n "$SHA" ] && ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{7,40}$'; then
+            echo "::error::ref must be a commit SHA"; exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Deploying ${SHA:-latest main}"
+
+      - name: Deploy over SSH
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER_: ${{ secrets.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          APP_PATH: ${{ secrets.DEPLOY_PATH }}
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          PORT="${PORT:-22}"
+          APP_PATH="${APP_PATH:-/opt/apps/nabikaran}"
+          install -m 700 -d ~/.ssh
+          umask 077
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::DEPLOY_KNOWN_HOSTS is not set; trusting the server key seen now. Set it to pin the host key."
+            ssh-keyscan -p "$PORT" -T 15 "$HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+              -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 \
+              "$USER_@$HOST" "bash '$APP_PATH/deploy/deploy.sh' $SHA"
+
+      - name: Clean up key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

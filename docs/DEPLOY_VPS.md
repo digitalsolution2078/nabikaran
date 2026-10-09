@@ -108,6 +108,70 @@ Add the backup line to `crontab -e` as `15 2 * * * …` and keep 14 days (`find 
 
 ---
 
+## 7. Automatic deploys (GitHub Actions)
+
+After this is set up, every push to `main` that passes CI is deployed automatically. The workflow (`.github/workflows/deploy.yml`) connects over SSH and runs `deploy/deploy.sh`, which:
+
+1. refuses to run if someone edited tracked files on the server, or if another deploy is running;
+2. backs up the database to `~/backups/nabikaran/` (keeps the newest 14);
+3. checks out the exact commit that passed CI (only commits on `main` are accepted);
+4. builds the new image while the old version keeps serving;
+5. runs `docker compose up -d` — migrations run first, and the app starts only if they succeed;
+6. checks `/api/health` inside the app container;
+7. if the build, migrations or health check fail, rebuilds and starts the previous commit and marks the run failed.
+
+Migrations are additive and are not rolled back automatically. To restore data after a bad release, use the backup printed in the failed run:
+
+```bash
+cd /opt/apps/nabikaran
+C="docker compose --env-file .env.production"
+$C stop app cron
+$C exec -T db psql -U nabikaran -d postgres -c "drop database nabikaran" -c "create database nabikaran owner nabikaran"
+gunzip -c ~/backups/nabikaran/<file>.sql.gz | $C exec -T db psql -q -U nabikaran -d nabikaran
+$C up -d
+```
+
+### One-time setup (about 10 minutes)
+
+On the **VPS** (as the user that runs Docker, e.g. `root`):
+
+```bash
+cd /opt/apps/nabikaran && git pull            # makes sure deploy/deploy.sh exists
+chmod +x deploy/deploy.sh deploy/ssh-deploy.sh
+ssh-keygen -t ed25519 -N "" -C github-actions-deploy -f ~/nabikaran_actions
+# Allow this key to do ONE thing: deploy. Paste as a single line:
+echo "command=\"/opt/apps/nabikaran/deploy/ssh-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty $(cat ~/nabikaran_actions.pub)" >> ~/.ssh/authorized_keys
+cat ~/nabikaran_actions        # copy the PRIVATE key for the next step, then:
+rm ~/nabikaran_actions ~/nabikaran_actions.pub
+```
+
+On **your computer** (to pin the server's identity):
+
+```bash
+ssh-keyscan -p 22 <VPS IP>     # copy all lines of output
+```
+
+In **GitHub → repository → Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+|---|---|
+| `DEPLOY_HOST` | VPS IP or hostname |
+| `DEPLOY_USER` | `root` (or the Docker user) |
+| `DEPLOY_SSH_KEY` | the private key you copied (including the BEGIN/END lines) |
+| `DEPLOY_KNOWN_HOSTS` | the `ssh-keyscan` output |
+| `DEPLOY_PORT` | only if SSH is not on 22 |
+| `DEPLOY_PATH` | only if the app is not in `/opt/apps/nabikaran` |
+
+Optional: **Settings → Environments → production → Required reviewers** makes every deploy wait for your click.
+
+Test it: **Actions → Deploy → Run workflow** (leave the commit empty to deploy the latest `main`). Until the secrets exist, the workflow skips itself with a notice.
+
+Rules that keep auto-deploy safe:
+
+- New environment variables (for example `WHATSAPP_*`) must be added to `.env.production` **before** merging the code that needs them; the deploy never edits that file.
+- Do not edit tracked files on the server; the deploy refuses to overwrite them.
+- To deploy an older commit, run the workflow by hand with that commit SHA.
+
 ## Prompt for Claude for Chrome
 
 Claude for Chrome works in your browser, so it can handle the Hostinger hPanel parts (DNS) and, if you use Hostinger's **Browser terminal** or Nginx Proxy Manager's web UI, the server parts too. Paste this, filling the placeholders:
