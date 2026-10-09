@@ -24,8 +24,8 @@ Everything below is operational; the code on `claude/bold-brahmagupta-zglkbf` is
 | # | Prompt | Expected tool path / outcome |
 | --- | --- | --- |
 | C1 | "What's my Nabikaran balance?" | `get_credit_balance`; shows top-up URL; nothing reserved |
-| C2 | "Remind me 7 days and 1 day before my Bluebook expires on 2082-03-15 BS" | `prepare_reminder` → `requires_user_confirmation: true`; assistant shows AD + BS; user agrees → `prepare_reminder` (`user_confirmed: true`) → `confirm_reminder` (`expected_expiry_ad` set) → `funding.status: awaiting_credits` with shortfall (0 credits) |
-| C3 | Top up NPR 50 on the website (mock gateway: "Pay (Completed)") | Wallet 50; within 5 min reconcile → `list_reminders` shows jobs `scheduled` |
+| C2 | "Remind me 7 days and 1 day before my Bluebook expires on 2082-03-15 BS" | `prepare_reminder` → `requires_user_confirmation: true`; assistant shows AD + BS; user agrees → `prepare_reminder` (`user_confirmed: true`) → `confirm_reminder` (`expected_expiry_ad` set) → with 0 credits: `insufficient_credits` with shortfall and `top_up_url`; nothing saved |
+| C3 | Top up NPR 50 on the website (mock gateway: "Pay (Completed)") | Wallet 50; repeat the confirm → reminder saved, credits reserved; `list_reminders` shows jobs `scheduled` |
 | C4 | Re-send the same confirm (simulate retry) | `replayed: true`, still one reminder, holds unchanged |
 | C5 | "Change it to 3 days before only" | `prepare_reminder` with `reminder_id` → `confirm_reminder`; `cycle_no` 2; holds adjusted |
 | C6 | "Pause it" / "Resume it" | `update_reminder`; reserved credits go to 0 and back |
