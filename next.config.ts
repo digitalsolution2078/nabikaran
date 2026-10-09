@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Self-contained server bundle for the Docker image (see Dockerfile).
+  output: "standalone",
   serverExternalPackages: ["@electric-sql/pglite"],
   async rewrites() {
     // mcp.nabikaran.org/ → the MCP route; /mcp and /.well-known/* already resolve on any host.

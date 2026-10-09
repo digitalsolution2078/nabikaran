@@ -1,0 +1,107 @@
+# Nabikaran on a single VPS alongside other Docker projects.
+#
+#   cp .env.production.example .env.production   # fill secrets
+#   docker compose --env-file .env.production up -d --build
+#
+# Services:
+#   db       PostgreSQL 16 (persistent volume)
+#   migrate  applies supabase/migrations/*.sql in order, then exits
+#   app      Next.js (web + OAuth + MCP) on the internal network, port 3000
+#   cron     calls /api/jobs/dispatch every minute and /api/jobs/reconcile every 5 min
+#
+# Your existing reverse proxy terminates TLS for nabikaran.org and mcp.nabikaran.org
+# and forwards both to this app (see docs/DEPLOY_VPS.md for NPM / Traefik / Caddy).
+
+name: nabikaran
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nabikaran}
+      POSTGRES_USER: ${POSTGRES_USER:-nabikaran}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nabikaran} -d ${POSTGRES_DB:-nabikaran}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-nabikaran}
+      PGDATABASE: ${POSTGRES_DB:-nabikaran}
+    volumes:
+      - ./supabase/migrations:/migrations:ro
+      - ./deploy/migrate.sh:/migrate.sh:ro
+    entrypoint: ["sh", "/migrate.sh"]
+    networks: [internal]
+
+  app:
+    build:
+      context: .
+      args:
+        MCP_HOST: ${MCP_HOST:-mcp.nabikaran.org}
+    image: nabikaran:latest
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nabikaran}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-nabikaran}
+    # Option A (default): publish on localhost only; a host-level proxy (Nginx/Caddy) forwards to 127.0.0.1:3100.
+    ports:
+      - "127.0.0.1:${APP_PORT:-3100}:3000"
+    networks:
+      - internal
+      # Option B: if your proxy (Nginx Proxy Manager / Traefik) runs in Docker on a shared network,
+      # uncomment the next line and the `proxy` network at the bottom, then target `nabikaran-app:3000`.
+      # - proxy
+    # Traefik users: uncomment and adjust.
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.nabikaran.rule=Host(`nabikaran.org`) || Host(`www.nabikaran.org`) || Host(`mcp.nabikaran.org`)
+    #   - traefik.http.routers.nabikaran.entrypoints=websecure
+    #   - traefik.http.routers.nabikaran.tls.certresolver=letsencrypt
+    #   - traefik.http.services.nabikaran.loadbalancer.server.port=3000
+    container_name: nabikaran-app
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  cron:
+    image: curlimages/curl:8.10.1
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+    environment:
+      WORKER_TOKEN: ${WORKER_TOKEN:?set WORKER_TOKEN in .env.production}
+      APP_INTERNAL_URL: http://app:3000
+    volumes:
+      - ./deploy/cron.sh:/cron.sh:ro
+    entrypoint: ["sh", "/cron.sh"]
+    networks: [internal]
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+  # proxy:
+  #   external: true
