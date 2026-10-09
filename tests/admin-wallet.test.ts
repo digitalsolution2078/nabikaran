@@ -224,7 +224,7 @@ describe("document templates", () => {
   it("seeded library covers the requested groups; admin edits are validated", async () => {
     const all = await listDocTemplates(false, db);
     const groups = new Set(all.map((t) => t.group_key));
-    expect([...groups].sort()).toEqual(["business", "custom", "insurance", "personal", "vehicle"]);
+    expect([...groups].sort()).toEqual(["business", "custom", "insurance", "occasions", "personal", "vehicle"]);
     for (const slug of ["driving-licence", "bluebook", "vehicle-tax", "vehicle-insurance", "passport", "visa", "work-permit", "health-insurance", "tax-filing", "domain", "hosting", "custom"]) {
       expect(all.some((t) => t.slug === slug)).toBe(true);
     }

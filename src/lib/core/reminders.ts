@@ -14,7 +14,8 @@ import { assertNotLocked } from "./account-lock";
 import { withIdempotency } from "./idempotency";
 import { instantDTO, type ChannelCost, type ReminderDTO, type ReminderJobDTO, type SchedulePreview, type SchedulePreviewLine, type Warning } from "./dto";
 
-import { CATEGORIES, categorySmsName } from "../categories";
+import { CATEGORIES, categorySmsName, isOccasion } from "../categories";
+import { anchorFromInput, anchorToString, nextOccurrence, parseAnchor, type Anchor } from "../recurrence";
 export { CATEGORIES };
 
 export const reminderInputSchema = z.object({
@@ -32,6 +33,10 @@ export const reminderInputSchema = z.object({
   channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).default(["sms"]).transform((c) => [...new Set(c)] as Channel[]),
   /** Required (true) the first time a user picks WhatsApp: consent to business-initiated WhatsApp messages. */
   whatsappConsent: z.boolean().optional(),
+  /** Optional group (e.g. "Birthdays"). Omitted on edit = keep; null = remove from group. */
+  groupId: z.string().uuid().nullable().optional(),
+  /** Repeat every year on the same day (birthdays, anniversaries, yearly renewals). Omitted on edit = keep. */
+  repeatYearly: z.boolean().optional(),
 });
 /** Channels default to SMS only when omitted (web forms, MCP, older callers). */
 export type ReminderInput = Omit<z.infer<typeof reminderInputSchema>, "channels"> & { channels?: Channel[] };
@@ -54,6 +59,9 @@ export interface RenewalRow {
   cycle_no: number;
   channels?: string[] | null;
   template_slug?: string | null;
+  group_id?: string | null;
+  repeat_yearly?: boolean;
+  repeat_anchor?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +94,34 @@ export function resolveExpiry(input: Pick<ReminderInput, "calendar" | "expiryDat
   return kathmanduToUtc(ad, input.localTime);
 }
 
+export interface ResolvedSchedule {
+  expiryAtUtc: Date;
+  /** Date stored as entered (for a yearly reminder: the upcoming occurrence). */
+  raw: string;
+  anchor: Anchor | null;
+}
+
+/**
+ * Like resolveExpiry, but a yearly reminder whose date has passed (e.g. a birth
+ * date) moves to its next occurrence. A future date is kept as entered.
+ */
+export function resolveSchedule(input: Pick<ReminderInput, "calendar" | "expiryDate" | "localTime">, repeatYearly: boolean, now: Date = new Date()): ResolvedSchedule {
+  if (!repeatYearly) return { expiryAtUtc: resolveExpiry(input), raw: input.expiryDate.trim(), anchor: null };
+  parseLocalTime(input.localTime);
+  const anchor = anchorFromInput(input.expiryDate);
+  if (!anchor) throw new HttpError(400, "Invalid date (YYYY-MM-DD)", input.calendar === "BS" ? "invalid_bs_date" : "invalid_date");
+  const year = Number(input.expiryDate.trim().slice(0, 4));
+  const next = nextOccurrence(input.calendar, anchor, input.localTime, now, year);
+  if (!next) throw new HttpError(400, "This date cannot repeat yearly in the supported calendar range", input.calendar === "BS" ? "invalid_bs_date" : "invalid_date");
+  return { expiryAtUtc: next.utc, raw: next.raw, anchor };
+}
+
+async function assertOwnGroup(tx: Db, userId: string, groupId: string | null | undefined): Promise<void> {
+  if (!groupId) return;
+  const { rows } = await tx.query("select 1 from reminder_groups where id = $1 and owner_user_id = $2", [groupId, userId]);
+  if (!rows[0]) throw new HttpError(404, "Group not found", "group_not_found");
+}
+
 export async function loadTemplates(db: Db): Promise<TemplateRow[]> {
   const { rows } = await db.query<TemplateRow>("select locale, category, body from sms_templates where active order by template_version desc");
   return rows;
@@ -116,6 +152,8 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
     familyMemberLabel: r.family_member_label,
     channels: normalizeChannels(r.channels),
     templateSlug: r.template_slug ?? null,
+    groupId: r.group_id ?? null,
+    repeatYearly: Boolean(r.repeat_yearly),
     jobs: jobs
       .filter((j) => j.cycle_no === r.cycle_no)
       .map<ReminderJobDTO>((j) => ({
@@ -140,7 +178,7 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
  */
 export async function previewSchedule(
   p: Principal,
-  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string; renewalId?: string | null; channels?: Channel[] },
+  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string; renewalId?: string | null; channels?: Channel[]; repeatYearly?: boolean },
   db: Db = getDb(),
   now: Date = new Date(),
 ): Promise<SchedulePreview> {
@@ -157,7 +195,7 @@ export async function previewSchedule(
     );
     releasable = Number(rows[0].n);
   }
-  const expiryAtUtc = resolveExpiry(input);
+  const { expiryAtUtc } = resolveSchedule(input, Boolean(input.repeatYearly), now);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const wantsWa = channels.includes("whatsapp");
   const [smsPricing, waPricing, templates, waTemplates, wallet, waOk, consent] = await Promise.all([
@@ -174,7 +212,7 @@ export async function previewSchedule(
   for (const c of plan.candidates) {
     for (const ch of channels) {
       if (ch === "sms") {
-        const r = renderReminder({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale }, templates);
+        const r = renderReminder({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale, category: input.category }, templates);
         lines.push({
           channel: "sms",
           offsetMinutes: c.offsetMinutes,
@@ -222,6 +260,7 @@ export async function previewSchedule(
   if (input.calendar === "BS") warnings.push("bs_date_needs_confirmation");
   if (lines.some((l) => l.labelAdjusted)) warnings.push("sms_label_adjusted");
   if (wantsWa && !waOk) warnings.push("whatsapp_unavailable");
+  if (wantsWa && isOccasion(input.category)) warnings.push("whatsapp_not_for_occasions");
   if (wantsWa && consent && !consent.rows[0]?.at) warnings.push("whatsapp_consent_required");
   // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
   const shortfallCredits = Math.max(0, reservedOnConfirmCredits - (wallet.available + releasable));
@@ -247,6 +286,7 @@ export async function previewSchedule(
 async function prepareChannels(tx: Db, p: Principal, input: ReminderInput): Promise<Channel[]> {
   const channels = normalizeChannels(input.channels);
   if (!channels.includes("whatsapp")) return channels;
+  if (isOccasion(input.category)) throw new HttpError(400, "Birthday, anniversary and event reminders are sent by SMS only.", "whatsapp_not_for_occasions");
   if (!(await whatsappAvailable(tx))) throw new HttpError(400, "WhatsApp reminders are not available yet. Choose SMS.", "whatsapp_unavailable");
   const { rows } = await tx.query<{ at: string | null }>("select whatsapp_opt_in_at as at from users where id = $1", [p.userId]);
   if (!rows[0]?.at) {
@@ -269,7 +309,7 @@ export interface MaterializeSummary {
  * Insert jobs for the current cycle and reserve credits (or mark awaiting).
  * Must run inside the caller's transaction.
  */
-async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, candidates: Candidate[]): Promise<MaterializeSummary> {
+async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, candidates: Candidate[], opts: { allowAwaiting?: boolean; keepOffsets?: number[] } = {}): Promise<MaterializeSummary> {
   const channels = normalizeChannels(renewal.channels);
   const [smsPricing, waPricing, templates, waTemplates] = await Promise.all([
     getActivePricing(tx, "sms"),
@@ -293,7 +333,7 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       let credits = waPricing.creditsPerUnit;
       let version = waPricing.id;
       if (ch === "sms") {
-        const rendered = renderReminder({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, templates);
+        const rendered = renderReminder({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale, category: renewal.category }, templates);
         segments = rendered.estimate.segments;
         credits = segments * smsPricing.creditsPerUnit;
         version = smsPricing.id;
@@ -315,7 +355,15 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       if (ch === "whatsapp") await audit(tx, null, "whatsapp.message.scheduled", { type: "reminder_job", id: jobRows[0].id }, { due: c.dueAtUtc.toISOString(), credits });
     }
   }
-  if (result.awaiting > 0) {
+  // Yearly reminders keep every chosen offset for next year, even one already past this year.
+  for (const off of opts.keepOffsets ?? []) {
+    await tx.query(
+      `insert into reminder_rules (renewal_id, offset_minutes, enabled) values ($1, $2, true)
+       on conflict (renewal_id, offset_minutes) do update set enabled = true`,
+      [renewal.id, off],
+    );
+  }
+  if (result.awaiting > 0 && !opts.allowAwaiting) {
     // Abort the whole transaction: no reminder is saved half-funded.
     const need = await tx.query<{ n: string }>(
       "select coalesce(sum(estimated_credits),0)::text as n from reminder_jobs where renewal_id = $1 and cycle_no = $2 and status in ('scheduled','awaiting_credits','planned')",
@@ -377,16 +425,20 @@ async function loadDto(tx: Db, renewalId: string): Promise<ReminderDTO> {
 export async function createReminderIn(tx: Db, p: Principal, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
   requireScope(p, "reminders:write");
   await assertNotLocked(p.userId, tx);
-  const expiryAtUtc = resolveExpiry(input);
+  const repeatYearly = Boolean(input.repeatYearly);
+  const sched = resolveSchedule(input, repeatYearly, now);
+  const expiryAtUtc = sched.expiryAtUtc;
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const channels = await prepareChannels(tx, p, input);
+  await assertOwnGroup(tx, p.userId, input.groupId);
   const { rows } = await tx.query<RenewalRow>(
-    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug, channels)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11) returning *`,
-    [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null, channels],
+    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug, channels, group_id, repeat_yearly, repeat_anchor)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11,$12,$13,$14) returning *`,
+    [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null, channels,
+      input.groupId ?? null, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null],
   );
   const renewal = rows[0];
-  const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates);
+  const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeatYearly ? input.offsets : [] });
   await audit(tx, p, "reminder.create", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
   return { reminder: await loadDto(tx, renewal.id), summary };
 }
@@ -400,7 +452,7 @@ export async function createReminder(
   now = new Date(),
 ): Promise<MutationResult> {
   requireScope(p, "reminders:write");
-  resolveExpiry(input);
+  resolveSchedule(input, Boolean(input.repeatYearly), now);
   return db.tx(async (tx) => {
     const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "create_reminder", () =>
       createReminderIn(tx, p, input, now, { idempotencyKey: opts.idempotencyKey ?? null }),
@@ -413,24 +465,31 @@ export async function createReminder(
 export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
   requireScope(p, "reminders:write");
   await assertNotLocked(p.userId, tx);
-  const expiryAtUtc = resolveExpiry(input);
-  const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const { rows: existing } = await tx.query<RenewalRow>(
     "select * from renewal_items where id = $1 and owner_user_id = $2 and status <> 'deleted' for update",
     [renewalId, p.userId],
   );
   if (!existing[0]) throw new HttpError(404, "Reminder not found", "not_found");
+  // Omitted group / yearly flags keep their current values (assistants and older callers do not send them).
+  const repeatYearly = input.repeatYearly ?? Boolean(existing[0].repeat_yearly);
+  const groupId = input.groupId === undefined ? existing[0].group_id ?? null : input.groupId;
+  const sched = resolveSchedule(input, repeatYearly, now);
+  const expiryAtUtc = sched.expiryAtUtc;
+  const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const channels = await prepareChannels(tx, p, input);
+  await assertOwnGroup(tx, p.userId, groupId);
   const cancelled = await cancelUnsentJobs(tx, renewalId, "superseded by edit");
   const { rows } = await tx.query<RenewalRow>(
     `update renewal_items set category=$3, label=$4, expiry_at_utc=$5, local_time=$6, date_input_calendar=$7, date_input_raw=$8, notes=$9,
        family_member_label=$10, channels=$11, template_slug = coalesce((select slug from document_templates where slug = $12), template_slug),
+       group_id=$13, repeat_yearly=$14, repeat_anchor=$15,
        status='active', cycle_no = cycle_no + 1, updated_at = now()
      where id = $1 and owner_user_id = $2 returning *`,
-    [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null, channels, input.templateSlug ?? null],
+    [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, channels, input.templateSlug ?? null,
+      groupId, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null],
   );
   const renewal = rows[0];
-  const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates)), cancelled };
+  const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeatYearly ? input.offsets : [] })), cancelled };
   await audit(tx, p, "reminder.update", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
   return { reminder: await loadDto(tx, renewal.id), summary };
 }
@@ -445,7 +504,7 @@ export async function updateReminder(
   now = new Date(),
 ): Promise<MutationResult> {
   requireScope(p, "reminders:write");
-  resolveExpiry(input);
+  if (input.repeatYearly !== undefined) resolveSchedule(input, input.repeatYearly, now);
   return db.tx(async (tx) => {
     const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "update_reminder", () =>
       updateReminderIn(tx, p, renewalId, input, now, { idempotencyKey: opts.idempotencyKey ?? null }),
@@ -570,4 +629,60 @@ export async function listJobsForUser(p: Principal, limit = 100, db: Db = getDb(
   );
   // node-postgres returns timestamptz as Date; expose ISO strings like the DTOs do.
   return rows.map((r) => ({ ...r, due_at_utc: new Date(r.due_at_utc).toISOString() }));
+}
+
+export interface RolloverSummary {
+  rolled: number;
+  awaitingCredits: number;
+}
+
+/**
+ * Yearly reminders: once this year's date has passed and every message of the
+ * cycle is finished, move to next year's date and reserve its messages. Runs
+ * from the reconciler. If the wallet cannot cover next year's messages they are
+ * kept as "awaiting credits" (the dashboard asks the customer to top up, and a
+ * top-up schedules them automatically) instead of silently dropping them.
+ */
+export async function rolloverYearly(db: Db = getDb(), now: Date = new Date(), limit = 200): Promise<RolloverSummary> {
+  const out: RolloverSummary = { rolled: 0, awaitingCredits: 0 };
+  const { rows: due } = await db.query<{ id: string }>(
+    `select i.id from renewal_items i
+      where i.repeat_yearly and i.status = 'active' and i.expiry_at_utc < $1
+        and not exists (select 1 from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status in ('scheduled','sending','unknown'))
+      order by i.expiry_at_utc limit $2`,
+    [new Date(now.getTime() - 6 * 3600_000).toISOString(), limit],
+  );
+  for (const d of due) {
+    await db.tx(async (tx) => {
+      const { rows } = await tx.query<RenewalRow & { locale: string }>(
+        `select i.*, u.locale from renewal_items i join users u on u.id = i.owner_user_id
+          where i.id = $1 and i.repeat_yearly and i.status = 'active' for update of i skip locked`,
+        [d.id],
+      );
+      const r = rows[0];
+      if (!r) return;
+      const anchor = parseAnchor(r.repeat_anchor) ?? anchorFromInput(r.date_input_raw ?? "");
+      const next = anchor ? nextOccurrence(r.date_input_calendar, anchor, r.local_time, new Date(Math.max(now.getTime(), new Date(r.expiry_at_utc).getTime())), 0) : null;
+      if (!next) {
+        await tx.query("update renewal_items set repeat_yearly = false, updated_at = now() where id = $1", [r.id]);
+        await tx.query("insert into audit_events (actor_via, action, target_type, target_id, json_detail_redacted) values ('worker','reminder.rollover_stopped','renewal',$1,'{}')", [r.id]);
+        return;
+      }
+      // Messages of the finished year that were never funded are closed, not sent late.
+      await cancelUnsentJobs(tx, r.id, "missed: year ended without credits");
+      const { rows: upd } = await tx.query<RenewalRow>(
+        "update renewal_items set expiry_at_utc = $2, date_input_raw = $3, cycle_no = cycle_no + 1, updated_at = now() where id = $1 returning *",
+        [r.id, next.utc.toISOString(), next.raw],
+      );
+      const { rows: offs } = await tx.query<{ offset_minutes: number }>("select offset_minutes from reminder_rules where renewal_id = $1 and enabled", [r.id]);
+      const plan = planReminders(next.utc, offs.map((o) => ({ offsetMinutes: o.offset_minutes })), now);
+      const summary = await materializeJobs(tx, upd[0], r.locale, plan.candidates, { allowAwaiting: true, keepOffsets: offs.map((o) => o.offset_minutes) });
+      await tx.query("insert into audit_events (actor_via, action, target_type, target_id, json_detail_redacted) values ('worker','reminder.rollover','renewal',$1,$2)", [
+        r.id, JSON.stringify({ next: next.raw, ...summary }),
+      ]);
+      out.rolled++;
+      if (summary.awaiting > 0) out.awaitingCredits++;
+    });
+  }
+  return out;
 }

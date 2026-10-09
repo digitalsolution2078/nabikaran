@@ -114,3 +114,28 @@ How it is built:
 - **Updates:** after changing `sw.js` or the precached files, bump `VERSION` in `sw.js` so old caches are removed.
 
 Reminders do not depend on the app. SMS and WhatsApp are sent from the server whether or not the app is installed or open.
+
+## 9. Groups, yearly reminders and CSV import
+
+- **Groups** (`reminder_groups`, migration `0007`): customers organise reminders, for example "Friends' birthdays", at **Reminders → Manage groups**. Deleting a group either keeps its reminders (they become ungrouped) or cancels them and releases their reserved credits.
+- **Occasions:** the categories `birthday`, `anniversary` and `event` use their own SMS wording (English or Romanized Nepali, one GSM-7 segment) and are **SMS only**. Every message still goes only to the customer's own verified number. A birthday reminder tells the customer about the friend's birthday; it never messages the friend.
+- **Repeat every year:** a birth date in any past year is moved to its next occurrence. The month and day are kept in `repeat_anchor`, so 29 Feb and BS day 32 survive years where they are clamped.
+- **Yearly rollover:** the reconciler (every 5 minutes) handles a yearly reminder once the date is more than 6 hours past and its messages have finished.
+  - It moves the reminder to next year's date and reserves the new messages.
+  - If the wallet is short at that moment, the messages wait as *awaiting credits*. The dashboard asks the customer to top up, and the top-up schedules them automatically.
+  - The audit log records `reminder.rollover`.
+- **CSV import** (**Reminders → Import**):
+  - **File:** up to 300 rows and 200 KB. Comma, semicolon or tab separated, so a paste from Excel or Google Sheets works.
+  - **Columns:** `name` and `date` are required. Optional: `calendar`, `remind` (days before, e.g. `7;1;0`), `repeat`, `time`, `notes`, `for`.
+  - **Preview:** prices every row and lists each row's errors.
+  - **Import:** all-or-nothing in one transaction. Every message is reserved, or nothing is saved.
+  - **Errors:** rows with errors must be explicitly skipped.
+  - **Safety:** the import is idempotent.
+  - **Audit:** recorded as `reminder.import`.
+
+After deploying, confirm the migration ran:
+
+```bash
+docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "select * from _schema_migrations order by 1 desc limit 3"
+docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "\d reminder_groups"
+```

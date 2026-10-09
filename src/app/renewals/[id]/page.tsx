@@ -10,6 +10,7 @@ import { RenewalActions } from "@/components/RenewalActions";
 import { Icon, iconForCategory } from "@/components/Icon";
 import { formatDate, formatDateTime, otherCalendar, localizeNumber, daysUntil, offsetLabel } from "@/lib/i18n/format";
 import { categoryName } from "@/lib/categories";
+import { getGroup } from "@/lib/services/groups";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,8 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
   const r = await getReminder(webPrincipal(user), id).catch(() => null);
   if (!r) notFound();
   const d = daysUntil(r.expiry.utc);
-  const history = await listRenewalHistory(user.id, r.id);
+  const [history, group] = await Promise.all([listRenewalHistory(user.id, r.id), r.groupId ? getGroup(user.id, r.groupId) : Promise.resolve(null)]);
+  const groupName = group?.name ?? null;
   const n = (v: number) => localizeNumber(v, prefs.lang);
   const pending = r.jobs.filter((j) => ["scheduled", "planned", "awaiting_credits", "sending", "unknown"].includes(j.status));
   const awaiting = r.jobs.filter((j) => j.status === "awaiting_credits");
@@ -31,7 +33,7 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
       <Link href="/renewals" className="small">← {t("rem.title")}</Link>
       <div className="card">
         <div className="row between">
-          <span className="row"><span className="avatar-icon"><Icon name={iconForCategory(r.category)} /></span><span><h1 className="mb-0">{r.label}</h1><span className="small muted">{categoryName(r.category, prefs.lang)}{r.familyMemberLabel ? ` · ${r.familyMemberLabel}` : ""} · {t("rem.cycle")} {n(r.cycleNo)}</span></span></span>
+          <span className="row"><span className="avatar-icon"><Icon name={iconForCategory(r.category)} /></span><span><h1 className="mb-0">{r.label}</h1><span className="small muted">{categoryName(r.category, prefs.lang)}{r.familyMemberLabel ? ` · ${r.familyMemberLabel}` : ""}{groupName ? ` · ${groupName}` : ""}{r.repeatYearly ? ` · ↻ ${t("grp.repeatYearly")}` : ` · ${t("rem.cycle")} ${n(r.cycleNo)}`}</span></span></span>
           <StatusBadge status={lifecycle} />
         </div>
         <div className="stat-grid mt">

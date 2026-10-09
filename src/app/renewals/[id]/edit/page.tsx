@@ -8,6 +8,7 @@ import { listDocTemplates } from "@/lib/services/admin-console";
 import { getSetting } from "@/lib/services/settings";
 import { whatsappAvailable } from "@/lib/whatsapp/availability";
 import { getDb } from "@/lib/db";
+import { listGroups } from "@/lib/services/groups";
 import { RenewalForm } from "@/components/RenewalForm";
 import { LockNotice } from "@/components/LockNotice";
 
@@ -20,12 +21,14 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
   if (!user) redirect(`/login?next=/renewals/${id}/edit`);
   const r = await getReminder(webPrincipal(user), id).catch(() => null);
   if (!r) notFound();
-  const [templates, lock, limits, waOk, opt] = await Promise.all([
+  const [templates, lock, limits, waOk, opt, groups, rules] = await Promise.all([
     listDocTemplates(false),
     getLockState(user.id),
     getSetting("topup"),
     whatsappAvailable(),
     getDb().query<{ at: string | null }>("select whatsapp_opt_in_at as at from users where id = $1", [user.id]),
+    listGroups(user.id),
+    getDb().query<{ offset_minutes: number }>("select offset_minutes from reminder_rules where renewal_id = $1 and enabled", [r.id]),
   ]);
   const whatsapp = { available: waOk, optedIn: Boolean(opt.rows[0]?.at) };
   return (
@@ -40,6 +43,7 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
           renewalId={r.id}
           topupMin={limits.min_npr}
           whatsapp={whatsapp}
+          groups={groups}
           initial={{
             category: r.category,
             label: r.label,
@@ -48,9 +52,12 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
             localTime: r.localTime,
             notes: r.notes ?? "",
             familyMemberLabel: r.familyMemberLabel ?? "",
-            offsets: [...new Set(r.jobs.filter((j) => j.status !== "cancelled").map((j) => j.offsetMinutes))],
+            // Yearly reminders keep offsets that are already past this year; read them from the rules.
+            offsets: r.repeatYearly && rules.rows.length ? rules.rows.map((x) => x.offset_minutes) : [...new Set(r.jobs.filter((j) => j.status !== "cancelled").map((j) => j.offsetMinutes))],
             templateSlug: r.templateSlug,
             channels: r.channels,
+            groupId: r.groupId,
+            repeatYearly: r.repeatYearly,
           }}
         />
       )}

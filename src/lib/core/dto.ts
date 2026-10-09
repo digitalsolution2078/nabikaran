@@ -53,6 +53,8 @@ export interface ReminderDTO {
   familyMemberLabel: string | null;
   channels: Channel[];
   templateSlug: string | null;
+  groupId: string | null;
+  repeatYearly: boolean;
   jobs: ReminderJobDTO[];
   createdAt: string;
   updatedAt: string;
@@ -60,6 +62,7 @@ export interface ReminderDTO {
 
 export type Warning =
   | "expiry_in_past"
+  | "whatsapp_not_for_occasions"
   | "some_offsets_in_past"
   | "duplicate_offsets"
   | "over_cap"

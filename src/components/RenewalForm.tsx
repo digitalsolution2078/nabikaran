@@ -12,6 +12,8 @@ import { BS_MAX_YEAR, BS_MIN_YEAR, BS_MONTHS_EN, BS_MONTHS_NE, adToBs, bsDaysInM
 import { formatDate, localizeNumber, offsetLabel } from "@/lib/i18n/format";
 import { kathmanduToUtc } from "@/lib/time";
 import { isSmsSafeLabel } from "@/lib/sms/templates";
+import { isOccasion } from "@/lib/categories";
+import { anchorFromInput, nextOccurrence } from "@/lib/recurrence";
 
 export interface TemplateOption {
   slug: string;
@@ -39,6 +41,14 @@ export interface RenewalFormValues {
   templateSlug: string | null;
   channels: Array<"sms" | "whatsapp">;
   whatsappConsent?: boolean;
+  groupId: string | null;
+  repeatYearly: boolean;
+}
+
+export interface GroupOption {
+  id: string;
+  name: string;
+  kind: "custom" | "birthday" | "anniversary";
 }
 
 const GROUP_LABEL: Record<string, { en: string; ne: string }> = {
@@ -46,6 +56,7 @@ const GROUP_LABEL: Record<string, { en: string; ne: string }> = {
   personal: { en: "Personal documents", ne: "व्यक्तिगत कागजात" },
   insurance: { en: "Insurance & finance", ne: "बीमा र वित्त" },
   business: { en: "Business & professional", ne: "व्यवसाय" },
+  occasions: { en: "Birthdays & occasions", ne: "जन्मदिन र अवसर" },
   custom: { en: "Custom", ne: "आफ्नै" },
 };
 
@@ -64,25 +75,31 @@ interface Shortfall {
   locked?: boolean;
 }
 
-export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false } }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean } }) {
+export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false }, groups = [], initialGroupId = null }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean }; groups?: GroupOption[]; initialGroupId?: string | null }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const lang = prefs.lang;
-  const preselected = templates.find((x) => x.slug === initialTemplate) ?? null;
+  const startGroup = groups.find((g) => g.id === initialGroupId) ?? null;
+  // A Birthdays / Anniversaries group starts on the matching template.
+  const groupTpl = startGroup && startGroup.kind !== "custom" ? templates.find((x) => x.category === startGroup.kind) : undefined;
+  const preselected = templates.find((x) => x.slug === initialTemplate) ?? groupTpl ?? null;
+  const preOccasion = preselected?.group_key === "occasions";
   const [step, setStep] = useState<Step>(renewalId || preselected ? 1 : 0);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<string | null>(null);
   const [v, setV] = useState<RenewalFormValues>({
     category: preselected?.category ?? "other",
-    label: preselected?.sms_label ?? "",
+    label: preOccasion ? "" : preselected?.sms_label ?? "",
     calendar: prefs.date,
     expiryDate: "",
-    localTime: "09:00",
+    localTime: preOccasion ? "08:00" : "09:00",
     notes: "",
     familyMemberLabel: "",
     offsets: preselected?.default_offsets ?? [30 * 1440, 7 * 1440, 1440, 0],
     templateSlug: preselected?.slug ?? null,
     channels: ["sms"],
+    groupId: startGroup?.id ?? null,
+    repeatYearly: preOccasion ? preselected?.category !== "event" : false,
     ...initial,
   });
   const [custom, setCustom] = useState({ days: 0, hours: 0, minutes: 0 });
@@ -127,7 +144,17 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
 
   const chooseTemplate = (tpl: TemplateOption) => {
     const tplChannels = (tpl.default_channels ?? ["sms"]).filter((c): c is "sms" | "whatsapp" => c === "sms" || (c === "whatsapp" && whatsapp.available));
-    setV((old) => ({ ...old, category: tpl.category, label: old.label && renewalId ? old.label : tpl.sms_label, offsets: tpl.default_offsets, templateSlug: tpl.slug, channels: renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"] }));
+    const occ = tpl.group_key === "occasions";
+    setV((old) => ({
+      ...old,
+      category: tpl.category,
+      label: old.label && renewalId ? old.label : occ ? "" : tpl.sms_label,
+      offsets: tpl.default_offsets,
+      templateSlug: tpl.slug,
+      channels: occ ? ["sms"] : renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"],
+      repeatYearly: renewalId ? old.repeatYearly : occ ? tpl.category !== "event" : false,
+      localTime: !renewalId && occ ? "08:00" : old.localTime,
+    }));
     setPreview(null);
     setStep(1);
   };
@@ -145,13 +172,21 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       if (!v.expiryDate) return null;
       const [y, m, d] = v.expiryDate.split("-").map(Number);
       if (!y || !m || !d) return null;
-      const ad = v.calendar === "BS" ? bsToAd({ year: y, month: m, day: d }) : { year: y, month: m, day: d };
-      const utc = kathmanduToUtc(ad, v.localTime);
+      let utc: Date;
+      if (v.repeatYearly) {
+        const next = nextOccurrence(v.calendar, anchorFromInput(v.expiryDate)!, v.localTime, new Date(), y);
+        if (!next) return null;
+        utc = next.utc;
+      } else {
+        const ad = v.calendar === "BS" ? bsToAd({ year: y, month: m, day: d }) : { year: y, month: m, day: d };
+        utc = kathmanduToUtc(ad, v.localTime);
+      }
       return { utc, other: formatDate(utc, { lang, date: v.calendar === "BS" ? "AD" : "BS" }), same: formatDate(utc, { lang, date: v.calendar }) };
     } catch {
       return null;
     }
-  }, [v.expiryDate, v.calendar, v.localTime, lang]);
+  }, [v.expiryDate, v.calendar, v.localTime, v.repeatYearly, lang]);
+  const occasion = isOccasion(v.category);
 
   const switchCalendar = (cal: "AD" | "BS") => {
     if (cal === v.calendar) return;
@@ -175,7 +210,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     try {
       const r = await api<{ preview: SchedulePreview }>("/api/renewals/preview", {
         method: "POST",
-        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets, channels: v.channels, renewalId: renewalId ?? null },
+        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets, channels: v.channels, repeatYearly: v.repeatYearly, renewalId: renewalId ?? null },
       });
       setPreview(r.preview);
       setBsConfirmed(false);
@@ -266,9 +301,9 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             </div>
           )}
           <div className="field">
-            <label htmlFor="label">{t("rem.label")}</label>
-            <input id="label" type="text" value={v.label} maxLength={80} onChange={(e) => set("label", e.target.value)} placeholder="Ba 2 Pa 1234 Bluebook" required />
-            <span className="hint">{t("rem.labelHint")}</span>
+            <label htmlFor="label">{occasion && v.category !== "event" ? t("grp.personName") : t("rem.label")}</label>
+            <input id="label" type="text" value={v.label} maxLength={80} onChange={(e) => set("label", e.target.value)} placeholder={occasion ? (v.category === "event" ? "Dashain puja" : "Ram Sharma") : "Ba 2 Pa 1234 Bluebook"} required />
+            <span className="hint">{occasion ? t("grp.personHint") : t("rem.labelHint")}</span>
             {v.label && !isSmsSafeLabel(v.label) && <span className="hint" style={{ color: "var(--warn)" }}>{t("warn.sms_label_adjusted")}</span>}
           </div>
           <div className="field">
@@ -280,13 +315,14 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           </div>
           <div className="grid grid-2">
             <div className="field">
-              <label htmlFor="expiry">{t("rem.expiryDate")}</label>
+              <label htmlFor="expiry">{occasion ? (v.category === "birthday" ? t("grp.birthDate") : t("grp.date")) : t("rem.expiryDate")}</label>
               {v.calendar === "AD" ? (
                 <input id="expiry" type="date" value={v.expiryDate} onChange={(e) => set("expiryDate", e.target.value)} required />
               ) : (
-                <BsDateInput value={v.expiryDate} onChange={(s) => set("expiryDate", s)} lang={lang} />
+                <BsDateInput value={v.expiryDate} onChange={(s) => set("expiryDate", s)} lang={lang} pastYears={v.repeatYearly} />
               )}
-              {conversion && <span className="hint"><Icon name="calendar" size={12} /> {t("rem.convertedDate")}: <strong>{conversion.other}</strong></span>}
+              {conversion && v.repeatYearly && <span className="hint"><Icon name="repeat" size={12} /> {t("grp.nextOn")}: <strong>{conversion.same}</strong> ({conversion.other})</span>}
+              {conversion && !v.repeatYearly && <span className="hint"><Icon name="calendar" size={12} /> {t("rem.convertedDate")}: <strong>{conversion.other}</strong></span>}
               {conversion && conversion.utc.getTime() <= Date.now() && <span className="field-error" role="alert">{t("warn.expiry_in_past")}</span>}
             </div>
             <div className="field">
@@ -295,6 +331,19 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
               <span className="hint">{t("rem.timeHint")}</span>
             </div>
           </div>
+          <label className="row small" style={{ marginBottom: 12 }}>
+            <input type="checkbox" checked={v.repeatYearly} onChange={(e) => set("repeatYearly", e.target.checked)} />
+            <span><strong>{t("grp.repeatYearly")}</strong> · <span className="muted">{t("grp.repeatHint")}</span></span>
+          </label>
+          {groups.length > 0 && (
+            <div className="field">
+              <label htmlFor="group">{t("grp.group")}</label>
+              <select id="group" value={v.groupId ?? ""} onChange={(e) => set("groupId", e.target.value || null)}>
+                <option value="">{t("grp.noGroup")}</option>
+                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </div>
+          )}
           <details>
             <summary className="small" style={{ cursor: "pointer", marginBottom: 10 }}>{t("rem.family")} · {t("rem.notes")}</summary>
             <div className="grid grid-2">
@@ -345,16 +394,18 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
               {([["sms"], ["whatsapp"], ["sms", "whatsapp"]] as Array<Array<"sms" | "whatsapp">>).map((opt) => {
                 const key = opt.join("+");
                 const needsWa = opt.includes("whatsapp");
+                const waOff = needsWa && (!whatsapp.available || occasion);
                 const selected = v.channels.length === opt.length && opt.every((c) => v.channels.includes(c));
                 return (
-                  <label key={key} className={`choice ${selected ? "selected" : ""} ${needsWa && !whatsapp.available ? "disabled" : ""}`}>
-                    <input type="radio" name="channels" checked={selected} disabled={needsWa && !whatsapp.available} onChange={() => set("channels", opt)} />
+                  <label key={key} className={`choice ${selected ? "selected" : ""} ${waOff ? "disabled" : ""}`}>
+                    <input type="radio" name="channels" checked={selected} disabled={waOff} onChange={() => set("channels", opt)} />
                     <span>{key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : t("channel.both")}</span>
                   </label>
                 );
               })}
             </div>
             {!whatsapp.available && <p className="hint mb-0">{t("channel.waComingSoon")}</p>}
+            {whatsapp.available && occasion && <p className="hint mb-0">{t("warn.whatsapp_not_for_occasions")}</p>}
             {v.channels.includes("whatsapp") && !whatsapp.optedIn && (
               <label className="row small mt"><input type="checkbox" checked={Boolean(v.whatsappConsent)} onChange={(e) => set("whatsappConsent", e.target.checked)} /> {t("channel.waConsent")}</label>
             )}
@@ -374,9 +425,10 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             <span className="badge info">{t("rem.oneSms")}</span>
           </div>
           <p className="mt">
-            <strong>{v.label}</strong> · {t("rem.expires")}: <strong>{formatDate(preview.expiry.utc, prefs)}</strong>{" "}
+            <strong>{v.label}</strong> · {occasion ? t("grp.date") : t("rem.expires")}: <strong>{formatDate(preview.expiry.utc, prefs)}</strong>{" "}
             <span className="muted">({formatDate(preview.expiry.utc, { ...prefs, date: prefs.date === "BS" ? "AD" : "BS" })}) · {preview.expiry.local.slice(11)} NPT</span>
           </p>
+          {v.repeatYearly && <div className="alert info"><Icon name="repeat" /> <span>{t("grp.repeatReview")}</span></div>}
           {preview.warnings.map((w) => (
             <div key={w} className={`alert ${w === "insufficient_credits" || w === "bs_date_needs_confirmation" ? "warn" : "info"}`}><Icon name="info" /> <span>{t(`warn.${w}` as MessageKey)}</span></div>
           ))}
@@ -467,7 +519,7 @@ function TemplateCard({ tpl, lang, onPick }: { tpl: TemplateOption; lang: "ne" |
 }
 
 /** BS date as three selects bounded by the real month lengths (no free-text parsing). */
-function BsDateInput({ value, onChange, lang }: { value: string; onChange: (s: string) => void; lang: "ne" | "en" }) {
+function BsDateInput({ value, onChange, lang, pastYears = false }: { value: string; onChange: (s: string) => void; lang: "ne" | "en"; pastYears?: boolean }) {
   const today = adToBs((() => { const d = new Date(Date.now() + 345 * 60_000); return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() }; })());
   const parsed = value ? value.split("-").map(Number) : null;
   const [ym, setYm] = useState({ y: parsed?.[0] ?? today.year, m: parsed?.[1] ?? today.month });
@@ -479,7 +531,9 @@ function BsDateInput({ value, onChange, lang }: { value: string; onChange: (s: s
     onChange(dd ? `${yy}-${pad(mm)}-${pad(Math.min(dd, max))}` : "");
   };
   const years: number[] = [];
-  for (let yy = Math.max(BS_MIN_YEAR, today.year - 1); yy <= Math.min(BS_MAX_YEAR, today.year + 15); yy++) years.push(yy);
+  // Birthdays and anniversaries may start in any past year (a birth year); other dates are near-future.
+  for (let yy = pastYears ? BS_MIN_YEAR : Math.max(BS_MIN_YEAR, today.year - 1); yy <= Math.min(BS_MAX_YEAR, today.year + 15); yy++) years.push(yy);
+  if (pastYears) years.reverse();
   const months = lang === "ne" ? BS_MONTHS_NE : BS_MONTHS_EN;
   return (
     <div className="grid" style={{ gridTemplateColumns: "1fr 1.4fr 1fr", gap: 8 }}>
