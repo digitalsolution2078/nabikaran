@@ -1,0 +1,66 @@
+import { NextResponse } from "next/server";
+import { ZodError, type ZodType } from "zod";
+import { assertSameOrigin, getCurrentUser, type SessionUser } from "./auth/session";
+import { env } from "./env";
+
+export class HttpError extends Error {
+  constructor(public readonly status: number, message: string, public readonly code?: string) {
+    super(message);
+  }
+}
+
+export function json<T>(data: T, init?: ResponseInit) {
+  return NextResponse.json(data, init);
+}
+
+export function errorResponse(e: unknown) {
+  if (e instanceof HttpError) return json({ error: e.message, code: e.code }, { status: e.status });
+  if (e instanceof ZodError) return json({ error: "Invalid input", issues: e.issues }, { status: 400 });
+  const code = (e as { code?: string })?.code;
+  if (code) return json({ error: (e as Error).message, code }, { status: 400 });
+  console.error(e);
+  return json({ error: "Internal error" }, { status: 500 });
+}
+
+export async function parseBody<T>(req: Request, schema: ZodType<T>): Promise<T> {
+  const body = await req.json().catch(() => {
+    throw new HttpError(400, "Body must be JSON");
+  });
+  return schema.parse(body);
+}
+
+export async function requireUser(req: Request): Promise<SessionUser> {
+  if (req.method !== "GET" && req.method !== "HEAD" && !(await assertSameOrigin())) {
+    throw new HttpError(403, "Cross-site request blocked", "csrf");
+  }
+  const user = await getCurrentUser();
+  if (!user) throw new HttpError(401, "Sign in required", "unauthenticated");
+  return user;
+}
+
+export async function requireAdmin(req: Request): Promise<SessionUser> {
+  const user = await requireUser(req);
+  if (user.role !== "admin") throw new HttpError(403, "Admin only", "forbidden");
+  return user;
+}
+
+/** Internal worker routes are authenticated with a bearer token, never a cookie. */
+export function requireWorker(req: Request) {
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token || token !== env.workerToken()) throw new HttpError(401, "Worker token required", "unauthenticated");
+}
+
+export function clientIp(req: Request): string | null {
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0]!.trim();
+  return req.headers.get("x-real-ip");
+}
+
+export async function handle(fn: () => Promise<Response>): Promise<Response> {
+  try {
+    return await fn();
+  } catch (e) {
+    return errorResponse(e);
+  }
+}

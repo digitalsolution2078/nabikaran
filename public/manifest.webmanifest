@@ -1,0 +1,11 @@
+{
+  "name": "Nabikaran",
+  "short_name": "Nabikaran",
+  "description": "SMS renewal reminders for Nepal",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f7f7fb",
+  "theme_color": "#4b2e83",
+  "lang": "ne",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
