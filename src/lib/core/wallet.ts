@@ -73,11 +73,15 @@ export async function getLedger(p: Principal, limit = 50, db: Db = getDb()): Pro
   }));
 }
 
-export async function getActivePricing(db: Db = getDb()): Promise<{ id: number; creditsPerUnit: number }> {
+export type Channel = "sms" | "whatsapp";
+
+/** Current price for a channel: credits per SMS unit, or per accepted WhatsApp template message. */
+export async function getActivePricing(db: Db = getDb(), channel: Channel = "sms"): Promise<{ id: number; creditsPerUnit: number }> {
   const { rows } = await db.query<{ id: number | string; credits_per_billable_unit: number }>(
-    "select id, credits_per_billable_unit from pricing_versions where effective_at <= now() order by effective_at desc, id desc limit 1",
+    "select id, credits_per_billable_unit from pricing_versions where channel = $1 and effective_at <= now() order by effective_at desc, id desc limit 1",
+    [channel],
   );
-  if (!rows[0]) throw new Error("No active pricing version");
+  if (!rows[0]) throw new Error(`No active ${channel} pricing version`);
   return { id: Number(rows[0].id), creditsPerUnit: Number(rows[0].credits_per_billable_unit) };
 }
 

@@ -57,6 +57,19 @@ export const env = {
     secretKey: process.env.FONEPAY_SECRET_KEY ?? "",
   },
 
+  /**
+   * WhatsApp (Meta Cloud API). Secrets stay here only — never in the database
+   * or UI. Non-secret IDs (phone number ID, WABA ID) are admin settings.
+   */
+  whatsapp: {
+    provider: (process.env.WHATSAPP_PROVIDER ?? "off") as "off" | "meta" | "mock",
+    accessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? "",
+    appSecret: process.env.WHATSAPP_APP_SECRET ?? "",
+    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "",
+    apiVersion: process.env.WHATSAPP_API_VERSION ?? "v21.0",
+    graphBase: process.env.WHATSAPP_GRAPH_BASE ?? "https://graph.facebook.com",
+  },
+
   otp: {
     ttlSeconds: 300,
     maxAttempts: 5,

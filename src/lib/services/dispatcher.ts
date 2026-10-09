@@ -3,20 +3,16 @@ import { getDb, type Db } from "../db";
 import { env } from "../env";
 import { getSmsProvider } from "../providers/sms";
 import { renderReminder } from "../sms/templates";
+import { renderWhatsApp } from "../whatsapp/templates";
+import { getWhatsAppProvider } from "../providers/whatsapp";
+import { whatsappAvailable } from "../whatsapp/availability";
+import { getSetting } from "./settings";
+import { BOOKED_COMMIT } from "./billing";
 import { categorySmsName } from "../categories";
-import { loadTemplates } from "../core/reminders";
+import { loadTemplates, loadWaTemplates } from "../core/reminders";
 import { getActivePricing } from "../core/wallet";
 import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../scheduler";
 
-/**
- * Charge = billed units × the credits-per-SMS price the job was RESERVED at
- * (reminder_jobs.cost_version), so a later price change never alters what an
- * already-scheduled reminder costs. Falls back to the current price only for
- * legacy jobs without a cost version.
- */
-const BOOKED_COMMIT = `select wallet_commit_for_job($1::uuid,
-  $2::bigint * coalesce((select pv.credits_per_billable_unit from reminder_jobs j join pricing_versions pv on pv.id = j.cost_version where j.id = $1::uuid), $3::bigint),
-  $4::text)`;
 import { redactPhone } from "../phone";
 
 /**
@@ -50,6 +46,7 @@ interface ClaimedJob {
   attempts: number;
   estimated_credits: string | number;
   estimated_segments: string | number;
+  channel?: string;
   lock_token: string;
 }
 
@@ -66,7 +63,12 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
   if (jobs.length === 0) return summary;
 
   const templates = await loadTemplates(db);
-  const pricing = await getActivePricing(db);
+  const pricing = await getActivePricing(db, "sms");
+  const hasWa = jobs.some((j) => j.channel === "whatsapp");
+  const [waPricing, waTemplates, waSettings, waOk] = hasWa
+    ? await Promise.all([getActivePricing(db, "whatsapp"), loadWaTemplates(db), getSetting("whatsapp", db), whatsappAvailable(db)])
+    : [pricing, [], null, false];
+  const waProvider = hasWa ? getWhatsAppProvider() : null;
 
   for (const job of jobs) {
     // Atomic pre-send verification inside a transaction: renewal active, phone verified,
@@ -99,16 +101,24 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       if (s.prior > 0) return fail("unknown", "prior attempt exists; reconcile", false);
       if (s.reservation_status !== "active") return fail("awaiting_credits", "no active reservation");
       if (new Date(s.due_at_utc).getTime() > now.getTime()) return fail("scheduled", "not due", false);
+      const isWa = job.channel === "whatsapp";
+      // WhatsApp switched off (or provider missing) after scheduling: return the credits.
+      if (isWa && (!waOk || !waProvider)) return fail("failed", "WhatsApp is not available; credits returned");
 
       const attemptNo = job.attempts + 1;
-      const idempotencyKey = `sms:${job.id}:${attemptNo}`;
+      const idempotencyKey = `${isWa ? "wa" : "sms"}:${job.id}:${attemptNo}`;
       await tx.query(
-        "insert into sms_attempts (job_id, attempt_no, provider, idempotency_key, api_state) values ($1,$2,$3,$4,'pending')",
-        [job.id, attemptNo, provider.name, idempotencyKey],
+        "insert into sms_attempts (job_id, attempt_no, provider, idempotency_key, api_state, channel) values ($1,$2,$3,$4,'pending',$5)",
+        [job.id, attemptNo, isWa ? waProvider!.name : provider.name, idempotencyKey, isWa ? "whatsapp" : "sms"],
       );
       await tx.query("update reminder_jobs set attempts = $2, updated_at = now() where id = $1", [job.id, attemptNo]);
-      const rendered = renderReminder({ label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale }, templates);
-      return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: rendered.body, estimatedSegments: rendered.estimate.segments };
+      const base = { label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale };
+      if (isWa) {
+        const w = renderWhatsApp(base, waTemplates);
+        return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: w.preview, estimatedSegments: 1, wa: w };
+      }
+      const rendered = renderReminder(base, templates);
+      return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: rendered.body, estimatedSegments: rendered.estimate.segments, wa: null };
     });
 
     if (!pre.ok) {
@@ -117,7 +127,21 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
     }
 
     // Exactly one provider call per attempt.
-    const outcome = await provider.send({ to: pre.to, text: pre.text, idempotencyKey: pre.idempotencyKey });
+    const outcome = pre.wa
+      ? await waProvider!.send({
+          to: pre.to,
+          phoneNumberId: waSettings?.phone_number_id ?? "",
+          templateName: pre.wa.templateName,
+          language: pre.wa.language,
+          params: pre.wa.params,
+          idempotencyKey: pre.idempotencyKey,
+        })
+      : await provider.send({ to: pre.to, text: pre.text, idempotencyKey: pre.idempotencyKey });
+    const channelPrice = pre.wa ? waPricing.creditsPerUnit : pricing.creditsPerUnit;
+    const event = (q: Db, what: string, detail: Record<string, unknown>) =>
+      pre.wa
+        ? q.query("insert into audit_events (actor_via, action, target_type, target_id, json_detail_redacted) values ('worker',$1,'reminder_job',$2,$3)", [`whatsapp.message.${what}`, job.id, JSON.stringify(detail)])
+        : Promise.resolve();
 
     await db.tx(async (tx) => {
       if (outcome.kind === "accepted") {
@@ -131,9 +155,10 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         // in sms_attempts.reported_units for admin reconciliation, not billed.
         const quoted = Number(job.estimated_segments) || pre.estimatedSegments;
         if (reported !== quoted) console.warn(`[dispatcher] provider billed ${reported} unit(s) for job ${job.id}; quoted ${quoted}`);
-        await tx.query(BOOKED_COMMIT, [job.id, quoted, pricing.creditsPerUnit, `debit:${pre.idempotencyKey}`]);
+        await tx.query(BOOKED_COMMIT, [job.id, quoted, channelPrice, `debit:${pre.idempotencyKey}`]);
         await tx.query("update reminder_jobs set status = 'submitted', lock_at = null, lock_token = null, last_error = null, updated_at = now() where id = $1", [job.id]);
         summary.submitted++;
+        await event(tx, "submitted", { providerMessageId: outcome.providerMessageId });
         return;
       }
       if (outcome.kind === "rejected") {
@@ -148,12 +173,14 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
           await tx.query("select wallet_release_for_job($1)", [job.id]);
           await tx.query("update reminder_jobs set status = 'failed', lock_at = null, lock_token = null, last_error = $2, updated_at = now() where id = $1", [job.id, outcome.reason]);
           summary.failed++;
+          await event(tx, "failed", { reason: outcome.reason, refunded: "reservation released" });
         }
         return;
       }
       await tx.query("update sms_attempts set api_state = 'unknown', error_text = $2, response_at = now() where idempotency_key = $1", [pre.idempotencyKey, outcome.reason]);
       await tx.query("update reminder_jobs set status = 'unknown', lock_at = null, lock_token = null, last_error = $2, updated_at = now() where id = $1", [job.id, outcome.reason]);
       summary.unknown++;
+      await event(tx, "unknown", { reason: outcome.reason });
       console.warn(`[dispatch] unknown outcome job=${job.id} to=${redactPhone(pre.to)}: ${outcome.reason}`);
     });
   }
@@ -181,7 +208,7 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   // 1. Delivery reports for submitted jobs (last 3 days).
   const { rows: submitted } = await db.query<{ job_id: string; provider_message_id: string; idempotency_key: string; reported_units: number | null }>(
     `select a.job_id, a.provider_message_id, a.idempotency_key, a.reported_units from sms_attempts a join reminder_jobs j on j.id = a.job_id
-      where j.status = 'submitted' and a.api_state = 'accepted' and a.provider_message_id is not null and a.request_at > now() - interval '3 days' limit 500`,
+      where a.channel = 'sms' and j.status = 'submitted' and a.api_state = 'accepted' and a.provider_message_id is not null and a.request_at > now() - interval '3 days' limit 500`,
   );
   if (submitted.length) {
     const reports = await provider.report(submitted.map((s) => s.provider_message_id));
@@ -191,9 +218,19 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
       if (!a) continue;
       if (r.status === "delivered" || r.status === "failed") {
         await db.query("update sms_attempts set reported_status = $2, reported_units = coalesce($3, reported_units) where idempotency_key = $1", [a.idempotency_key, r.status, r.units ?? null]);
+        await db.query("update sms_attempts set delivered_at = case when $2 = 'delivered' then coalesce(delivered_at, now()) else delivered_at end where idempotency_key = $1", [a.idempotency_key, r.status]);
         await db.query("update reminder_jobs set status = $2, updated_at = now() where id = $1 and status = 'submitted'", [a.job_id, r.status]);
-        // Accepted-but-undelivered is NOT auto-refunded (PRD §4); the debit stays and the
-        // difference, if the provider reports fewer units, is logged for manual review.
+        // Refund policy (services/billing.ts): a provider-reported failure reverses the charge.
+        if (r.status === "failed") {
+          const { rows: rev } = await db.query<{ wallet_reverse_debit_for_job: string }>("select wallet_reverse_debit_for_job($1, $2)", [a.job_id, `debit:${a.idempotency_key}`]);
+          if (Number(rev[0]?.wallet_reverse_debit_for_job ?? 0) !== 0) {
+            await db.query("update sms_attempts set refunded_at = now() where idempotency_key = $1", [a.idempotency_key]);
+            await db.query("insert into audit_events (actor_via, action, target_type, target_id, json_detail_redacted) values ('worker','sms.failed_refunded','reminder_job',$1,$2)", [
+              a.job_id, JSON.stringify({ credits: Number(rev[0].wallet_reverse_debit_for_job) }),
+            ]);
+          }
+        }
+        // A unit-count difference is logged for manual review (the customer pays the quote).
         if (r.units !== undefined && a.reported_units !== null && r.units !== a.reported_units) {
           await db.query("insert into audit_events (action, target_type, target_id, json_detail_redacted) values ('sms.unit_mismatch','reminder_job',$1,$2)", [
             a.job_id, JSON.stringify({ charged_units: a.reported_units, reported_units: r.units }),
@@ -208,7 +245,7 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   // 2. Unknown attempts: ask the provider whether our client reference was accepted.
   const { rows: unknowns } = await db.query<{ job_id: string; idempotency_key: string; attempt_no: number; estimated_segments: number }>(
     `select a.job_id, a.idempotency_key, a.attempt_no, j.estimated_segments from sms_attempts a join reminder_jobs j on j.id = a.job_id
-      where j.status = 'unknown' and a.api_state in ('unknown','pending') limit 200`,
+      where a.channel = 'sms' and j.status = 'unknown' and a.api_state in ('unknown','pending') limit 200`,
   );
   for (const u of unknowns) {
     if (!provider.findByClientRef) continue; // manual action remains required
@@ -232,6 +269,24 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
           await tx.query("update reminder_jobs set status = 'failed', last_error = 'retries exhausted', updated_at = now() where id = $1", [u.job_id]);
         }
       }
+    });
+    out.unknownResolved++;
+  }
+
+  // 2b. WhatsApp attempts with an unknown outcome and no webhook for 6 hours: treat as not
+  //     sent and return the credits (Meta echoes our key in webhooks, so a late "sent"
+  //     would still be matched and charged by the webhook handler).
+  const { rows: staleWa } = await db.query<{ job_id: string; idempotency_key: string }>(
+    `select a.job_id, a.idempotency_key from sms_attempts a join reminder_jobs j on j.id = a.job_id
+      where a.channel = 'whatsapp' and j.status = 'unknown' and a.api_state in ('unknown','pending') and a.request_at < $1 limit 200`,
+    [new Date(now.getTime() - 6 * 3600_000).toISOString()],
+  );
+  for (const w of staleWa) {
+    await db.tx(async (tx) => {
+      await tx.query("select wallet_release_for_job($1)", [w.job_id]);
+      await tx.query("update sms_attempts set api_state = 'rejected', error_text = 'no confirmation from Meta within 6 hours' where idempotency_key = $1", [w.idempotency_key]);
+      await tx.query("update reminder_jobs set status = 'failed', last_error = 'no confirmation from Meta within 6 hours; credits returned', updated_at = now() where id = $1", [w.job_id]);
+      await tx.query("insert into audit_events (actor_via, action, target_type, target_id) values ('worker','whatsapp.message.failed','reminder_job',$1)", [w.job_id]);
     });
     out.unknownResolved++;
   }

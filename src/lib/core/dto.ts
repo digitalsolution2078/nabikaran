@@ -25,10 +25,12 @@ export function instantDTO(d: Date): InstantDTO {
   return { utc: d.toISOString(), local: formatKathmandu(d), ad, bs };
 }
 
-export type JobStatus = "planned" | "awaiting_credits" | "scheduled" | "sending" | "submitted" | "delivered" | "failed" | "unknown" | "cancelled";
+export type JobStatus = "planned" | "awaiting_credits" | "scheduled" | "sending" | "submitted" | "delivered" | "read" | "failed" | "unknown" | "cancelled";
+export type Channel = "sms" | "whatsapp";
 
 export interface ReminderJobDTO {
   id: string;
+  channel: Channel;
   offsetMinutes: number;
   due: InstantDTO;
   status: JobStatus;
@@ -49,6 +51,8 @@ export interface ReminderDTO {
   inputDate: string | null;
   notes: string | null;
   familyMemberLabel: string | null;
+  channels: Channel[];
+  templateSlug: string | null;
   jobs: ReminderJobDTO[];
   createdAt: string;
   updatedAt: string;
@@ -62,9 +66,12 @@ export type Warning =
   | "beyond_two_year_horizon"
   | "bs_date_needs_confirmation"
   | "insufficient_credits"
-  | "sms_label_adjusted";
+  | "sms_label_adjusted"
+  | "whatsapp_unavailable"
+  | "whatsapp_consent_required";
 
 export interface SchedulePreviewLine {
+  channel: Channel;
   offsetMinutes: number;
   due: InstantDTO;
   horizon: "within" | "beyond";
@@ -74,6 +81,15 @@ export interface SchedulePreviewLine {
   credits: number;
   smsLabel: string;
   labelAdjusted: boolean;
+  /** WhatsApp only: the approved Meta template that will be sent. */
+  whatsappTemplate?: { name: string; language: string; params: string[] };
+}
+
+export interface ChannelCost {
+  messages: number;
+  credits: number;
+  creditsPerUnit: number;
+  pricingVersion: number;
 }
 
 export interface SchedulePreview {
@@ -83,6 +99,8 @@ export interface SchedulePreview {
   reservedOnConfirmCredits: number;
   creditsPerUnit: number;
   pricingVersion: number;
+  channels: Channel[];
+  byChannel: Partial<Record<Channel, ChannelCost>>;
   wallet: { available: number; reserved: number; posted: number };
   sufficient: boolean;
   shortfallCredits: number;

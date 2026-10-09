@@ -4,13 +4,15 @@ import { bsToAd, parseBsInput } from "../bs-date";
 import { kathmanduToUtc, parseIsoDate, DEFAULT_LOCAL_TIME, parseLocalTime } from "../time";
 import { planReminders, MAX_OFFSET_MINUTES, type Candidate } from "../scheduler";
 import { renderReminder, type TemplateRow } from "../sms/templates";
-import { getActivePricing, readWallet } from "./wallet";
+import { renderWhatsApp, type WaTemplateRow } from "../whatsapp/templates";
+import { whatsappAvailable } from "../whatsapp/availability";
+import { getActivePricing, readWallet, type Channel } from "./wallet";
 import { HttpError } from "./errors";
 import { requireScope, type Principal } from "./principal";
 import { audit } from "./audit";
 import { assertNotLocked } from "./account-lock";
 import { withIdempotency } from "./idempotency";
-import { instantDTO, type ReminderDTO, type ReminderJobDTO, type SchedulePreview, type Warning } from "./dto";
+import { instantDTO, type ChannelCost, type ReminderDTO, type ReminderJobDTO, type SchedulePreview, type SchedulePreviewLine, type Warning } from "./dto";
 
 import { CATEGORIES, categorySmsName } from "../categories";
 export { CATEGORIES };
@@ -26,8 +28,13 @@ export const reminderInputSchema = z.object({
   familyMemberLabel: z.string().trim().max(60).optional().nullable(),
   templateSlug: z.string().max(60).optional().nullable(),
   offsets: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).max(20).default([30 * 1440, 7 * 1440, 1440, 0]),
+  /** Delivery channels: SMS only, WhatsApp only, or both. */
+  channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).default(["sms"]).transform((c) => [...new Set(c)] as Channel[]),
+  /** Required (true) the first time a user picks WhatsApp: consent to business-initiated WhatsApp messages. */
+  whatsappConsent: z.boolean().optional(),
 });
-export type ReminderInput = z.infer<typeof reminderInputSchema>;
+/** Channels default to SMS only when omitted (web forms, MCP, older callers). */
+export type ReminderInput = Omit<z.infer<typeof reminderInputSchema>, "channels"> & { channels?: Channel[] };
 /** @deprecated name kept for the web routes; same schema. */
 export const renewalInputSchema = reminderInputSchema;
 export type RenewalInput = ReminderInput;
@@ -45,6 +52,8 @@ export interface RenewalRow {
   family_member_label: string | null;
   status: string;
   cycle_no: number;
+  channels?: string[] | null;
+  template_slug?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +67,7 @@ export interface JobRow {
   estimated_segments: number;
   estimated_credits: string | number;
   status: string;
+  channel?: string;
   attempts: number;
   last_error: string | null;
   offset_minutes?: number;
@@ -81,6 +91,16 @@ export async function loadTemplates(db: Db): Promise<TemplateRow[]> {
   return rows;
 }
 
+export async function loadWaTemplates(db: Db): Promise<WaTemplateRow[]> {
+  const { rows } = await db.query<WaTemplateRow>("select locale, category, meta_name, meta_language, body_preview from whatsapp_templates where active order by version desc");
+  return rows;
+}
+
+export function normalizeChannels(c: string[] | null | undefined): Channel[] {
+  const v = (c ?? ["sms"]).filter((x): x is Channel => x === "sms" || x === "whatsapp");
+  return v.length ? [...new Set(v)] : ["sms"];
+}
+
 export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
   return {
     id: r.id,
@@ -94,10 +114,13 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
     inputDate: r.date_input_raw,
     notes: r.notes,
     familyMemberLabel: r.family_member_label,
+    channels: normalizeChannels(r.channels),
+    templateSlug: r.template_slug ?? null,
     jobs: jobs
       .filter((j) => j.cycle_no === r.cycle_no)
       .map<ReminderJobDTO>((j) => ({
         id: j.id,
+        channel: (j.channel === "whatsapp" ? "whatsapp" : "sms") as ReminderJobDTO["channel"],
         offsetMinutes: j.offset_minutes ?? 0,
         due: instantDTO(new Date(j.due_at_utc)),
         status: j.status as ReminderJobDTO["status"],
@@ -117,11 +140,12 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
  */
 export async function previewSchedule(
   p: Principal,
-  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string; renewalId?: string | null },
+  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string; renewalId?: string | null; channels?: Channel[] },
   db: Db = getDb(),
   now: Date = new Date(),
 ): Promise<SchedulePreview> {
   requireScope(p, "reminders:read");
+  const channels = normalizeChannels(input.channels);
   // Editing releases the current schedule's holds before reserving the new one.
   let releasable = 0;
   if (input.renewalId) {
@@ -135,23 +159,60 @@ export async function previewSchedule(
   }
   const expiryAtUtc = resolveExpiry(input);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
-  const [pricing, templates, wallet] = await Promise.all([getActivePricing(db), loadTemplates(db), readWallet(p.userId, db)]);
-  const lines = plan.candidates.map((c) => {
-    const r = renderReminder({ label: input.label, fallbackLabel: categorySmsName(input.category ?? "other"), expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale }, templates);
-    return {
-      offsetMinutes: c.offsetMinutes,
-      due: instantDTO(c.dueAtUtc),
-      horizon: c.horizon,
-      smsText: r.body,
-      segments: r.estimate.segments,
-      encoding: r.estimate.encoding,
-      credits: r.estimate.segments * pricing.creditsPerUnit,
-      smsLabel: r.smsLabel,
-      labelAdjusted: r.labelAdjusted,
-    };
-  });
-  const totalCredits = lines.reduce((s, l) => s + l.credits, 0);
-  const reservedOnConfirmCredits = totalCredits; // every SMS is reserved when the reminder is saved
+  const wantsWa = channels.includes("whatsapp");
+  const [smsPricing, waPricing, templates, waTemplates, wallet, waOk, consent] = await Promise.all([
+    getActivePricing(db, "sms"),
+    getActivePricing(db, "whatsapp"),
+    loadTemplates(db),
+    wantsWa ? loadWaTemplates(db) : Promise.resolve([] as WaTemplateRow[]),
+    readWallet(p.userId, db),
+    wantsWa ? whatsappAvailable(db) : Promise.resolve(true),
+    wantsWa ? db.query<{ at: string | null }>("select whatsapp_opt_in_at as at from users where id = $1", [p.userId]) : Promise.resolve(null),
+  ]);
+  const fallbackLabel = categorySmsName(input.category ?? "other");
+  const lines: SchedulePreviewLine[] = [];
+  for (const c of plan.candidates) {
+    for (const ch of channels) {
+      if (ch === "sms") {
+        const r = renderReminder({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale }, templates);
+        lines.push({
+          channel: "sms",
+          offsetMinutes: c.offsetMinutes,
+          due: instantDTO(c.dueAtUtc),
+          horizon: c.horizon,
+          smsText: r.body,
+          segments: r.estimate.segments,
+          encoding: r.estimate.encoding,
+          credits: r.estimate.segments * smsPricing.creditsPerUnit,
+          smsLabel: r.smsLabel,
+          labelAdjusted: r.labelAdjusted,
+        });
+      } else {
+        const w = renderWhatsApp({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale }, waTemplates);
+        lines.push({
+          channel: "whatsapp",
+          offsetMinutes: c.offsetMinutes,
+          due: instantDTO(c.dueAtUtc),
+          horizon: c.horizon,
+          smsText: w.preview,
+          segments: 1,
+          encoding: "WhatsApp template",
+          credits: waPricing.creditsPerUnit,
+          smsLabel: w.params[0],
+          labelAdjusted: false,
+          whatsappTemplate: { name: w.templateName, language: w.language, params: w.params },
+        });
+      }
+    }
+  }
+  const byChannel: Partial<Record<Channel, ChannelCost>> = {};
+  for (const ch of channels) {
+    const ls = lines.filter((l) => l.channel === ch);
+    const pr = ch === "sms" ? smsPricing : waPricing;
+    byChannel[ch] = { messages: ls.length, credits: ls.reduce((n, l) => n + l.credits, 0), creditsPerUnit: pr.creditsPerUnit, pricingVersion: pr.id };
+  }
+  const totalCredits = lines.reduce((n, l) => n + l.credits, 0);
+  const reservedOnConfirmCredits = totalCredits; // every message is reserved when the reminder is saved
   const warnings: Warning[] = [];
   if (expiryAtUtc.getTime() <= now.getTime()) warnings.push("expiry_in_past");
   if (plan.droppedPast > 0) warnings.push("some_offsets_in_past");
@@ -160,6 +221,8 @@ export async function previewSchedule(
   if (lines.some((l) => l.horizon === "beyond")) warnings.push("beyond_two_year_horizon");
   if (input.calendar === "BS") warnings.push("bs_date_needs_confirmation");
   if (lines.some((l) => l.labelAdjusted)) warnings.push("sms_label_adjusted");
+  if (wantsWa && !waOk) warnings.push("whatsapp_unavailable");
+  if (wantsWa && consent && !consent.rows[0]?.at) warnings.push("whatsapp_consent_required");
   // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
   const shortfallCredits = Math.max(0, reservedOnConfirmCredits - (wallet.available + releasable));
   if (shortfallCredits > 0) warnings.push("insufficient_credits");
@@ -168,14 +231,32 @@ export async function previewSchedule(
     lines,
     totalCredits,
     reservedOnConfirmCredits,
-    creditsPerUnit: pricing.creditsPerUnit,
-    pricingVersion: pricing.id,
+    creditsPerUnit: smsPricing.creditsPerUnit,
+    pricingVersion: smsPricing.id,
+    channels,
+    byChannel,
     wallet,
     sufficient: shortfallCredits === 0,
     shortfallCredits,
     warnings,
     dropped: { past: plan.droppedPast, duplicate: plan.droppedDuplicate, overCap: plan.droppedOverCap },
   };
+}
+
+/** Channel gate for create/update: WhatsApp must be enabled and the user must have opted in. */
+async function prepareChannels(tx: Db, p: Principal, input: ReminderInput): Promise<Channel[]> {
+  const channels = normalizeChannels(input.channels);
+  if (!channels.includes("whatsapp")) return channels;
+  if (!(await whatsappAvailable(tx))) throw new HttpError(400, "WhatsApp reminders are not available yet. Choose SMS.", "whatsapp_unavailable");
+  const { rows } = await tx.query<{ at: string | null }>("select whatsapp_opt_in_at as at from users where id = $1", [p.userId]);
+  if (!rows[0]?.at) {
+    if (!input.whatsappConsent) {
+      throw new HttpError(400, "Please confirm that Nabikaran may send reminders to your number on WhatsApp.", "whatsapp_consent_required");
+    }
+    await tx.query("update users set whatsapp_opt_in_at = now() where id = $1", [p.userId]);
+    await audit(tx, p, "whatsapp.opt_in", { type: "user", id: p.userId }, {});
+  }
+  return channels;
 }
 
 export interface MaterializeSummary {
@@ -189,8 +270,13 @@ export interface MaterializeSummary {
  * Must run inside the caller's transaction.
  */
 async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, candidates: Candidate[]): Promise<MaterializeSummary> {
-  const pricing = await getActivePricing(tx);
-  const templates = await loadTemplates(tx);
+  const channels = normalizeChannels(renewal.channels);
+  const [smsPricing, waPricing, templates, waTemplates] = await Promise.all([
+    getActivePricing(tx, "sms"),
+    getActivePricing(tx, "whatsapp"),
+    loadTemplates(tx),
+    channels.includes("whatsapp") ? loadWaTemplates(tx) : Promise.resolve([] as WaTemplateRow[]),
+  ]);
   const expiry = new Date(renewal.expiry_at_utc);
   const result: MaterializeSummary = { scheduled: 0, awaiting: 0, planned: 0 };
 
@@ -202,20 +288,32 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       [renewal.id, c.offsetMinutes],
     );
     const ruleId = ruleRows[0].id;
-    const rendered = renderReminder({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, templates);
-    const credits = rendered.estimate.segments * pricing.creditsPerUnit;
-    const { rows: jobRows } = await tx.query<{ id: string }>(
-      `insert into reminder_jobs (renewal_id, rule_id, user_id, cycle_no, due_at_utc, cost_version, estimated_segments, estimated_credits, status)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, 'planned')
-       on conflict (renewal_id, rule_id, cycle_no) do update set due_at_utc = excluded.due_at_utc returning id`,
-      [renewal.id, ruleId, renewal.owner_user_id, renewal.cycle_no, c.dueAtUtc.toISOString(), pricing.id, rendered.estimate.segments, credits],
-    );
-    // Funding policy: every SMS of a reminder is paid for (reserved) when the
-    // reminder is saved, however far away it is. A reminder the customer relies
-    // on must never be silently skipped later for lack of credits.
-    const { rows: res } = await tx.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [jobRows[0].id]);
-    if (res[0].wallet_reserve_for_job === "scheduled") result.scheduled++;
-    else result.awaiting++;
+    for (const ch of channels) {
+      let segments = 1;
+      let credits = waPricing.creditsPerUnit;
+      let version = waPricing.id;
+      if (ch === "sms") {
+        const rendered = renderReminder({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, templates);
+        segments = rendered.estimate.segments;
+        credits = segments * smsPricing.creditsPerUnit;
+        version = smsPricing.id;
+      } else {
+        renderWhatsApp({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, waTemplates);
+      }
+      const { rows: jobRows } = await tx.query<{ id: string }>(
+        `insert into reminder_jobs (renewal_id, rule_id, user_id, cycle_no, channel, due_at_utc, cost_version, estimated_segments, estimated_credits, status)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'planned')
+         on conflict (renewal_id, rule_id, cycle_no, channel) do update set due_at_utc = excluded.due_at_utc returning id`,
+        [renewal.id, ruleId, renewal.owner_user_id, renewal.cycle_no, ch, c.dueAtUtc.toISOString(), version, segments, credits],
+      );
+      // Funding policy: every message of a reminder is paid for (reserved) when the
+      // reminder is saved, however far away it is. A reminder the customer relies
+      // on must never be silently skipped later for lack of credits.
+      const { rows: res } = await tx.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [jobRows[0].id]);
+      if (res[0].wallet_reserve_for_job === "scheduled") result.scheduled++;
+      else result.awaiting++;
+      if (ch === "whatsapp") await audit(tx, null, "whatsapp.message.scheduled", { type: "reminder_job", id: jobRows[0].id }, { due: c.dueAtUtc.toISOString(), credits });
+    }
   }
   if (result.awaiting > 0) {
     // Abort the whole transaction: no reminder is saved half-funded.
@@ -281,10 +379,11 @@ export async function createReminderIn(tx: Db, p: Principal, input: ReminderInpu
   await assertNotLocked(p.userId, tx);
   const expiryAtUtc = resolveExpiry(input);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
+  const channels = await prepareChannels(tx, p, input);
   const { rows } = await tx.query<RenewalRow>(
-    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10)) returning *`,
-    [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null],
+    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug, channels)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11) returning *`,
+    [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null, channels],
   );
   const renewal = rows[0];
   const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates);
@@ -321,12 +420,14 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
     [renewalId, p.userId],
   );
   if (!existing[0]) throw new HttpError(404, "Reminder not found", "not_found");
+  const channels = await prepareChannels(tx, p, input);
   const cancelled = await cancelUnsentJobs(tx, renewalId, "superseded by edit");
   const { rows } = await tx.query<RenewalRow>(
     `update renewal_items set category=$3, label=$4, expiry_at_utc=$5, local_time=$6, date_input_calendar=$7, date_input_raw=$8, notes=$9,
-       family_member_label=$10, status='active', cycle_no = cycle_no + 1, updated_at = now()
+       family_member_label=$10, channels=$11, template_slug = coalesce((select slug from document_templates where slug = $12), template_slug),
+       status='active', cycle_no = cycle_no + 1, updated_at = now()
      where id = $1 and owner_user_id = $2 returning *`,
-    [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null],
+    [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null, channels, input.templateSlug ?? null],
   );
   const renewal = rows[0];
   const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates)), cancelled };

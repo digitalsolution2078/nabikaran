@@ -34,17 +34,28 @@ export const signinSettingsSchema = z.object({
   charge_staff: z.boolean(),
 });
 
+/** Non-secret WhatsApp settings. Tokens and the app secret live only in the server environment. */
+export const whatsappSettingsSchema = z.object({
+  enabled: z.boolean(),
+  phone_number_id: z.string().regex(/^\d{0,30}$/, "Phone number ID is digits only"),
+  business_account_id: z.string().regex(/^\d{0,30}$/, "Business account ID is digits only"),
+  template_namespace: z.string().max(80),
+  default_language: z.string().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Use a Meta language code such as en or ne"),
+});
+
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
 export type ManualQrSettings = z.infer<typeof manualQrSettingsSchema>;
 export type SigninSettings = z.infer<typeof signinSettingsSchema>;
+export type WhatsappSettings = z.infer<typeof whatsappSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
+  whatsapp: { enabled: false, phone_number_id: "", business_account_id: "", template_namespace: "", default_language: "en" },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {
