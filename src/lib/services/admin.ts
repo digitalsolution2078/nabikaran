@@ -83,8 +83,9 @@ export async function requestWalletAdjustment(actorId: string, userId: string, s
 /** Second admin approves and applies in one transaction (two-person rule enforced in SQL too). */
 export async function approveWalletAdjustment(actorId: string, requestId: string, db: Db = getDb()) {
   return db.tx(async (tx) => {
-    const { rows } = await tx.query<{ requested_by: string; status: string }>("select requested_by, status from wallet_adjustment_requests where id = $1 for update", [requestId]);
+    const { rows } = await tx.query<{ requested_by: string; status: string; user_id: string }>("select requested_by, status, user_id from wallet_adjustment_requests where id = $1 for update", [requestId]);
     if (!rows[0]) throw new HttpError(404, "Request not found");
+    if (rows[0].user_id === actorId) throw new HttpError(403, "You cannot approve an adjustment to your own wallet", "self_adjustment");
     if (rows[0].status !== "pending") throw new HttpError(409, "Request already decided");
     if (rows[0].requested_by === actorId) throw new HttpError(403, "A different admin must approve", "two_person_rule");
     await tx.query("update wallet_adjustment_requests set status = 'approved', approved_by = $2, decided_at = now() where id = $1", [requestId, actorId]);

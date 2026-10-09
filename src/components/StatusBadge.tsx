@@ -1,23 +1,17 @@
-const LABELS: Record<string, { text: string; cls: string }> = {
-  planned: { text: "Planned (beyond 2-year horizon)", cls: "info" },
-  awaiting_credits: { text: "Awaiting credits", cls: "warn" },
-  scheduled: { text: "Scheduled", cls: "info" },
-  sending: { text: "Sending", cls: "info" },
-  submitted: { text: "Submitted to provider", cls: "ok" },
-  delivered: { text: "Delivered", cls: "ok" },
-  failed: { text: "Failed", cls: "bad" },
-  unknown: { text: "Unknown — reconciling", cls: "warn" },
-  cancelled: { text: "Cancelled", cls: "" },
-  active: { text: "Active", cls: "ok" },
-  paused: { text: "Paused", cls: "warn" },
-  paid: { text: "Paid", cls: "ok" },
-  pending: { text: "Pending", cls: "warn" },
-  initiated: { text: "Initiated", cls: "" },
-  expired: { text: "Expired", cls: "" },
-  refunded: { text: "Refunded", cls: "bad" },
+"use client";
+import type { MessageKey } from "@/lib/i18n/dict";
+import { usePrefs } from "./Prefs";
+
+const TONE: Record<string, "ok" | "warn" | "bad" | "info" | ""> = {
+  planned: "info", awaiting_credits: "warn", scheduled: "info", sending: "info", submitted: "ok", delivered: "ok",
+  failed: "bad", unknown: "warn", cancelled: "", active: "ok", paused: "warn", paid: "ok", pending: "warn",
+  awaiting_payment: "warn", approved: "ok", rejected: "bad", initiated: "", expired: "", refunded: "bad",
+  user: "", admin: "info", super_admin: "ok", closed: "bad", suspended: "bad",
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  const l = LABELS[status] ?? { text: status, cls: "" };
-  return <span className={`badge ${l.cls}`}>{l.text}</span>;
+  const { t } = usePrefs();
+  const key = `status.${status}` as MessageKey;
+  const label = t(key);
+  return <span className={`badge ${TONE[status] ?? ""}`}>{label === key ? status.replace(/_/g, " ") : label}</span>;
 }

@@ -1,25 +1,28 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getRequestContext } from "@/lib/i18n/server";
 import { SettingsForm } from "@/components/SettingsForm";
-import { formatPhoneLocal } from "@/lib/phone";
 import { ConnectedApps } from "@/components/ConnectedApps";
 import { listConnections } from "@/lib/oauth/tokens";
+import { formatPhoneLocal } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const user = await getCurrentUser();
+  const { user, t } = await getRequestContext();
   if (!user) redirect("/login");
   const connections = await listConnections(user.id);
   return (
-    <div>
-      <h1>Settings</h1>
+    <div className="stack">
+      <h1>{t("settings.title")}</h1>
       <div className="card">
-        <label>Verified mobile (read-only)</label>
-        <input value={formatPhoneLocal(user.phoneE164)} readOnly />
-        <p className="muted" style={{ fontSize: 13 }}>Changing your number requires secure re-verification (SIM change). Time zone: Asia/Kathmandu.</p>
+        <div className="field mb-0">
+          <label htmlFor="phone">{t("settings.phone")}</label>
+          <input id="phone" type="text" value={`+977 ${formatPhoneLocal(user.phoneE164)}`} readOnly />
+          <span className="hint">{t("settings.phoneHint")} · Asia/Kathmandu</span>
+        </div>
       </div>
-      <SettingsForm displayName={user.displayName ?? ""} locale={user.locale} />
+      <SettingsForm displayName={user.displayName ?? ""} smsLanguage={user.locale} />
       <ConnectedApps connections={connections} />
     </div>
   );

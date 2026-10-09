@@ -82,11 +82,13 @@ curl -s https://nabikaran.org/.well-known/oauth-authorization-server | head -c 3
 curl -s -o /dev/null -w '%{http_code}\n' https://mcp.nabikaran.org/            # 401 (needs a token — correct)
 ```
 
-Then: open `https://nabikaran.org/login`, enter your number; with `SMS_PROVIDER=mock` the OTP is printed in `docker compose logs app` (and shown on the page). Make yourself admin:
+Then: open `https://nabikaran.org/login`, enter your number; with `SMS_PROVIDER=mock` the OTP is printed in `docker compose logs app` (and shown on the page). Make yourself the owner (Super Admin). This works **once**: the database refuses it when a super admin already exists.
 
 ```bash
-docker compose --env-file .env.production exec db psql -U nabikaran -d nabikaran -c "update users set role='admin' where phone_e164='+977XXXXXXXXXX';"
+docker compose --env-file .env.production exec db psql -U nabikaran -d nabikaran -c "select bootstrap_super_admin('+977XXXXXXXXXX');"
 ```
+
+Sign out and back in, then open `/admin`. Add further admins from **Admin → Users → (user) → Role**. Full procedure: `docs/ADMIN_AND_PAYMENTS.md`.
 
 Finally run the MCP smoke test from `docs/LAUNCH_CHECKLIST.md` §B (Inspector) and connect Claude/ChatGPT.
 

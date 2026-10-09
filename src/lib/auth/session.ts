@@ -2,14 +2,18 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies, headers } from "next/headers";
 import { env } from "../env";
 import { getDb } from "../db";
+import type { Role } from "./rbac";
 
 export interface SessionUser {
   id: string;
   phoneE164: string;
-  role: "user" | "admin";
+  role: Role;
   locale: string;
   displayName: string | null;
   status: string;
+  email: string | null;
+  uiLanguage: "ne" | "en";
+  dateFormat: "BS" | "AD";
 }
 
 const key = () => new TextEncoder().encode(env.sessionSecret());
@@ -49,11 +53,14 @@ export async function clearSessionCookie() {
 
 export async function loadUser(userId: string): Promise<SessionUser | null> {
   const { rows } = await getDb().query<{
-    id: string; phone_e164: string; role: "user" | "admin"; locale: string; display_name: string | null; status: string;
-  }>("select id, phone_e164, role, locale, display_name, status from users where id = $1", [userId]);
+    id: string; phone_e164: string; role: Role; locale: string; display_name: string | null; status: string; email: string | null; ui_language: "ne" | "en"; date_format: "BS" | "AD";
+  }>("select id, phone_e164, role, locale, display_name, status, email, ui_language, date_format from users where id = $1", [userId]);
   const r = rows[0];
   if (!r || r.status !== "active") return null;
-  return { id: r.id, phoneE164: r.phone_e164, role: r.role, locale: r.locale, displayName: r.display_name, status: r.status };
+  return {
+    id: r.id, phoneE164: r.phone_e164, role: r.role, locale: r.locale, displayName: r.display_name, status: r.status,
+    email: r.email, uiLanguage: r.ui_language, dateFormat: r.date_format,
+  };
 }
 
 export async function getCurrentUser(): Promise<SessionUser | null> {

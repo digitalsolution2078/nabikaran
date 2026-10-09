@@ -1,56 +1,152 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
-import { PRESET_OFFSET_DAYS, describeOffset, offsetFromParts } from "@/lib/scheduler";
+import { usePrefs } from "./Prefs";
+import { Icon, iconForGroup } from "./Icon";
+import { PRESET_OFFSET_DAYS, offsetFromParts } from "@/lib/scheduler";
 import type { SchedulePreview } from "@/lib/core/dto";
+import type { MessageKey } from "@/lib/i18n/dict";
+import { BS_MAX_YEAR, BS_MIN_YEAR, BS_MONTHS_EN, BS_MONTHS_NE, adToBs, bsDaysInMonth, bsToAd } from "@/lib/bs-date";
+import { formatDate, localizeNumber, offsetLabel } from "@/lib/i18n/format";
+import { kathmanduToUtc } from "@/lib/time";
+import { isSmsSafeLabel } from "@/lib/sms/templates";
 
-const CATEGORIES = [
-  ["bluebook", "Bluebook (vehicle)"], ["licence", "Driving licence"], ["passport", "Passport"], ["insurance", "Insurance"],
-  ["warranty", "Warranty"], ["subscription", "Subscription"], ["other", "Other"],
-] as const;
-
-export interface RenewalFormValues {
-  category: string; label: string; calendar: "AD" | "BS"; expiryDate: string; localTime: string; notes: string; familyMemberLabel: string; offsets: number[];
+export interface TemplateOption {
+  slug: string;
+  group_key: string;
+  category: string;
+  name_en: string;
+  name_ne: string;
+  sms_label: string;
+  description_en: string;
+  description_ne: string;
+  default_offsets: number[];
+  popular: boolean;
 }
 
-const WARNING_TEXT: Record<string, string> = {
-  expiry_in_past: "This expiry date is already in the past.",
-  some_offsets_in_past: "Some reminders would fall in the past and were skipped.",
-  duplicate_offsets: "Duplicate reminder times were merged.",
-  over_cap: "Only the first 10 reminders are kept.",
-  beyond_two_year_horizon: "Reminders more than 2 years away are saved as planned and reserved later.",
-  bs_date_needs_confirmation: "Please check the converted Gregorian date below is the one on your document.",
-  insufficient_credits: "Not enough credits: reminders will be saved as Awaiting credits and scheduled automatically after you top up. Nothing is overdrawn.",
+export interface RenewalFormValues {
+  category: string;
+  label: string;
+  calendar: "AD" | "BS";
+  expiryDate: string;
+  localTime: string;
+  notes: string;
+  familyMemberLabel: string;
+  offsets: number[];
+  templateSlug: string | null;
+}
+
+const GROUP_LABEL: Record<string, { en: string; ne: string }> = {
+  vehicle: { en: "Vehicle & transport", ne: "सवारी र यातायात" },
+  personal: { en: "Personal documents", ne: "व्यक्तिगत कागजात" },
+  insurance: { en: "Insurance & finance", ne: "बीमा र वित्त" },
+  business: { en: "Business & professional", ne: "व्यवसाय" },
+  custom: { en: "Custom", ne: "आफ्नै" },
 };
 
-export function RenewalForm({ initial, renewalId }: { initial?: Partial<RenewalFormValues>; renewalId?: string }) {
+type Step = 0 | 1 | 2 | 3;
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+export function RenewalForm({ templates, initial, renewalId, initialTemplate }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null }) {
   const router = useRouter();
+  const { t, prefs } = usePrefs();
+  const lang = prefs.lang;
+  const preselected = templates.find((x) => x.slug === initialTemplate) ?? null;
+  const [step, setStep] = useState<Step>(renewalId || preselected ? 1 : 0);
+  const [query, setQuery] = useState("");
+  const [group, setGroup] = useState<string | null>(null);
   const [v, setV] = useState<RenewalFormValues>({
-    category: "bluebook", label: "", calendar: "AD", expiryDate: "", localTime: "09:00", notes: "", familyMemberLabel: "",
-    offsets: [30 * 1440, 7 * 1440, 1440, 0], ...initial,
+    category: preselected?.category ?? "other",
+    label: preselected?.sms_label ?? "",
+    calendar: prefs.date,
+    expiryDate: "",
+    localTime: "09:00",
+    notes: "",
+    familyMemberLabel: "",
+    offsets: preselected?.default_offsets ?? [30 * 1440, 7 * 1440, 1440, 0],
+    templateSlug: preselected?.slug ?? null,
+    ...initial,
   });
   const [custom, setCustom] = useState({ days: 0, hours: 0, minutes: 0 });
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
-  // One key per confirmed submission: a double-click or retry cannot create two renewals.
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const set = <K extends keyof RenewalFormValues>(k: K, val: RenewalFormValues[K]) => { setV({ ...v, [k]: val }); setPreview(null); };
+  const set = <K extends keyof RenewalFormValues>(k: K, val: RenewalFormValues[K]) => {
+    setV((old) => ({ ...old, [k]: val }));
+    setPreview(null);
+  };
   const toggle = (m: number) => set("offsets", v.offsets.includes(m) ? v.offsets.filter((x) => x !== m) : [...v.offsets, m]);
 
-  async function doPreview() {
-    setBusy(true); setError(null);
+  const chooseTemplate = (tpl: TemplateOption) => {
+    setV((old) => ({ ...old, category: tpl.category, label: old.label && renewalId ? old.label : tpl.sms_label, offsets: tpl.default_offsets, templateSlug: tpl.slug }));
+    setPreview(null);
+    setStep(1);
+  };
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return templates.filter((x) => (!group || x.group_key === group) && (!q || `${x.name_en} ${x.name_ne} ${x.description_en}`.toLowerCase().includes(q)));
+  }, [templates, query, group]);
+  const popular = templates.filter((x) => x.popular);
+  const chosenTpl = templates.find((x) => x.slug === v.templateSlug) ?? null;
+
+  // Live conversion between calendars for the date the user typed.
+  const conversion = useMemo(() => {
     try {
-      const r = await api<{ preview: SchedulePreview }>("/api/renewals/preview", { method: "POST", json: { label: v.label, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets } });
+      if (!v.expiryDate) return null;
+      const [y, m, d] = v.expiryDate.split("-").map(Number);
+      if (!y || !m || !d) return null;
+      const ad = v.calendar === "BS" ? bsToAd({ year: y, month: m, day: d }) : { year: y, month: m, day: d };
+      const utc = kathmanduToUtc(ad, v.localTime);
+      return { utc, other: formatDate(utc, { lang, date: v.calendar === "BS" ? "AD" : "BS" }), same: formatDate(utc, { lang, date: v.calendar }) };
+    } catch {
+      return null;
+    }
+  }, [v.expiryDate, v.calendar, v.localTime, lang]);
+
+  const switchCalendar = (cal: "AD" | "BS") => {
+    if (cal === v.calendar) return;
+    let next = "";
+    try {
+      if (v.expiryDate) {
+        const [y, m, d] = v.expiryDate.split("-").map(Number);
+        const r = cal === "BS" ? adToBs({ year: y, month: m, day: d }) : bsToAd({ year: y, month: m, day: d });
+        next = `${r.year}-${pad(r.month)}-${pad(r.day)}`;
+      }
+    } catch {
+      next = "";
+    }
+    setV((old) => ({ ...old, calendar: cal, expiryDate: next }));
+    setPreview(null);
+  };
+
+  async function loadPreview() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ preview: SchedulePreview }>("/api/renewals/preview", {
+        method: "POST",
+        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets },
+      });
       setPreview(r.preview);
       setIdempotencyKey(crypto.randomUUID());
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+      setStep(3);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirm() {
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       const body = { ...v, notes: v.notes || null, familyMemberLabel: v.familyMemberLabel || null, idempotencyKey };
       const r = renewalId
@@ -58,74 +154,215 @@ export function RenewalForm({ initial, renewalId }: { initial?: Partial<RenewalF
         : await api<{ reminder: { id: string } }>("/api/renewals", { method: "POST", json: body });
       router.push(`/renewals/${r.reminder.id}`);
       router.refresh();
-    } catch (e) { setError((e as Error).message); setBusy(false); }
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
   }
+
+  const steps: MessageKey[] = ["rem.step.template", "rem.step.details", "rem.step.schedule", "rem.step.review"];
+  const detailsValid = v.label.trim().length > 0 && Boolean(conversion) && conversion!.utc.getTime() > Date.now();
 
   return (
     <div>
-      <div className="card">
-        <label>Category</label>
-        <select value={v.category} onChange={(e) => set("category", e.target.value)}>{CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-        <label>Label (appears in the SMS)</label>
-        <input value={v.label} maxLength={80} onChange={(e) => set("label", e.target.value)} placeholder="e.g. Ba 2 Pa 1234 Bluebook" required />
-        <label>Calendar</label>
-        <div className="chips">
-          <button type="button" className={`chip ${v.calendar === "AD" ? "on" : ""}`} onClick={() => set("calendar", "AD")}>Gregorian (AD)</button>
-          <button type="button" className={`chip ${v.calendar === "BS" ? "on" : ""}`} onClick={() => set("calendar", "BS")}>Bikram Sambat (BS)</button>
-        </div>
-        <label>Expiry date {v.calendar === "BS" ? "(BS, YYYY-MM-DD e.g. 2082-03-15)" : ""}</label>
-        {v.calendar === "AD"
-          ? <input type="date" value={v.expiryDate} onChange={(e) => set("expiryDate", e.target.value)} required />
-          : <input inputMode="numeric" placeholder="2082-03-15" value={v.expiryDate} onChange={(e) => set("expiryDate", e.target.value)} required />}
-        <label>Expiry time (Nepal time) — defaults to 09:00; this is your choice, not an official timestamp</label>
-        <input type="time" value={v.localTime} onChange={(e) => set("localTime", e.target.value)} />
-        <label>Family member (optional label; SMS still goes to your phone)</label>
-        <input value={v.familyMemberLabel} maxLength={60} onChange={(e) => set("familyMemberLabel", e.target.value)} />
-        <label>Notes (private)</label>
-        <textarea value={v.notes} maxLength={500} rows={2} onChange={(e) => set("notes", e.target.value)} />
-      </div>
+      <ol className="stepper" aria-label="Progress">
+        {steps.map((k, i) => (
+          <li key={k} className={i < step ? "done" : i === step ? "current" : ""} aria-current={i === step ? "step" : undefined}>{t(k)}</li>
+        ))}
+      </ol>
 
-      <div className="card">
-        <h2 style={{ marginTop: 0 }}>Remind me</h2>
-        <div className="chips">
-          {PRESET_OFFSET_DAYS.map((d) => {
-            const m = d * 1440;
-            return <button type="button" key={d} className={`chip ${v.offsets.includes(m) ? "on" : ""}`} onClick={() => toggle(m)}>{d === 0 ? "On the day" : `${d} days before`}</button>;
-          })}
-        </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <input type="number" min={0} style={{ width: 90 }} value={custom.days} onChange={(e) => setCustom({ ...custom, days: +e.target.value })} aria-label="days" /> d
-          <input type="number" min={0} max={23} style={{ width: 80 }} value={custom.hours} onChange={(e) => setCustom({ ...custom, hours: +e.target.value })} aria-label="hours" /> h
-          <input type="number" min={0} max={59} style={{ width: 80 }} value={custom.minutes} onChange={(e) => setCustom({ ...custom, minutes: +e.target.value })} aria-label="minutes" /> m
-          <button type="button" className="secondary" onClick={() => toggle(offsetFromParts(custom.days, custom.hours, custom.minutes))}>Add custom</button>
-        </div>
-        <p className="muted" style={{ fontSize: 13 }}>Selected: {v.offsets.length ? v.offsets.slice().sort((a, b) => b - a).map(describeOffset).join(", ") : "none"} · max 10 reminders per renewal</p>
-        {error && <div className="error">{error}</div>}
-        <button type="button" disabled={busy || !v.label || !v.expiryDate || v.offsets.length === 0} onClick={doPreview}>{busy ? "…" : "Preview cost"}</button>
-      </div>
-
-      {preview && (
-        <div className="card">
-          <h2 style={{ marginTop: 0 }}>Confirm</h2>
-          <p>Expiry: <strong>{preview.expiry.local}</strong> (Nepal time){preview.expiry.bs && <> · BS <strong>{preview.expiry.bs.display}</strong></>}</p>
-          {preview.warnings.map((w) => <p key={w} className="notice">{WARNING_TEXT[w] ?? w}</p>)}
-          <table>
-            <thead><tr><th>Send at</th><th>Message</th><th>Credits</th></tr></thead>
-            <tbody>
-              {preview.lines.map((l) => (
-                <tr key={l.offsetMinutes}>
-                  <td>{l.due.local}<br /><span className="muted">{describeOffset(l.offsetMinutes)}{l.horizon === "beyond" ? " · planned (beyond 2 years)" : ""}</span></td>
-                  <td><pre className="sms">{l.smsText}</pre><span className="muted">{l.encoding}, {l.segments} segment(s)</span></td>
-                  <td>{l.credits}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p>Total projected: <strong>{preview.totalCredits} credits</strong> ({preview.creditsPerUnit} credits per SMS segment). Reserved now: {preview.reservedOnConfirmCredits}. Available: {preview.wallet.available}.{preview.shortfallCredits > 0 && <> Shortfall: {preview.shortfallCredits} — <a href="/wallet">top up</a>.</>}</p>
-          <p className="muted" style={{ fontSize: 13 }}>Reserving is not charging. You are charged only when the provider accepts the SMS, for the actual segments sent; unused holds are released.</p>
-          <button type="button" disabled={busy || preview.lines.length === 0} onClick={confirm}>{busy ? "Saving…" : renewalId ? "Save changes" : "Confirm & schedule"}</button>
-        </div>
+      {step === 0 && (
+        <section className="card">
+          <div className="field">
+            <label htmlFor="tpl-search" className="sr-only">{t("rem.searchTemplates")}</label>
+            <div className="input-affix"><span><Icon name="search" size={16} /></span><input id="tpl-search" type="search" placeholder={t("rem.searchTemplates")} value={query} onChange={(e) => setQuery(e.target.value)} /></div>
+          </div>
+          <div className="chips" style={{ marginBottom: 14 }}>
+            <button type="button" className="chip" aria-pressed={group === null} onClick={() => setGroup(null)}>{t("rem.allTemplates")}</button>
+            {Object.keys(GROUP_LABEL).map((g) => (
+              <button type="button" key={g} className="chip" aria-pressed={group === g} onClick={() => setGroup(g)}><Icon name={iconForGroup(g)} size={14} /> {GROUP_LABEL[g][lang]}</button>
+            ))}
+          </div>
+          {!query && !group && popular.length > 0 && (
+            <>
+              <h3>{t("rem.popular")}</h3>
+              <div className="tpl-grid" style={{ marginBottom: 18 }}>
+                {popular.map((tpl) => <TemplateCard key={tpl.slug} tpl={tpl} lang={lang} onPick={chooseTemplate} />)}
+              </div>
+              <h3>{t("rem.allTemplates")}</h3>
+            </>
+          )}
+          <div className="tpl-grid">
+            {filtered.map((tpl) => <TemplateCard key={tpl.slug} tpl={tpl} lang={lang} onPick={chooseTemplate} />)}
+          </div>
+        </section>
       )}
+
+      {step === 1 && (
+        <section className="card">
+          {chosenTpl && (
+            <div className="alert info">
+              <Icon name={iconForGroup(chosenTpl.group_key)} />
+              <span><strong>{lang === "ne" ? chosenTpl.name_ne : chosenTpl.name_en}</strong><br /><span className="small">{lang === "ne" ? chosenTpl.description_ne : chosenTpl.description_en}</span>
+                {!renewalId && <> · <button type="button" className="btn btn-ghost btn-sm" onClick={() => setStep(0)}>{t("rem.step.template")} ↺</button></>}
+              </span>
+            </div>
+          )}
+          <div className="field">
+            <label htmlFor="label">{t("rem.label")}</label>
+            <input id="label" type="text" value={v.label} maxLength={80} onChange={(e) => set("label", e.target.value)} placeholder="Ba 2 Pa 1234 Bluebook" required />
+            <span className="hint">{t("rem.labelHint")}</span>
+            {v.label && !isSmsSafeLabel(v.label) && <span className="hint" style={{ color: "var(--warn)" }}>{t("warn.sms_label_adjusted")}</span>}
+          </div>
+          <div className="field">
+            <span className="label">{t("rem.calendar")}</span>
+            <div className="segmented" role="group" aria-label={t("rem.calendar")}>
+              <button type="button" aria-pressed={v.calendar === "BS"} onClick={() => switchCalendar("BS")}>{t("prefs.bs")}</button>
+              <button type="button" aria-pressed={v.calendar === "AD"} onClick={() => switchCalendar("AD")}>{t("prefs.ad")}</button>
+            </div>
+          </div>
+          <div className="grid grid-2">
+            <div className="field">
+              <label htmlFor="expiry">{t("rem.expiryDate")}</label>
+              {v.calendar === "AD" ? (
+                <input id="expiry" type="date" value={v.expiryDate} onChange={(e) => set("expiryDate", e.target.value)} required />
+              ) : (
+                <BsDateInput value={v.expiryDate} onChange={(s) => set("expiryDate", s)} lang={lang} />
+              )}
+              {conversion && <span className="hint"><Icon name="calendar" size={12} /> {t("rem.convertedDate")}: <strong>{conversion.other}</strong></span>}
+              {conversion && conversion.utc.getTime() <= Date.now() && <span className="field-error" role="alert">{t("warn.expiry_in_past")}</span>}
+            </div>
+            <div className="field">
+              <label htmlFor="time">{t("rem.expiryTime")}</label>
+              <input id="time" type="time" value={v.localTime} onChange={(e) => set("localTime", e.target.value || "09:00")} />
+              <span className="hint">{t("rem.timeHint")}</span>
+            </div>
+          </div>
+          <details>
+            <summary className="small" style={{ cursor: "pointer", marginBottom: 10 }}>{t("rem.family")} · {t("rem.notes")}</summary>
+            <div className="grid grid-2">
+              <div className="field">
+                <label htmlFor="family">{t("rem.family")}</label>
+                <input id="family" type="text" maxLength={60} value={v.familyMemberLabel} onChange={(e) => set("familyMemberLabel", e.target.value)} />
+                <span className="hint">{t("rem.familyHint")}</span>
+              </div>
+              <div className="field">
+                <label htmlFor="notes">{t("rem.notes")}</label>
+                <textarea id="notes" rows={2} maxLength={500} value={v.notes} onChange={(e) => set("notes", e.target.value)} />
+              </div>
+            </div>
+          </details>
+          <div className="row between mt">
+            {!renewalId ? <button type="button" className="btn btn-secondary" onClick={() => setStep(0)}>{t("rem.back")}</button> : <span />}
+            <button type="button" className="btn btn-primary" disabled={!detailsValid} onClick={() => setStep(2)}>{t("rem.next")} <Icon name="arrowRight" size={16} /></button>
+          </div>
+        </section>
+      )}
+
+      {step === 2 && (
+        <section className="card">
+          <h2>{t("rem.when")}</h2>
+          <div className="chips">
+            {PRESET_OFFSET_DAYS.map((d) => {
+              const m = d * 1440;
+              return <button type="button" key={d} className="chip" aria-pressed={v.offsets.includes(m)} onClick={() => toggle(m)}>{d === 0 ? t("rem.onDay") : t("rem.daysBefore", { n: localizeNumber(d, lang) })}</button>;
+            })}
+            {v.offsets.filter((m) => !PRESET_OFFSET_DAYS.map((d) => d * 1440).includes(m)).map((m) => (
+              <button type="button" key={m} className="chip" aria-pressed onClick={() => toggle(m)}>{offsetLabel(m, lang)} ✕</button>
+            ))}
+          </div>
+          <div className="row mt" style={{ alignItems: "flex-end" }}>
+            <span className="label">{t("rem.custom")}:</span>
+            <label className="row small">{t("rem.days")} <input type="number" min={0} max={1825} style={{ width: 80 }} value={custom.days} onChange={(e) => setCustom({ ...custom, days: Math.max(0, +e.target.value) })} /></label>
+            <label className="row small">{t("rem.hours")} <input type="number" min={0} max={23} style={{ width: 70 }} value={custom.hours} onChange={(e) => setCustom({ ...custom, hours: Math.max(0, +e.target.value) })} /></label>
+            <label className="row small">{t("rem.minutes")} <input type="number" min={0} max={59} style={{ width: 70 }} value={custom.minutes} onChange={(e) => setCustom({ ...custom, minutes: Math.max(0, +e.target.value) })} /></label>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => toggle(offsetFromParts(custom.days, custom.hours, custom.minutes))}>{t("rem.addCustom")}</button>
+          </div>
+          {error && <div className="alert bad mt" role="alert">{error}</div>}
+          <div className="row between mt">
+            <button type="button" className="btn btn-secondary" onClick={() => setStep(1)}>{t("rem.back")}</button>
+            <button type="button" className="btn btn-primary" disabled={busy || v.offsets.length === 0} onClick={loadPreview}>{busy ? <span className="spinner" /> : <Icon name="receipt" size={16} />} {t("rem.preview")}</button>
+          </div>
+        </section>
+      )}
+
+      {step === 3 && preview && (
+        <section className="card">
+          <div className="row between">
+            <h2 className="mb-0">{t("rem.step.review")}</h2>
+            <span className="badge info">{t("rem.oneSms")}</span>
+          </div>
+          <p className="mt">
+            <strong>{v.label}</strong> · {t("rem.expires")}: <strong>{formatDate(preview.expiry.utc, prefs)}</strong>{" "}
+            <span className="muted">({formatDate(preview.expiry.utc, { ...prefs, date: prefs.date === "BS" ? "AD" : "BS" })}) · {preview.expiry.local.slice(11)} NPT</span>
+          </p>
+          {preview.warnings.map((w) => (
+            <div key={w} className={`alert ${w === "insufficient_credits" || w === "bs_date_needs_confirmation" ? "warn" : "info"}`}><Icon name="info" /> <span>{t(`warn.${w}` as MessageKey)}</span></div>
+          ))}
+          <ol className="sms-preview-list">
+            {preview.lines.map((l) => (
+              <li key={l.offsetMinutes} className="sms-preview-item">
+                <div className="row between">
+                  <span><strong>{formatDate(l.due.utc, prefs)}</strong> <span className="small muted">{l.due.local.slice(11)} · {offsetLabel(l.offsetMinutes, lang)}</span></span>
+                  <span className="small nowrap">{localizeNumber(l.credits, lang)} {t("common.credits")}</span>
+                </div>
+                <pre className="sms">{l.smsText}</pre>
+                <span className="small muted">{l.encoding} · {l.smsText.length}/160 · {l.segments} SMS</span>
+              </li>
+            ))}
+          </ol>
+          <div className="grid grid-3 mt">
+            <div className="stat"><div className="label">{t("rem.total")}</div><div className="value">{localizeNumber(preview.totalCredits, lang)}</div><div className="sub">{localizeNumber(preview.creditsPerUnit, lang)} {t("common.credits")} / SMS</div></div>
+            <div className="stat"><div className="label">{t("rem.reservedNow")}</div><div className="value">{localizeNumber(preview.reservedOnConfirmCredits, lang)}</div></div>
+            <div className="stat"><div className="label">{t("rem.available")}</div><div className="value">{localizeNumber(preview.wallet.available, lang)}</div></div>
+          </div>
+          <p className="hint mt">{t("rem.reserveNote")}</p>
+          {error && <div className="alert bad" role="alert">{error}</div>}
+          <div className="row between mt">
+            <button type="button" className="btn btn-secondary" onClick={() => setStep(2)}>{t("rem.back")}</button>
+            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function TemplateCard({ tpl, lang, onPick }: { tpl: TemplateOption; lang: "ne" | "en"; onPick: (t: TemplateOption) => void }) {
+  return (
+    <button type="button" className="tpl" onClick={() => onPick(tpl)}>
+      <span className="avatar-icon" style={{ width: 34, height: 34 }}><Icon name={iconForGroup(tpl.group_key)} size={18} /></span>
+      <span>
+        <span className="name">{lang === "ne" ? tpl.name_ne : tpl.name_en}</span><br />
+        <span className="desc">{lang === "ne" ? tpl.name_en : tpl.name_ne}</span>
+      </span>
+    </button>
+  );
+}
+
+/** BS date as three selects bounded by the real month lengths (no free-text parsing). */
+function BsDateInput({ value, onChange, lang }: { value: string; onChange: (s: string) => void; lang: "ne" | "en" }) {
+  const today = adToBs((() => { const d = new Date(Date.now() + 345 * 60_000); return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() }; })());
+  const parsed = value ? value.split("-").map(Number) : null;
+  const [ym, setYm] = useState({ y: parsed?.[0] ?? today.year, m: parsed?.[1] ?? today.month });
+  const d = parsed?.[2] ?? 0;
+  const dim = bsDaysInMonth(ym.y, ym.m) ?? 30;
+  const emit = (yy: number, mm: number, dd: number) => {
+    setYm({ y: yy, m: mm });
+    const max = bsDaysInMonth(yy, mm) ?? 30;
+    onChange(dd ? `${yy}-${pad(mm)}-${pad(Math.min(dd, max))}` : "");
+  };
+  const years: number[] = [];
+  for (let yy = Math.max(BS_MIN_YEAR, today.year - 1); yy <= Math.min(BS_MAX_YEAR, today.year + 15); yy++) years.push(yy);
+  const months = lang === "ne" ? BS_MONTHS_NE : BS_MONTHS_EN;
+  return (
+    <div className="grid" style={{ gridTemplateColumns: "1fr 1.4fr 1fr", gap: 8 }}>
+      <select aria-label="BS year" value={ym.y} onChange={(e) => emit(+e.target.value, ym.m, d)}>{years.map((yy) => <option key={yy} value={yy}>{localizeNumber(String(yy), lang)}</option>)}</select>
+      <select aria-label="BS month" value={ym.m} onChange={(e) => emit(ym.y, +e.target.value, d)}>{months.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}</select>
+      <select aria-label="BS day" value={d || ""} onChange={(e) => emit(ym.y, ym.m, +e.target.value)}>
+        <option value="">—</option>
+        {Array.from({ length: dim }, (_, i) => i + 1).map((dd) => <option key={dd} value={dd}>{localizeNumber(String(dd), lang)}</option>)}
+      </select>
     </div>
   );
 }

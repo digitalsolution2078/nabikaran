@@ -11,7 +11,8 @@ import { audit } from "./audit";
 import { withIdempotency } from "./idempotency";
 import { instantDTO, type ReminderDTO, type ReminderJobDTO, type SchedulePreview, type Warning } from "./dto";
 
-export const CATEGORIES = ["bluebook", "licence", "passport", "insurance", "warranty", "subscription", "other"] as const;
+import { CATEGORIES, categorySmsName } from "../categories";
+export { CATEGORIES };
 
 export const reminderInputSchema = z.object({
   category: z.enum(CATEGORIES),
@@ -22,6 +23,7 @@ export const reminderInputSchema = z.object({
   localTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default(DEFAULT_LOCAL_TIME),
   notes: z.string().max(500).optional().nullable(),
   familyMemberLabel: z.string().trim().max(60).optional().nullable(),
+  templateSlug: z.string().max(60).optional().nullable(),
   offsets: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).max(20).default([30 * 1440, 7 * 1440, 1440, 0]),
 });
 export type ReminderInput = z.infer<typeof reminderInputSchema>;
@@ -114,7 +116,7 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
  */
 export async function previewSchedule(
   p: Principal,
-  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets">,
+  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string },
   db: Db = getDb(),
   now: Date = new Date(),
 ): Promise<SchedulePreview> {
@@ -123,7 +125,7 @@ export async function previewSchedule(
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const [pricing, templates, wallet] = await Promise.all([getActivePricing(db), loadTemplates(db), readWallet(p.userId, db)]);
   const lines = plan.candidates.map((c) => {
-    const r = renderReminder({ label: input.label, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale }, templates);
+    const r = renderReminder({ label: input.label, fallbackLabel: categorySmsName(input.category ?? "other"), expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale }, templates);
     return {
       offsetMinutes: c.offsetMinutes,
       due: instantDTO(c.dueAtUtc),
@@ -132,6 +134,8 @@ export async function previewSchedule(
       segments: r.estimate.segments,
       encoding: r.estimate.encoding,
       credits: r.estimate.segments * pricing.creditsPerUnit,
+      smsLabel: r.smsLabel,
+      labelAdjusted: r.labelAdjusted,
     };
   });
   const totalCredits = lines.reduce((s, l) => s + l.credits, 0);
@@ -143,6 +147,7 @@ export async function previewSchedule(
   if (plan.droppedOverCap > 0) warnings.push("over_cap");
   if (lines.some((l) => l.horizon === "beyond")) warnings.push("beyond_two_year_horizon");
   if (input.calendar === "BS") warnings.push("bs_date_needs_confirmation");
+  if (lines.some((l) => l.labelAdjusted)) warnings.push("sms_label_adjusted");
   const shortfallCredits = Math.max(0, reservedOnConfirmCredits - wallet.available);
   if (shortfallCredits > 0) warnings.push("insufficient_credits");
   return {
@@ -184,7 +189,7 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       [renewal.id, c.offsetMinutes],
     );
     const ruleId = ruleRows[0].id;
-    const rendered = renderReminder({ label: renewal.label, expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, templates);
+    const rendered = renderReminder({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, templates);
     const credits = rendered.estimate.segments * pricing.creditsPerUnit;
     const { rows: jobRows } = await tx.query<{ id: string }>(
       `insert into reminder_jobs (renewal_id, rule_id, user_id, cycle_no, due_at_utc, cost_version, estimated_segments, estimated_credits, status)
@@ -236,9 +241,9 @@ export async function createReminderIn(tx: Db, p: Principal, input: ReminderInpu
   const expiryAtUtc = resolveExpiry(input);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const { rows } = await tx.query<RenewalRow>(
-    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
-    [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null],
+    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10)) returning *`,
+    [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, input.expiryDate, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null],
   );
   const renewal = rows[0];
   const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates);
@@ -410,5 +415,6 @@ export async function listJobsForUser(p: Principal, limit = 100, db: Db = getDb(
       where j.user_id = $1 and j.status <> 'cancelled' order by j.due_at_utc desc limit $2`,
     [p.userId, limit],
   );
-  return rows;
+  // node-postgres returns timestamptz as Date; expose ISO strings like the DTOs do.
+  return rows.map((r) => ({ ...r, due_at_utc: new Date(r.due_at_utc).toISOString() }));
 }
