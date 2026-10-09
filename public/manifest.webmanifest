@@ -1,11 +1,27 @@
 {
-  "name": "Nabikaran",
+  "id": "/",
+  "name": "Nabikaran — Renewal reminders",
   "short_name": "Nabikaran",
-  "description": "SMS renewal reminders for Nepal",
-  "start_url": "/dashboard",
+  "description": "SMS and WhatsApp reminders before your Bluebook, licence, passport, insurance, tax and business renewals in Nepal.",
+  "start_url": "/dashboard?source=pwa",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
   "background_color": "#f8f7fc",
   "theme_color": "#55239a",
   "lang": "ne",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+  "dir": "ltr",
+  "categories": ["productivity", "utilities", "lifestyle"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Add reminder", "short_name": "Add", "url": "/renewals/new?source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "My reminders", "short_name": "Reminders", "url": "/renewals?source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Wallet & top up", "short_name": "Wallet", "url": "/wallet?source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
 }

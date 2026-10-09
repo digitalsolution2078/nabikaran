@@ -91,3 +91,26 @@ The dashboard isolates its data. A failing query renders a short notice instead 
 ```bash
 docker logs --since 1h nabikaran-web-1 2>&1 | grep -iE "error|dashboard"
 ```
+
+## 8. Installable app (PWA)
+
+Customers can install Nabikaran on their phone or computer. There is no app store listing.
+
+| Platform | How the customer installs |
+|---|---|
+| Android (Chrome) | An **Install** banner on the dashboard and a card in **Settings**, or the browser menu → *Install app* |
+| iPhone (Safari) | Settings shows the steps: Share → *Add to Home Screen* |
+
+How it is built:
+
+- **Manifest:** `public/manifest.webmanifest`.
+  - Icons in 192, 512 and maskable 512 sizes.
+  - Shortcuts to Add reminder, Reminders and Wallet.
+  - `start_url` is `/dashboard?source=pwa`, so installed-app visits can be counted in analytics.
+- **Service worker:** `public/sw.js`.
+  - Caches only static files (hashed JS/CSS, icons, manifest).
+  - Page HTML and `/api/*` are never cached, so balances, reminders and payments are always live, and a shared phone never shows someone else's data from cache.
+  - Without a connection, page loads show `public/offline.html`, which reloads by itself when the connection returns.
+- **Updates:** after changing `sw.js` or the precached files, bump `VERSION` in `sw.js` so old caches are removed.
+
+Reminders do not depend on the app. SMS and WhatsApp are sent from the server whether or not the app is installed or open.

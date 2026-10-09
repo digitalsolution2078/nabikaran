@@ -335,6 +335,14 @@ const en = {
   "ledger.detail": "Detail",
   "wallet.qrAuto": "Automatic: Fonepay puts the exact amount in the QR and confirms the payment; credits are added within seconds.",
   "settings.closeBalance": "Your current balance is {n} credits. Unused credits are not refunded at closure (see Terms §4–5). Scheduled reminders will be cancelled.",
+  "pwa.title": "Install the Nabikaran app",
+  "pwa.benefit": "Open your reminders and wallet from your home screen in one tap, like an app. No app store needed and almost no storage used.",
+  "pwa.install": "Install",
+  "pwa.dismiss": "Not now",
+  "pwa.iosSteps": "On iPhone: tap the Share button in Safari, then “Add to Home Screen”.",
+  "pwa.installed": "Nabikaran is installed on this device.",
+  "pwa.otherBrowser": "To install, open nabikaran.org in Chrome (Android) or Safari (iPhone) and use “Add to Home screen”.",
+  "pwa.bannerShort": "One tap from your home screen. No app store, almost no storage.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -671,6 +679,14 @@ const ne: Record<MessageKey, string> = {
   "ledger.detail": "विवरण",
   "wallet.qrAuto": "स्वचालित: Fonepay ले QR मा ठ्याक्कै रकम राख्छ र भुक्तानी पुष्टि गर्छ; केही सेकेन्डमै क्रेडिट थपिन्छ।",
   "settings.closeBalance": "तपाईंको हालको ब्यालेन्स {n} क्रेडिट छ। खाता बन्द गर्दा बाँकी क्रेडिट फिर्ता हुँदैन (सर्तहरू §४–५ हेर्नुहोस्)। तालिकाका रिमाइन्डर रद्द हुनेछन्।",
+  "pwa.title": "Nabikaran एप इन्स्टल गर्नुहोस्",
+  "pwa.benefit": "होम स्क्रिनबाट एकै ट्यापमा रिमाइन्डर र वालेट खोल्नुहोस्, एप जस्तै। एप स्टोर चाहिँदैन, फोनमा ठाउँ पनि लगभग लाग्दैन।",
+  "pwa.install": "इन्स्टल गर्नुहोस्",
+  "pwa.dismiss": "अहिले होइन",
+  "pwa.iosSteps": "iPhone मा: Safari को Share बटन थिच्नुहोस्, अनि “Add to Home Screen” छान्नुहोस्।",
+  "pwa.installed": "यो फोनमा Nabikaran एप इन्स्टल भइसकेको छ।",
+  "pwa.otherBrowser": "इन्स्टल गर्न nabikaran.org लाई Chrome (Android) वा Safari (iPhone) मा खोलेर “Add to Home screen” छान्नुहोस्।",
+  "pwa.bannerShort": "होम स्क्रिनबाट एकै ट्याप। एप स्टोर चाहिँदैन, ठाउँ पनि लाग्दैन।",
 };
 
 export const DICTS = { en: en as Record<MessageKey, string>, ne } as const;

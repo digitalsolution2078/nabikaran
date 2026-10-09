@@ -414,3 +414,12 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
 .seo .lead { font-size: 18px; color: var(--fg-2); }
 .seo details { padding: 10px 0; border-bottom: 1px solid var(--border); }
 .seo-index { list-style: none; padding: 0; display: grid; gap: 14px; }
+
+/* Install-the-app banner (dashboard) */
+.install-banner { background: var(--brand-50); border-color: var(--brand-200); color: var(--fg); align-items: center; flex-wrap: wrap; }
+.install-banner > svg { color: var(--brand-600); }
+.install-banner strong { display: block; color: var(--fg-heading); }
+.install-banner .install-text { flex: 1 1 220px; min-width: 0; }
+.install-banner .install-actions { flex-wrap: nowrap; margin-left: auto; }
+@media (prefers-color-scheme: dark) { .install-banner { background: #221a3d; border-color: #3a2d63; } .install-banner > svg { color: var(--brand-300); } }
+@media (display-mode: standalone) { .install-banner { display: none; } }

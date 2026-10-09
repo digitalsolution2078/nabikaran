@@ -6,6 +6,7 @@ import { getCustomerSummary, type CustomerSummary, type MessageRow } from "@/lib
 import { StatusBadge } from "@/components/StatusBadge";
 import { ChannelBadge } from "@/components/ChannelBadge";
 import { Icon, iconForCategory } from "@/components/Icon";
+import { InstallApp } from "@/components/InstallApp";
 import { formatDate, formatDateTime, daysUntil, localizeNumber, offsetLabel } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/dict";
 
@@ -53,6 +54,7 @@ export default async function Dashboard() {
       {s && s.counts.awaitingCredits > 0 && (
         <div className="alert warn"><Icon name="alert" /> <span>{t("dash.awaitingCredits")} <Link href="/wallet">{t("lock.cta")} →</Link></span></div>
       )}
+      <InstallApp variant="banner" />
 
       {!s ? (
         <div className="alert bad" role="alert"><Icon name="alert" /> <span>{t("dash.sectionError")}</span></div>
