@@ -1,6 +1,9 @@
 # Nabikaran — MCP-Ready Architecture Proposal
 
 Status: **approved (all five decisions in §11). Phases 0–4 implemented — see §12–16. Remaining work is operational (docs/LAUNCH_CHECKLIST.md). No infrastructure is deployed; migration `0002` is additive and applies only to fresh/staging databases until Phase 1 is green-lit.**
+
+> **Current behaviour (supersedes the funding notes below):** reminders are funded all-or-nothing. If the wallet cannot cover every message, `confirm_reminder` saves nothing and returns `insufficient_credits` with the shortfall and `top_up_url`; there is no `awaiting_credits` state for new reminders. Production setup: `docs/MCP_SETUP.md`.
+
 Scope: let users manage reminders from ChatGPT, Claude and other MCP clients through a remote server at `https://mcp.nabikaran.org/mcp`, reusing the existing web app's business logic and database.
 
 ---

@@ -146,7 +146,7 @@ This works only once; the database refuses it when a super admin already exists.
 docker inspect nabikaran-web-1 --format '{{json .Config.Labels}}' | tr ',' '\n' | grep -i traefik
 ```
 
-`MCP_HOST` must match the MCP hostname (`mcp.nabikaran.org`).
+`mcp.nabikaran.org` needs its own Traefik router and the `MCP_HOST`, `MCP_PUBLIC_URL` and `OAUTH_ISSUER` variables. The full ChatGPT/Claude connector runbook is in `docs/MCP_SETUP.md`.
 
 A second Traefik (`traefik-tzhk-traefik-1`) cannot bind 80/443 because `n8n-traefik-1` already holds them, so it restarts endlessly. It serves nothing. Stopping it (`docker update --restart=no traefik-tzhk-traefik-1 && docker stop traefik-tzhk-traefik-1`) removes the noise. Before you do, confirm that no other project relies on it.
 
