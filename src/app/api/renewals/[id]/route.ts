@@ -1,44 +1,44 @@
 import { z } from "zod";
-import { handle, json, parseBody, requireUser, HttpError } from "@/lib/http";
-import { getRenewal, renewalInputSchema, setRenewalStatus, updateRenewal } from "@/lib/services/renewals";
+import { handle, json, parseBody, requirePrincipal, idempotencyKeyFrom, HttpError } from "@/lib/http";
+import { getReminder, reminderInputSchema, setReminderStatus, updateReminder } from "@/lib/core/reminders";
 
 type Ctx = { params: Promise<{ id: string }> };
 const uuid = z.string().uuid();
 
 export async function GET(req: Request, ctx: Ctx) {
   return handle(async () => {
-    const user = await requireUser(req);
+    const { principal } = await requirePrincipal(req);
     const { id } = await ctx.params;
-    const data = await getRenewal(user.id, uuid.parse(id));
-    if (!data) throw new HttpError(404, "Renewal not found");
-    return json(data);
+    const reminder = await getReminder(principal, uuid.parse(id));
+    if (!reminder) throw new HttpError(404, "Reminder not found", "not_found");
+    return json({ reminder });
   });
 }
 
 const patchSchema = z.union([
-  z.object({ action: z.enum(["pause", "resume", "cancel"]) }),
-  renewalInputSchema,
+  z.object({ action: z.enum(["pause", "resume", "cancel"]), idempotencyKey: z.string().max(64).optional().nullable() }),
+  reminderInputSchema.extend({ idempotencyKey: z.string().max(64).optional().nullable() }),
 ]);
 
 /** Versioned update: a full edit starts a new cycle; action patches change status. */
 export async function PATCH(req: Request, ctx: Ctx) {
   return handle(async () => {
-    const user = await requireUser(req);
+    const { principal } = await requirePrincipal(req);
     const { id } = await ctx.params;
     const renewalId = uuid.parse(id);
     const body = await parseBody(req, patchSchema);
-    if ("action" in body) {
-      const map = { pause: "paused", resume: "active", cancel: "cancelled" } as const;
-      return json(await setRenewalStatus(user.id, renewalId, map[body.action]));
-    }
-    return json(await updateRenewal(user.id, user.locale, renewalId, body));
+    const key = idempotencyKeyFrom(req, body);
+    if ("action" in body) return json(await setReminderStatus(principal, renewalId, body.action, { idempotencyKey: key }));
+    const { idempotencyKey: _k, ...input } = body;
+    void _k;
+    return json(await updateReminder(principal, renewalId, input, { idempotencyKey: key }));
   });
 }
 
 export async function DELETE(req: Request, ctx: Ctx) {
   return handle(async () => {
-    const user = await requireUser(req);
+    const { principal } = await requirePrincipal(req);
     const { id } = await ctx.params;
-    return json(await setRenewalStatus(user.id, uuid.parse(id), "deleted"));
+    return json(await setReminderStatus(principal, uuid.parse(id), "delete", { idempotencyKey: idempotencyKeyFrom(req) }));
   });
 }

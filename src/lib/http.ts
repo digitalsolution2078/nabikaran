@@ -2,18 +2,19 @@ import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
 import { assertSameOrigin, getCurrentUser, type SessionUser } from "./auth/session";
 import { env } from "./env";
+import { HttpError, RateLimitError } from "./core/errors";
+import { webPrincipal, type Principal } from "./core/principal";
 
-export class HttpError extends Error {
-  constructor(public readonly status: number, message: string, public readonly code?: string) {
-    super(message);
-  }
-}
+export { HttpError };
 
 export function json<T>(data: T, init?: ResponseInit) {
   return NextResponse.json(data, init);
 }
 
 export function errorResponse(e: unknown) {
+  if (e instanceof RateLimitError) {
+    return json({ error: e.message, code: e.code }, { status: 429, headers: { "retry-after": String(e.retryAfterSeconds) } });
+  }
   if (e instanceof HttpError) return json({ error: e.message, code: e.code }, { status: e.status });
   if (e instanceof ZodError) return json({ error: "Invalid input", issues: e.issues }, { status: 400 });
   const code = (e as { code?: string })?.code;
@@ -38,6 +39,12 @@ export async function requireUser(req: Request): Promise<SessionUser> {
   return user;
 }
 
+/** Web transport → core Principal (all scopes; identity from the session cookie only). */
+export async function requirePrincipal(req: Request): Promise<{ user: SessionUser; principal: Principal }> {
+  const user = await requireUser(req);
+  return { user, principal: webPrincipal(user) };
+}
+
 export async function requireAdmin(req: Request): Promise<SessionUser> {
   const user = await requireUser(req);
   if (user.role !== "admin") throw new HttpError(403, "Admin only", "forbidden");
@@ -55,6 +62,45 @@ export function clientIp(req: Request): string | null {
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0]!.trim();
   return req.headers.get("x-real-ip");
+}
+
+/** Optional client-supplied idempotency key (header or body field). */
+export function idempotencyKeyFrom(req: Request, body?: { idempotencyKey?: string | null }): string | null {
+  const h = req.headers.get("idempotency-key");
+  const k = (h ?? body?.idempotencyKey ?? "").trim();
+  return k ? k.slice(0, 64) : null;
+}
+
+/** OAuth endpoints are called cross-origin by browser-based MCP clients (e.g. Inspector); they carry no cookies. */
+export const CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "authorization, content-type, mcp-protocol-version, mcp-session-id",
+  "access-control-max-age": "86400",
+};
+
+export function withCors(res: Response): Response {
+  for (const [k, v] of Object.entries(CORS_HEADERS)) res.headers.set(k, v);
+  res.headers.set("cache-control", "no-store");
+  return res;
+}
+
+export function corsPreflight() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
+/** Parse application/x-www-form-urlencoded or JSON bodies into a flat string record. */
+export async function parseForm(req: Request): Promise<Record<string, string>> {
+  const ct = req.headers.get("content-type") ?? "";
+  const out: Record<string, string> = {};
+  if (ct.includes("application/json")) {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(body)) if (typeof v === "string") out[k] = v;
+    return out;
+  }
+  const text = await req.text();
+  for (const [k, v] of new URLSearchParams(text)) out[k] = v;
+  return out;
 }
 
 export async function handle(fn: () => Promise<Response>): Promise<Response> {

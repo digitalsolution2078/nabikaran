@@ -1,18 +1,24 @@
-import { handle, json, parseBody, requireUser } from "@/lib/http";
-import { createRenewal, listRenewals, renewalInputSchema } from "@/lib/services/renewals";
+import { z } from "zod";
+import { handle, json, parseBody, requirePrincipal, idempotencyKeyFrom } from "@/lib/http";
+import { createReminder, listReminders, reminderInputSchema } from "@/lib/core/reminders";
 
 export async function GET(req: Request) {
   return handle(async () => {
-    const user = await requireUser(req);
-    return json({ renewals: await listRenewals(user.id) });
+    const { principal } = await requirePrincipal(req);
+    const url = new URL(req.url);
+    const status = url.searchParams.get("status") as "active" | "paused" | "cancelled" | "all" | null;
+    return json(await listReminders(principal, { status: status ?? "all", limit: 50 }));
   });
 }
 
+const bodySchema = reminderInputSchema.extend({ idempotencyKey: z.string().max(64).optional().nullable() });
+
 export async function POST(req: Request) {
   return handle(async () => {
-    const user = await requireUser(req);
-    const input = await parseBody(req, renewalInputSchema);
-    const { renewal, summary } = await createRenewal(user.id, user.locale, input);
-    return json({ renewal, summary }, { status: 201 });
+    const { principal } = await requirePrincipal(req);
+    const body = await parseBody(req, bodySchema);
+    const { idempotencyKey, ...input } = body;
+    const result = await createReminder(principal, input, { idempotencyKey: idempotencyKeyFrom(req, { idempotencyKey }) });
+    return json(result, { status: result.replayed ? 200 : 201 });
   });
 }

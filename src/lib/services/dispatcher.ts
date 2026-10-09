@@ -3,8 +3,8 @@ import { getDb, type Db } from "../db";
 import { env } from "../env";
 import { getSmsProvider } from "../providers/sms";
 import { renderReminder } from "../sms/templates";
-import { loadTemplates } from "./renewals";
-import { getActivePricing } from "./wallet";
+import { loadTemplates } from "../core/reminders";
+import { getActivePricing } from "../core/wallet";
 import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../scheduler";
 import { redactPhone } from "../phone";
 

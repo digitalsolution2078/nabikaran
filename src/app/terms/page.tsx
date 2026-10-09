@@ -11,6 +11,7 @@ export default function Terms() {
           <li>Credits are reserved when you schedule and charged only when the provider accepts the SMS. Rejected messages are not charged. Accepted-but-undelivered messages are not automatically refunded unless the provider credits us.</li>
           <li>Credits cannot be transferred between accounts or withdrawn as cash in this version. On account closure, remaining prepaid credits are handled under the closure policy published here (to be finalised after legal review).</li>
           <li>Refunded or charged-back top-ups reverse the credits issued. Already-spent credits are handled as a financial exception, not silently deleted.</li>
+          <li><strong>AI assistants and connected apps.</strong> Reminders created through a connected assistant are previewed (exact SMS text, dates in AD and BS, credit cost) and only reserved after you confirm. Bikram Sambat dates and dates read from document photos require your explicit confirmation of the converted Gregorian date; Nabikaran is not responsible for dates an assistant misread that you confirmed. Connected apps cannot buy credits or send SMS to any number other than your verified one.</li>
           <li>Price changes apply only to new schedules; existing scheduled reminders keep the price shown when confirmed.</li>
         </ul>
       </div>

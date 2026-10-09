@@ -20,6 +20,16 @@ export const env = {
   /** Shared secret for internal worker routes (/api/jobs/*). */
   workerToken: () => req("WORKER_TOKEN", isProd ? undefined : "dev-worker-token"),
 
+  /** OAuth issuer (authorization server) = the web app origin. */
+  oauthIssuer: process.env.OAUTH_ISSUER ?? process.env.APP_URL ?? "http://localhost:3000",
+  /** Canonical MCP resource identifier that tokens are bound to (RFC 8707). */
+  mcpResource: process.env.MCP_PUBLIC_URL ?? "http://localhost:3000/mcp",
+  oauth: {
+    codeTtlSeconds: 600,
+    accessTtlSeconds: 3600,
+    refreshTtlSeconds: 30 * 24 * 3600,
+  },
+
   smsProvider: process.env.SMS_PROVIDER ?? (isProd ? "aakash" : "mock"),
   aakash: {
     authToken: process.env.AAKASH_AUTH_TOKEN ?? "",

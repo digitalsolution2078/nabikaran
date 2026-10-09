@@ -1,5 +1,6 @@
 import { getDb, type Db } from "../db";
-import { HttpError } from "../http";
+import { HttpError } from "../core/errors";
+import { sumEvents } from "../core/rate-limit";
 
 export interface Metrics {
   users: { total: number; verified: number; last7d: number };
@@ -8,6 +9,7 @@ export interface Metrics {
   sms: { attempts24h: number; accepted24h: number; unknownOpen: number };
   payments: { pendingOrders: number; mismatches: number };
   worker: { lastDispatchAt: string | null; minutesSinceDispatch: number | null };
+  mcp: { clients: number; disabledClients: number; connectedUsers: number; toolCalls24h: number; toolErrors24h: number; unauthorized24h: number; prepared24h: number; confirmed24h: number };
 }
 
 export async function getMetrics(db: Db = getDb()): Promise<Metrics> {
@@ -27,6 +29,17 @@ export async function getMetrics(db: Db = getDb()): Promise<Metrics> {
     `select (select count(*) from payment_orders where status in ('initiated','pending'))::text as pending,
             (select count(*) from audit_events where action = 'payment.amount_mismatch')::text as mismatches`,
   );
+  const mcp = await one<{ clients: string; disabled: string; users: string; prepared: string; confirmed: string }>(
+    `select (select count(*) from oauth_clients)::text as clients,
+            (select count(*) from oauth_clients where disabled_at is not null)::text as disabled,
+            (select count(distinct user_id) from oauth_tokens where kind = 'refresh' and revoked_at is null and expires_at > now())::text as users,
+            (select count(*) from audit_events where action = 'reminder.prepare' and created_at > now() - interval '24 hours')::text as prepared,
+            (select count(*) from audit_events where action = 'reminder.confirm' and created_at > now() - interval '24 hours')::text as confirmed`,
+  );
+  const [toolOk, toolErr, un401] = await Promise.all([sumEvents(db, "mcp:tool_ok"), sumEvents(db, "mcp:tool_error"), (async () => {
+    const { rows } = await db.query<{ n: string }>("select coalesce(sum(n),0)::text as n from request_counters where subject = 'metrics' and bucket like 'mcp:401:%' and window_start > now() - interval '24 hours'");
+    return Number(rows[0]?.n ?? 0);
+  })()]);
   const hb = await one<{ at: string | null }>("select max(created_at)::text as at from audit_events where action = 'worker.heartbeat' and target_id = 'dispatch'");
   const lastDispatchAt = hb?.at ? new Date(hb.at).toISOString() : null;
   return {
@@ -36,6 +49,7 @@ export async function getMetrics(db: Db = getDb()): Promise<Metrics> {
     sms: { attempts24h: Number(sms.attempts), accepted24h: Number(sms.accepted), unknownOpen: Number(sms.unknown_open) },
     payments: { pendingOrders: Number(pay.pending), mismatches: Number(pay.mismatches) },
     worker: { lastDispatchAt, minutesSinceDispatch: lastDispatchAt ? Math.round((Date.now() - new Date(lastDispatchAt).getTime()) / 60_000) : null },
+    mcp: { clients: Number(mcp.clients), disabledClients: Number(mcp.disabled), connectedUsers: Number(mcp.users), toolCalls24h: toolOk + toolErr, toolErrors24h: toolErr, unauthorized24h: un401, prepared24h: Number(mcp.prepared), confirmed24h: Number(mcp.confirmed) },
   };
 }
 

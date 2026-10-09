@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
 
-export function OtpForm() {
+export function OtpForm({ next }: { next?: string | null }) {
   const router = useRouter();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -34,7 +34,7 @@ export function OtpForm() {
     setError(null);
     try {
       const r = await api<{ next: string }>("/api/auth/otp/verify", { method: "POST", json: { phone, code } });
-      router.push(r.next);
+      router.push(next ?? r.next);
       router.refresh();
     } catch (err) {
       setError((err as Error).message);

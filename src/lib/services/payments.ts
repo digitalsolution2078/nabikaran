@@ -2,8 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { getDb, type Db } from "../db";
 import { getPaymentGateway, type LookupResult } from "../payments";
 import { env } from "../env";
-import { HttpError } from "../http";
-import { retryAwaitingCredits } from "./wallet";
+import { HttpError } from "../core/errors";
+import { retryAwaitingCredits } from "../core/wallet";
 
 export interface PackRow {
   code: string;

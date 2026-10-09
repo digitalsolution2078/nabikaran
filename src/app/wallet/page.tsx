@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { getWallet, getLedger } from "@/lib/services/wallet";
+import { webPrincipal } from "@/lib/core/principal";
+import { getWallet, getLedger } from "@/lib/core/wallet";
 import { listPacks } from "@/lib/services/payments";
 import { TopupPacks } from "@/components/TopupPacks";
 
@@ -10,8 +11,9 @@ export const dynamic = "force-dynamic";
 export default async function WalletPage({ searchParams }: { searchParams: Promise<{ payment?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  const p = webPrincipal(user);
   const { payment } = await searchParams;
-  const [wallet, packs, ledger] = await Promise.all([getWallet(user.id), listPacks(), getLedger(user.id, 5)]);
+  const [wallet, packs, ledger] = await Promise.all([getWallet(p), listPacks(), getLedger(p, 5)]);
   return (
     <div>
       <h1>Wallet</h1>
@@ -24,7 +26,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
         <div className="stat"><div className="n">{wallet.posted}</div><div className="l">Total balance</div></div>
       </div>
       <h2>Top up</h2>
-      <TopupPacks packs={packs.map((p) => ({ code: p.code, amountPaisa: Number(p.amount_paisa), credits: Number(p.credits) }))} />
+      <TopupPacks packs={packs.map((x) => ({ code: x.code, amountPaisa: Number(x.amount_paisa), credits: Number(x.credits) }))} />
       <h2>Recent activity</h2>
       <table><tbody>
         {ledger.map((l) => (
