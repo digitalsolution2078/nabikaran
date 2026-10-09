@@ -343,3 +343,5 @@ details.faq summary { cursor: pointer; font-weight: 600; }
 .sms-preview-list { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 10px; }
 .sms-preview-item { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .sms-preview-item .row { flex-wrap: wrap; gap: 4px 12px; }
+.qr-dynamic { background: #fff; padding: 12px; border-radius: 16px; display: flex; justify-content: center; }
+.qr-dynamic svg { width: 100%; max-width: 300px; height: auto; }

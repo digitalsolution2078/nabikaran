@@ -3,10 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
 import { webPrincipal } from "@/lib/core/principal";
 import { getReminder } from "@/lib/core/reminders";
-import { listDocTemplates } from "@/lib/services/admin-console";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RenewalActions } from "@/components/RenewalActions";
-import { RenewalForm } from "@/components/RenewalForm";
 import { Icon, iconForCategory } from "@/components/Icon";
 import { formatDate, formatDateTime, otherCalendar, localizeNumber, daysUntil, offsetLabel } from "@/lib/i18n/format";
 import { categoryName } from "@/lib/categories";
@@ -19,7 +17,6 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const r = await getReminder(webPrincipal(user), id).catch(() => null);
   if (!r) notFound();
-  const templates = await listDocTemplates(false);
   const d = daysUntil(r.expiry.utc);
   return (
     <div className="stack">
@@ -34,7 +31,10 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
           <div className="stat"><div className="label">{t("dash.expiringSoon")}</div><div className="value" style={{ fontSize: 20 }}>{d < 0 ? t("dash.overdue") : d === 0 ? t("dash.today") : t("dash.daysLeft", { n: localizeNumber(d, prefs.lang) })}</div></div>
           <div className="stat"><div className="label">{t("rem.thisCycle")}</div><div className="value" style={{ fontSize: 20 }}>{t("rem.smsCount", { n: localizeNumber(r.jobs.length, prefs.lang) })}</div></div>
         </div>
-        <div className="mt"><RenewalActions id={r.id} status={r.status} /></div>
+        <div className="mt row">
+          {r.status !== "cancelled" && <Link href={`/renewals/${r.id}/edit`} className="btn btn-primary btn-sm"><Icon name="edit" size={14} /> {t("rem.editBtn")}</Link>}
+          <RenewalActions id={r.id} status={r.status} />
+        </div>
       </div>
 
       <section className="card">
@@ -58,25 +58,6 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
 
       {r.notes && <section className="card"><h2>{t("rem.notes")}</h2><p className="mb-0" style={{ whiteSpace: "pre-wrap" }}>{r.notes}</p></section>}
 
-      <section>
-        <h2>{t("rem.edit")}</h2>
-        <p className="small muted">{t("rem.editNote")}</p>
-        <RenewalForm
-          templates={templates}
-          renewalId={r.id}
-          initial={{
-            category: r.category,
-            label: r.label,
-            calendar: r.inputCalendar,
-            expiryDate: r.inputDate ?? r.expiry.ad,
-            localTime: r.localTime,
-            notes: r.notes ?? "",
-            familyMemberLabel: r.familyMemberLabel ?? "",
-            offsets: r.jobs.filter((j) => j.status !== "cancelled").map((j) => j.offsetMinutes),
-            templateSlug: null,
-          }}
-        />
-      </section>
     </div>
   );
 }

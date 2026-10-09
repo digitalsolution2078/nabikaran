@@ -3,13 +3,25 @@ import { env } from "../env";
 import { getDb, type Db } from "../db";
 import { normalizeNepalPhone, redactPhone } from "../phone";
 import { getSmsProvider } from "../providers/sms";
+import { getSetting } from "../services/settings";
+import { isAdminRole } from "./rbac";
+
+/** English only, GSM-7, single segment. */
+export function otpMessage(code: string): string {
+  return `Nabikaran login code: ${code}. Valid for 5 minutes. Do not share this code with anyone.`;
+}
 
 /**
  * Phone OTP flow with abuse controls (PRD FR-01, §11):
  *  - per-phone and per-IP request caps (DB-counted, survives restarts)
  *  - 6-digit code, hashed with a server pepper, 5 minute TTL, 5 attempts
  *  - single use (consumed_at), replay-safe
- *  - OTP SMS cost is a platform acquisition expense, never charged to a wallet
+ *  - the SMS is English-only GSM-7 text (one segment, cheapest to send)
+ *  - each SUCCESSFUL sign-in charges the user's wallet the configured fee
+ *    (app_settings.signin.fee_credits, default 1). The fee may take the
+ *    balance below zero; a later top-up offsets it. Codes that are never
+ *    verified are not charged to anyone's wallet, so nobody can drain a
+ *    stranger's balance by requesting codes for their number.
  */
 export class OtpError extends Error {
   constructor(public readonly code: "invalid_phone" | "rate_limited" | "invalid_code" | "expired" | "too_many_attempts" | "send_failed", message: string) {
@@ -59,7 +71,7 @@ export async function requestOtp(input: RequestOtpInput, db: Db = getDb()): Prom
   const provider = getSmsProvider();
   const outcome = await provider.send({
     to: phoneE164,
-    text: `Nabikaran code: ${code}. ५ मिनेटभित्र प्रयोग गर्नुहोस्। Do not share this code.`,
+    text: otpMessage(code),
     idempotencyKey: `otp:${phoneE164}:${Date.now()}`,
   });
   if (outcome.kind === "rejected") {
@@ -69,7 +81,7 @@ export async function requestOtp(input: RequestOtpInput, db: Db = getDb()): Prom
   return { phoneE164, devCode: env.isProd ? undefined : code };
 }
 
-export async function verifyOtp(phone: string, code: string, db: Db = getDb()): Promise<{ userId: string; isNew: boolean }> {
+export async function verifyOtp(phone: string, code: string, db: Db = getDb()): Promise<{ userId: string; isNew: boolean; feeCharged: number }> {
   const phoneE164 = normalizeNepalPhone(phone);
   if (!phoneE164) throw new OtpError("invalid_phone", "Enter a valid Nepal mobile number");
   if (!/^\d{6}$/.test(code)) throw new OtpError("invalid_code", "Enter the 6-digit code");
@@ -110,6 +122,18 @@ export async function verifyOtp(phone: string, code: string, db: Db = getDb()): 
     }
     await tx.query("update phone_verifications set consumed_at = now(), user_id = $2 where id = $1", [v.id, userId]);
     await tx.query("insert into audit_events (actor_user_id, action, target_type, target_id) values ($1, 'auth.otp_verified', 'user', $2)", [userId, userId]);
-    return { userId, isNew };
+
+    const signin = await getSetting("signin", tx);
+    const { rows: roleRows } = await tx.query<{ role: string }>("select role from users where id = $1", [userId]);
+    const exempt = isAdminRole(roleRows[0]?.role) && !signin.charge_staff;
+    let feeCharged = 0;
+    if (!exempt && signin.fee_credits > 0) {
+      const { rows: fee } = await tx.query<{ wallet_charge_signin_fee: boolean }>(
+        "select wallet_charge_signin_fee($1, $2, $3)",
+        [userId, v.id, signin.fee_credits],
+      );
+      if (fee[0]?.wallet_charge_signin_fee) feeCharged = signin.fee_credits;
+    }
+    return { userId, isNew, feeCharged };
   });
 }

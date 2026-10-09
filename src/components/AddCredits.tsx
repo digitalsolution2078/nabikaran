@@ -6,10 +6,10 @@ import { usePrefs } from "./Prefs";
 import { Icon } from "./Icon";
 import { localizeNumber } from "@/lib/i18n/format";
 
-export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled }: { min: number; max: number; quick: number[]; qrEnabled: boolean; khaltiEnabled: boolean }) {
+export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled, initialAmount }: { min: number; max: number; quick: number[]; qrEnabled: boolean; khaltiEnabled: boolean; initialAmount?: number }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
-  const [amount, setAmount] = useState<string>(String(quick[1] ?? quick[0] ?? min));
+  const [amount, setAmount] = useState<string>(String(initialAmount ?? quick[1] ?? quick[0] ?? min));
   const [method, setMethod] = useState<"qr" | "khalti">(qrEnabled ? "qr" : "khalti");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

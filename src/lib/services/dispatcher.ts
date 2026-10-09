@@ -7,6 +7,16 @@ import { categorySmsName } from "../categories";
 import { loadTemplates } from "../core/reminders";
 import { getActivePricing } from "../core/wallet";
 import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../scheduler";
+
+/**
+ * Charge = billed units × the credits-per-SMS price the job was RESERVED at
+ * (reminder_jobs.cost_version), so a later price change never alters what an
+ * already-scheduled reminder costs. Falls back to the current price only for
+ * legacy jobs without a cost version.
+ */
+const BOOKED_COMMIT = `select wallet_commit_for_job($1::uuid,
+  $2::bigint * coalesce((select pv.credits_per_billable_unit from reminder_jobs j join pricing_versions pv on pv.id = j.cost_version where j.id = $1::uuid), $3::bigint),
+  $4::text)`;
 import { redactPhone } from "../phone";
 
 /**
@@ -39,6 +49,7 @@ interface ClaimedJob {
   due_at_utc: string;
   attempts: number;
   estimated_credits: string | number;
+  estimated_segments: string | number;
   lock_token: string;
 }
 
@@ -110,12 +121,17 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
 
     await db.tx(async (tx) => {
       if (outcome.kind === "accepted") {
-        const units = outcome.units && outcome.units > 0 ? outcome.units : pre.estimatedSegments;
+        const reported = outcome.units && outcome.units > 0 ? outcome.units : pre.estimatedSegments;
         await tx.query(
           "update sms_attempts set api_state = 'accepted', provider_message_id = $2, reported_units = $3, response_at = now() where idempotency_key = $1",
-          [pre.idempotencyKey, outcome.providerMessageId, units],
+          [pre.idempotencyKey, outcome.providerMessageId, reported],
         );
-        await tx.query("select wallet_commit_for_job($1, $2, $3)", [job.id, units * pricing.creditsPerUnit, `debit:${pre.idempotencyKey}`]);
+        // The customer pays exactly what was quoted and reserved: the job's stored
+        // segment count × its booked price. A provider count that differs is kept
+        // in sms_attempts.reported_units for admin reconciliation, not billed.
+        const quoted = Number(job.estimated_segments) || pre.estimatedSegments;
+        if (reported !== quoted) console.warn(`[dispatcher] provider billed ${reported} unit(s) for job ${job.id}; quoted ${quoted}`);
+        await tx.query(BOOKED_COMMIT, [job.id, quoted, pricing.creditsPerUnit, `debit:${pre.idempotencyKey}`]);
         await tx.query("update reminder_jobs set status = 'submitted', lock_at = null, lock_token = null, last_error = null, updated_at = now() where id = $1", [job.id]);
         summary.submitted++;
         return;
@@ -200,10 +216,11 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
     await db.tx(async (tx) => {
       if (found) {
         const units = found.units && found.units > 0 ? found.units : u.estimated_segments;
+        const quoted = Number(u.estimated_segments) || units;
         await tx.query("update sms_attempts set api_state = 'accepted', provider_message_id = coalesce(provider_message_id, $2), reported_units = $3, reported_status = $4, response_at = now() where idempotency_key = $1", [
           u.idempotency_key, found.providerMessageId, units, found.status,
         ]);
-        await tx.query("select wallet_commit_for_job($1, $2, $3)", [u.job_id, units * pricing.creditsPerUnit, `debit:${u.idempotency_key}`]);
+        await tx.query(BOOKED_COMMIT, [u.job_id, quoted, pricing.creditsPerUnit, `debit:${u.idempotency_key}`]);
         await tx.query("update reminder_jobs set status = $2, last_error = null, updated_at = now() where id = $1", [u.job_id, found.status === "delivered" ? "delivered" : "submitted"]);
       } else {
         // Provider has no record: the request never landed. Safe to retry as a new attempt.

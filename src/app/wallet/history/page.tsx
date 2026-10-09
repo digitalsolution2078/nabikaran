@@ -31,7 +31,7 @@ export default async function HistoryPage() {
               {ledger.map((l) => (
                 <tr key={l.id}>
                   <td className="nowrap">{formatDateTime(l.createdAt, prefs)}</td>
-                  <td style={{ textTransform: "capitalize" }}>{l.type}</td>
+                  <td style={{ textTransform: "capitalize" }}>{l.type === "fee" ? t("ledger.fee") : l.type}</td>
                   <td className="small muted hide-mobile">{l.memo ?? `${l.referenceType ?? ""} ${l.referenceId?.slice(0, 8) ?? ""}`}</td>
                   <td className={`num ${l.signedCredits >= 0 ? "plus" : "minus"}`}>{l.signedCredits > 0 ? "+" : ""}{n(l.signedCredits)}</td>
                 </tr>

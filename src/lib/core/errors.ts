@@ -4,7 +4,7 @@
  * next/* so the same functions serve both transports.
  */
 export class HttpError extends Error {
-  constructor(public readonly status: number, message: string, public readonly code?: string) {
+  constructor(public readonly status: number, message: string, public readonly code?: string, public readonly detail?: Record<string, unknown>) {
     super(message);
     this.name = "HttpError";
   }

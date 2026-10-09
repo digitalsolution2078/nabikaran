@@ -42,15 +42,51 @@ describe("renewal lifecycle + wallet reservations", () => {
     expect(p.shortfallCredits).toBe(p.reservedOnConfirmCredits);
   });
 
-  it("creating with insufficient credits marks jobs awaiting; top-up schedules them", async () => {
-    const { summary, reminder } = await createReminder(principalFor(userId), { category: "bluebook", label: "Bluebook", calendar: "AD", expiryDate: inDays(40), offsets: [30 * 1440, 7 * 1440, 0], ...base }, {}, db, now);
-    expect(summary.awaiting).toBe(3);
-    expect(summary.scheduled).toBe(0);
+  it("creating without enough credits is refused and saves nothing; after a top-up every SMS is reserved", async () => {
+    const input = { category: "bluebook" as const, label: "Bluebook", calendar: "AD" as const, expiryDate: inDays(40), offsets: [30 * 1440, 7 * 1440, 0], ...base };
+    await expect(createReminder(principalFor(userId), input, {}, db, now)).rejects.toMatchObject({ status: 402, code: "insufficient_credits", detail: { neededCredits: 9 } });
+    const { rows: none } = await db.query("select 1 from renewal_items where owner_user_id = $1", [userId]);
+    expect(none).toHaveLength(0); // the whole transaction rolled back
+    expect((await wallet(db, userId)).reserved).toBe(0);
     await fund(db, userId, 100);
-    expect(await retryAwaitingCredits(userId, db)).toBe(3);
-    expect((await wallet(db, userId)).reserved).toBeGreaterThan(0);
+    const { summary, reminder } = await createReminder(principalFor(userId), input, {}, db, now);
+    expect(summary).toMatchObject({ scheduled: 3, awaiting: 0, planned: 0 });
+    expect((await wallet(db, userId)).reserved).toBe(9);
     const detail = await getReminder(principalFor(userId), reminder.id, db);
     expect(detail!.jobs.every((j) => j.status === "scheduled")).toBe(true);
+  });
+
+  it("reminders beyond the two-year horizon are reserved immediately too", async () => {
+    const before = await wallet(db, userId);
+    const { summary } = await createReminder(principalFor(userId), { category: "passport", label: "Passport far", calendar: "AD", expiryDate: inDays(1200), offsets: [30 * 1440], ...base }, {}, db, now);
+    expect(summary).toMatchObject({ scheduled: 1, planned: 0, awaiting: 0 });
+    expect((await wallet(db, userId)).reserved).toBe(before.reserved + 3);
+  });
+
+  it("edits count the credits the old schedule releases; an edit the wallet cannot cover is refused and changes nothing", async () => {
+    const uid = await createUser(db, "+9779841000777");
+    await fund(db, uid, 5);
+    const p = principalFor(uid);
+    const { reminder } = await createReminder(p, { category: "other", label: "Edit guard", calendar: "AD", expiryDate: inDays(50), offsets: [1440], ...base }, {}, db, now);
+    expect(await wallet(db, uid)).toEqual({ posted: 5, reserved: 3, available: 2 });
+
+    // Two SMS need 6; the wallet can cover 2 + the 3 released = 5 → short by 1.
+    const two = { category: "other" as const, label: "Edit guard", calendar: "AD" as const, expiryDate: inDays(50), offsets: [1440, 2880], ...base };
+    const pv = await previewSchedule(p, { ...two, localTime: "09:00", renewalId: reminder.id }, db, now);
+    expect(pv.sufficient).toBe(false);
+    expect(pv.shortfallCredits).toBe(1);
+    await expect(updateReminder(p, reminder.id, two, {}, db, now)).rejects.toMatchObject({ code: "insufficient_credits", detail: { neededCredits: 6, shortfallCredits: 1 } });
+    expect(await wallet(db, uid)).toEqual({ posted: 5, reserved: 3, available: 2 });
+    const unchanged = await getReminder(p, reminder.id, db);
+    expect(unchanged!.cycleNo).toBe(1);
+    expect(unchanged!.jobs.map((j) => j.status)).toEqual(["scheduled"]);
+
+    // Moving the single SMS to another day fits, because its own hold is released first.
+    const pv2 = await previewSchedule(p, { ...two, offsets: [2880], localTime: "09:00", renewalId: reminder.id }, db, now);
+    expect(pv2.sufficient).toBe(true);
+    const { reminder: moved } = await updateReminder(p, reminder.id, { ...two, offsets: [2880] }, {}, db, now);
+    expect(moved.cycleNo).toBe(2);
+    expect(await wallet(db, uid)).toEqual({ posted: 5, reserved: 3, available: 2 });
   });
 
   it("editing starts a new cycle, cancels old jobs and releases holds", async () => {
@@ -154,9 +190,9 @@ describe("dispatcher", () => {
     expect(await status(jobId)).toBe("delivered");
     const w = await wallet(db, uid);
     expect(w.reserved).toBe(0);
-    expect(w.posted).toBe(30 - 3);
+    expect(w.posted).toBe(30 - 6); // billed at the reserved quote: 2 segments × 3 credits
     await runReconciler(db, new Date());
-    expect((await wallet(db, uid)).posted).toBe(27);
+    expect((await wallet(db, uid)).posted).toBe(24);
   });
 
   it("renewal cancelled between claim and send is not sent", async () => {

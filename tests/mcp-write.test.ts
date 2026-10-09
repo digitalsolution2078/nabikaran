@@ -149,21 +149,23 @@ describe("confirm_reminder", () => {
     await c.close();
   });
 
-  it("insufficient credits: saved as awaiting with shortfall + top-up URL, never overdrafts; top-up schedules it", async () => {
+  it("insufficient credits: confirm is refused with shortfall + top-up URL and saves nothing; after a top-up the same preparation confirms", async () => {
     const u = await createUser(db, "+9779841000808");
     await fund(db, u, 2);
     const c = await connect(u);
     const p = (await call(c, "prepare_reminder", prep())).structuredContent!;
     expect(p.warnings).toContain("insufficient_credits");
     const r = await call(c, "confirm_reminder", { prepared_id: p.prepared_id, expected_expiry_ad: p.expected_expiry_ad, idempotency_key: key() });
-    expect(r.isError).toBeFalsy();
-    const f = r.structuredContent!.funding as { status: string; shortfall_credits: number; top_up_url: string };
-    expect(f.status).toBe("awaiting_credits");
-    expect(f.shortfall_credits).toBe(Number(p.reserved_on_confirm));
-    expect(f.top_up_url).toMatch(/\/wallet$/);
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toMatchObject({ error: "insufficient_credits", neededCredits: Number(p.reserved_on_confirm), availableCredits: 2 });
+    expect(String(r.structuredContent!.top_up_url)).toMatch(/\/wallet$/);
     expect(await wallet(db, u)).toEqual({ posted: 2, reserved: 0, available: 2 });
+    const { rows } = await db.query("select 1 from renewal_items where owner_user_id = $1", [u]);
+    expect(rows).toHaveLength(0);
     await fund(db, u, 100);
-    expect(await retryAwaitingCredits(u, db)).toBe(2);
+    const ok = await call(c, "confirm_reminder", { prepared_id: p.prepared_id, expected_expiry_ad: p.expected_expiry_ad, idempotency_key: key() });
+    expect(ok.isError).toBeFalsy();
+    expect((ok.structuredContent!.funding as { status: string }).status).toBe("reserved");
     expect((await wallet(db, u)).reserved).toBe(Number(p.reserved_on_confirm));
     await c.close();
   });

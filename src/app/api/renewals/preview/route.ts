@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { handle, json, parseBody, requirePrincipal } from "@/lib/http";
 import { previewSchedule, reminderInputSchema } from "@/lib/core/reminders";
 
@@ -5,7 +6,10 @@ import { previewSchedule, reminderInputSchema } from "@/lib/core/reminders";
 export async function POST(req: Request) {
   return handle(async () => {
     const { principal } = await requirePrincipal(req);
-    const input = await parseBody(req, reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true, category: true }));
+    const input = await parseBody(
+      req,
+      reminderInputSchema.pick({ label: true, calendar: true, expiryDate: true, localTime: true, offsets: true, category: true }).extend({ renewalId: z.string().uuid().nullish() }),
+    );
     return json({ preview: await previewSchedule(principal, input) });
   });
 }

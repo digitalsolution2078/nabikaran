@@ -1,3 +1,4 @@
+import { env } from "../env";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -62,7 +63,7 @@ async function run(tool: string, extra: { authInfo?: AuthInfo }, fn: (p: Princip
     }
     if (e instanceof HttpError) {
       await audit(db, p, `mcp.${tool}`, null, { ok: false, error: e.code ?? e.status });
-      return fail(e.code ?? "error", e.message);
+      return fail(e.code ?? "error", e.message, e.code === "insufficient_credits" ? { ...e.detail, top_up_url: `${env.appUrl}/wallet` } : e.detail);
     }
     console.error(`[mcp] ${tool} failed`, e);
     await countEvent(db, "mcp:tool_error");
@@ -231,7 +232,7 @@ export function createMcpServer(): McpServer {
       title: "Confirm a prepared reminder",
       description:
         "Step 2 of 2. Creates (or updates) the reminder from a prepared_id and reserves the credits shown in the preview. Safe to retry with the same idempotency_key. " +
-        "expected_expiry_ad must be the resolved Gregorian date returned by prepare_reminder — this proves the date was shown to the user. If credits are insufficient the reminder is saved as awaiting credits (never overdrafts) and the response includes the shortfall and top-up URL.",
+        "expected_expiry_ad must be the resolved Gregorian date returned by prepare_reminder — this proves the date was shown to the user. If the wallet cannot cover every SMS the reminder is NOT saved: the tool returns insufficient_credits with the shortfall, and the user must top up on the website first.",
       inputSchema: {
         prepared_id: z.string().uuid(),
         expected_expiry_ad: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("The resolved_expiry.ad value from prepare_reminder."),

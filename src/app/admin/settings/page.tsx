@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
 import { getSetting } from "@/lib/services/settings";
 import { getDb } from "@/lib/db";
+import { fonepayEnabled } from "@/lib/providers/payments/fonepay";
 import { SettingsEditor } from "@/components/admin/SettingsEditor";
 import { StatusBadge } from "@/components/StatusBadge";
 
@@ -12,14 +13,15 @@ export const dynamic = "force-dynamic";
 export default async function AdminSettings() {
   const me = await getCurrentUser();
   if (!can(me?.role, "settings.manage")) redirect("/admin");
-  const [topup, qr, admins] = await Promise.all([
+  const [topup, qr, signin, admins] = await Promise.all([
     getSetting("topup"),
     getSetting("manual_qr"),
+    getSetting("signin"),
     getDb().query<{ id: string; phone_e164: string; display_name: string | null; role: string }>("select id, phone_e164, display_name, role from users where role in ('admin','super_admin') order by role desc, created_at"),
   ]);
   return (
     <div className="stack">
-      <SettingsEditor topup={topup} qr={qr} />
+      <SettingsEditor topup={topup} qr={qr} signin={signin} dynamicQr={fonepayEnabled()} />
       <section className="card">
         <h2>Administrators</h2>
         <div className="list">

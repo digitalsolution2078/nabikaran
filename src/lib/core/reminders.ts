@@ -8,6 +8,7 @@ import { getActivePricing, readWallet } from "./wallet";
 import { HttpError } from "./errors";
 import { requireScope, type Principal } from "./principal";
 import { audit } from "./audit";
+import { assertNotLocked } from "./account-lock";
 import { withIdempotency } from "./idempotency";
 import { instantDTO, type ReminderDTO, type ReminderJobDTO, type SchedulePreview, type Warning } from "./dto";
 
@@ -116,11 +117,22 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
  */
 export async function previewSchedule(
   p: Principal,
-  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string },
+  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string; renewalId?: string | null },
   db: Db = getDb(),
   now: Date = new Date(),
 ): Promise<SchedulePreview> {
   requireScope(p, "reminders:read");
+  // Editing releases the current schedule's holds before reserving the new one.
+  let releasable = 0;
+  if (input.renewalId) {
+    const { rows } = await db.query<{ n: string }>(
+      `select coalesce(sum(r.held_credits),0)::text as n from credit_reservations r join reminder_jobs j on j.id = r.reminder_job_id
+        join renewal_items i on i.id = j.renewal_id
+        where j.renewal_id = $1 and i.owner_user_id = $2 and r.status = 'active' and j.status in ('planned','awaiting_credits','scheduled')`,
+      [input.renewalId, p.userId],
+    );
+    releasable = Number(rows[0].n);
+  }
   const expiryAtUtc = resolveExpiry(input);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const [pricing, templates, wallet] = await Promise.all([getActivePricing(db), loadTemplates(db), readWallet(p.userId, db)]);
@@ -139,7 +151,7 @@ export async function previewSchedule(
     };
   });
   const totalCredits = lines.reduce((s, l) => s + l.credits, 0);
-  const reservedOnConfirmCredits = lines.filter((l) => l.horizon === "within").reduce((s, l) => s + l.credits, 0);
+  const reservedOnConfirmCredits = totalCredits; // every SMS is reserved when the reminder is saved
   const warnings: Warning[] = [];
   if (expiryAtUtc.getTime() <= now.getTime()) warnings.push("expiry_in_past");
   if (plan.droppedPast > 0) warnings.push("some_offsets_in_past");
@@ -148,7 +160,8 @@ export async function previewSchedule(
   if (lines.some((l) => l.horizon === "beyond")) warnings.push("beyond_two_year_horizon");
   if (input.calendar === "BS") warnings.push("bs_date_needs_confirmation");
   if (lines.some((l) => l.labelAdjusted)) warnings.push("sms_label_adjusted");
-  const shortfallCredits = Math.max(0, reservedOnConfirmCredits - wallet.available);
+  // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
+  const shortfallCredits = Math.max(0, reservedOnConfirmCredits - (wallet.available + releasable));
   if (shortfallCredits > 0) warnings.push("insufficient_credits");
   return {
     expiry: instantDTO(expiryAtUtc),
@@ -197,15 +210,42 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
        on conflict (renewal_id, rule_id, cycle_no) do update set due_at_utc = excluded.due_at_utc returning id`,
       [renewal.id, ruleId, renewal.owner_user_id, renewal.cycle_no, c.dueAtUtc.toISOString(), pricing.id, rendered.estimate.segments, credits],
     );
-    if (c.horizon === "beyond") {
-      result.planned++;
-      continue;
-    }
+    // Funding policy: every SMS of a reminder is paid for (reserved) when the
+    // reminder is saved, however far away it is. A reminder the customer relies
+    // on must never be silently skipped later for lack of credits.
     const { rows: res } = await tx.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [jobRows[0].id]);
     if (res[0].wallet_reserve_for_job === "scheduled") result.scheduled++;
     else result.awaiting++;
   }
+  if (result.awaiting > 0) {
+    // Abort the whole transaction: no reminder is saved half-funded.
+    const need = await tx.query<{ n: string }>(
+      "select coalesce(sum(estimated_credits),0)::text as n from reminder_jobs where renewal_id = $1 and cycle_no = $2 and status in ('scheduled','awaiting_credits','planned')",
+      [renewal.id, renewal.cycle_no],
+    );
+    throw insufficientCredits(Number(need.rows[0].n), (await readWallet(renewal.owner_user_id, tx)).available + (await heldFor(tx, renewal.id, renewal.cycle_no)));
+  }
   return result;
+}
+
+async function heldFor(tx: Db, renewalId: string, cycleNo: number): Promise<number> {
+  const { rows } = await tx.query<{ n: string }>(
+    `select coalesce(sum(r.held_credits),0)::text as n from credit_reservations r join reminder_jobs j on j.id = r.reminder_job_id
+      where j.renewal_id = $1 and j.cycle_no = $2 and r.status = 'active'`,
+    [renewalId, cycleNo],
+  );
+  return Number(rows[0].n);
+}
+
+export function insufficientCredits(needed: number, available: number): HttpError {
+  // Debt counts: with -1 available and 12 needed, 13 must be added.
+  const shortfall = Math.max(1, needed - available);
+  return new HttpError(
+    402,
+    `Not enough credits: this reminder needs ${needed} credits and you have ${available}. Top up at least ${shortfall} credits — nothing was saved.`,
+    "insufficient_credits",
+    { neededCredits: needed, availableCredits: available, shortfallCredits: shortfall },
+  );
 }
 
 export async function cancelUnsentJobs(tx: Db, renewalId: string, reason: string): Promise<number> {
@@ -238,6 +278,7 @@ async function loadDto(tx: Db, renewalId: string): Promise<ReminderDTO> {
 /** Transaction-scoped create (no idempotency wrapper). Used by createReminder and by prepared-action confirmation. */
 export async function createReminderIn(tx: Db, p: Principal, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
   requireScope(p, "reminders:write");
+  await assertNotLocked(p.userId, tx);
   const expiryAtUtc = resolveExpiry(input);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const { rows } = await tx.query<RenewalRow>(
@@ -272,6 +313,7 @@ export async function createReminder(
 /** Transaction-scoped full edit (no idempotency wrapper). */
 export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
   requireScope(p, "reminders:write");
+  await assertNotLocked(p.userId, tx);
   const expiryAtUtc = resolveExpiry(input);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const { rows: existing } = await tx.query<RenewalRow>(
@@ -332,14 +374,24 @@ export async function setReminderStatus(
       let cancelled = 0;
       let resumed = 0;
       if (action === "resume") {
+        await assertNotLocked(p.userId, tx);
         await tx.query("update renewal_items set status = 'active', updated_at = now() where id = $1", [renewalId]);
         const { rows: jobs } = await tx.query<{ id: string }>(
           "select id from reminder_jobs where renewal_id = $1 and cycle_no = $2 and status = 'cancelled' and last_error = 'paused' and due_at_utc > now()",
           [renewalId, r.cycle_no],
         );
+        let short = 0;
         for (const j of jobs) {
           await tx.query("update reminder_jobs set status = 'planned', last_error = null, updated_at = now() where id = $1", [j.id]);
-          await tx.query("select wallet_reserve_for_job($1)", [j.id]);
+          const { rows: res } = await tx.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [j.id]);
+          if (res[0].wallet_reserve_for_job !== "scheduled") short++;
+        }
+        if (short > 0) {
+          const { rows: need } = await tx.query<{ n: string }>(
+            "select coalesce(sum(estimated_credits),0)::text as n from reminder_jobs where id = any($1::uuid[])",
+            [jobs.map((j) => j.id)],
+          );
+          throw insufficientCredits(Number(need[0].n), (await readWallet(p.userId, tx)).available + (await heldFor(tx, renewalId, r.cycle_no)));
         }
         resumed = jobs.length;
       } else {

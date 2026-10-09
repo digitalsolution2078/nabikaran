@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getLockState } from "@/lib/core/account-lock";
 import { redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
 import { webPrincipal } from "@/lib/core/principal";
@@ -15,7 +16,7 @@ export default async function Dashboard() {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login");
   const p = webPrincipal(user);
-  const [{ reminders }, wallet, jobs] = await Promise.all([listReminders(p, { status: "active", limit: 50 }), getWallet(p), listJobsForUser(p, 100)]);
+  const [{ reminders }, wallet, jobs, lock] = await Promise.all([listReminders(p, { status: "active", limit: 50 }), getWallet(p), listJobsForUser(p, 100), getLockState(user.id)]);
   const upcoming = jobs.filter((j) => ["scheduled", "awaiting_credits", "planned"].includes(j.status)).sort((a, b) => a.due_at_utc.localeCompare(b.due_at_utc)).slice(0, 6);
   const sent = jobs.filter((j) => ["submitted", "delivered", "failed", "unknown"].includes(j.status));
   const sentCount = jobs.filter((j) => j.status === "submitted" || j.status === "delivered").length;
@@ -55,6 +56,11 @@ export default async function Dashboard() {
         </div>
       </div>
 
+      {lock.locked ? (
+        <div className="alert warn"><Icon name="alert" /> <span><strong>{t("lock.title")}</strong> — {t("lock.body", { balance: n(lock.available), min: n(lock.minBalance) })} <Link href={`/wallet?amount=${Math.max(20, -lock.available)}`}>{t("lock.cta")} →</Link></span></div>
+      ) : wallet.available < 0 ? (
+        <div className="alert info"><Icon name="info" /> <span>{t("wallet.negative")} <Link href="/wallet">{t("dash.topUp")} →</Link></span></div>
+      ) : null}
       {jobs.some((j) => j.status === "awaiting_credits") && (
         <div className="alert warn"><Icon name="alert" /> <span>{t("dash.awaitingCredits")} <Link href="/wallet">{t("dash.topUp")} →</Link></span></div>
       )}

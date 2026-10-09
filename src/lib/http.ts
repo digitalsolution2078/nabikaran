@@ -16,7 +16,7 @@ export function errorResponse(e: unknown) {
   if (e instanceof RateLimitError) {
     return json({ error: e.message, code: e.code }, { status: 429, headers: { "retry-after": String(e.retryAfterSeconds) } });
   }
-  if (e instanceof HttpError) return json({ error: e.message, code: e.code }, { status: e.status });
+  if (e instanceof HttpError) return json({ error: e.message, code: e.code, ...(e.detail ? { detail: e.detail } : {}) }, { status: e.status });
   if (e instanceof ZodError) return json({ error: "Invalid input", issues: e.issues }, { status: 400 });
   const code = (e as { code?: string })?.code;
   if (code) return json({ error: (e as Error).message, code }, { status: 400 });

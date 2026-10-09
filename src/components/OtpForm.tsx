@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { api } from "./api";
 import { usePrefs } from "./Prefs";
 
-export function OtpForm({ next }: { next?: string | null }) {
+export function OtpForm({ next, fee = 1 }: { next?: string | null; fee?: number }) {
   const router = useRouter();
   const { t } = usePrefs();
   const [phone, setPhone] = useState("");
@@ -59,6 +59,7 @@ export function OtpForm({ next }: { next?: string | null }) {
           {busy ? <><span className="spinner" /> {t("login.sending")}</> : t("login.send")}
         </button>
         <p className="hint mt">{t("login.consent")}</p>
+        {fee > 0 && <p className="hint mb-0">{t("login.feeNote", { fee })}</p>}
       </form>
     );
   }

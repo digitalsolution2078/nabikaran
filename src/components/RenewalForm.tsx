@@ -1,7 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { usePrefs } from "./Prefs";
 import { Icon, iconForGroup } from "./Icon";
 import { PRESET_OFFSET_DAYS, offsetFromParts } from "@/lib/scheduler";
@@ -51,7 +51,16 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-export function RenewalForm({ templates, initial, renewalId, initialTemplate }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null }) {
+const DRAFT_KEY = "nabikaran.reminderDraft";
+
+interface Shortfall {
+  needed: number;
+  available: number;
+  shortfall: number;
+  locked?: boolean;
+}
+
+export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20 }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const lang = prefs.lang;
@@ -76,6 +85,33 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate }: 
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [topup, setTopup] = useState<Shortfall | null>(null);
+
+  // Restore a draft saved when the customer left to top up (new reminders only).
+  useEffect(() => {
+    if (renewalId) return;
+    try {
+      const raw = sessionStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(DRAFT_KEY);
+      const d = JSON.parse(raw) as { v: RenewalFormValues; at: number };
+      if (Date.now() - d.at < 60 * 60_000 && d.v?.label) {
+        setV(d.v);
+        setStep(2);
+      }
+    } catch {
+      /* storage unavailable: start fresh */
+    }
+  }, [renewalId]);
+
+  const saveDraftAndTopUp = (amount: number) => {
+    try {
+      if (!renewalId) sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ v, at: Date.now() }));
+    } catch {
+      /* ignore */
+    }
+    router.push(`/wallet?amount=${amount}&next=${encodeURIComponent(renewalId ? `/renewals/${renewalId}/edit` : "/renewals/new")}`);
+  };
 
   const set = <K extends keyof RenewalFormValues>(k: K, val: RenewalFormValues[K]) => {
     setV((old) => ({ ...old, [k]: val }));
@@ -132,9 +168,12 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate }: 
     try {
       const r = await api<{ preview: SchedulePreview }>("/api/renewals/preview", {
         method: "POST",
-        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets },
+        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets, renewalId: renewalId ?? null },
       });
       setPreview(r.preview);
+      if (!r.preview.sufficient) {
+        setTopup({ needed: r.preview.reservedOnConfirmCredits, available: r.preview.wallet.available, shortfall: r.preview.shortfallCredits });
+      }
       setIdempotencyKey(crypto.randomUUID());
       setStep(3);
     } catch (e) {
@@ -155,7 +194,17 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate }: 
       router.push(`/renewals/${r.reminder.id}`);
       router.refresh();
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof ApiError && (e.code === "insufficient_credits" || e.code === "account_locked")) {
+        const d = e.detail ?? {};
+        setTopup({
+          needed: d.neededCredits ?? preview?.reservedOnConfirmCredits ?? 0,
+          available: d.availableCredits ?? preview?.wallet.available ?? 0,
+          shortfall: d.shortfallCredits ?? Math.max(1, -(preview?.wallet.available ?? 0)),
+          locked: e.code === "account_locked",
+        });
+      } else {
+        setError((e as Error).message);
+      }
       setBusy(false);
     }
   }
@@ -320,9 +369,40 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate }: 
           {error && <div className="alert bad" role="alert">{error}</div>}
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(2)}>{t("rem.back")}</button>
-            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
+            {!preview.sufficient && (
+              <button type="button" className="btn btn-accent btn-lg" onClick={() => setTopup({ needed: preview.reservedOnConfirmCredits, available: preview.wallet.available, shortfall: preview.shortfallCredits })}>
+                <Icon name="wallet" size={18} /> {t("topup.needTitle")}
+              </button>
+            )}
+            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0 || !preview.sufficient} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
           </div>
         </section>
+      )}
+
+      {topup && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="topup-title" onClick={(e) => e.target === e.currentTarget && setTopup(null)}>
+          <div className="modal">
+            <div className="row" style={{ gap: 12 }}>
+              <span className="icon-chip" style={{ background: "#fff1e6", color: "var(--accent-orange)" }}><Icon name="wallet" size={20} /></span>
+              <h2 id="topup-title" className="mb-0">{topup.locked ? t("lock.title") : t("topup.needTitle")}</h2>
+            </div>
+            <p className="mt">{topup.locked ? t("lock.body", { balance: localizeNumber(topup.available, lang), min: localizeNumber(-5, lang) }) : t("topup.needBody")}</p>
+            {!topup.locked && (
+              <dl className="kv">
+                <dt>{t("topup.needed")}</dt><dd><strong>{localizeNumber(topup.needed, lang)}</strong> {t("common.credits")}</dd>
+                <dt>{t("rem.available")}</dt><dd>{localizeNumber(topup.available, lang)} {t("common.credits")}</dd>
+                <dt>{t("topup.short")}</dt><dd><strong>{localizeNumber(topup.shortfall, lang)}</strong> {t("common.credits")}</dd>
+              </dl>
+            )}
+            <p className="hint">{t("topup.noSave")}</p>
+            <div className="row between mt">
+              <button type="button" className="btn btn-secondary" onClick={() => setTopup(null)}>{t("rem.back")}</button>
+              <button type="button" className="btn btn-primary" onClick={() => saveDraftAndTopUp(Math.max(topupMin, topup.shortfall))}>
+                <Icon name="wallet" size={18} /> {t("topup.cta", { amount: localizeNumber(Math.max(topupMin, topup.shortfall), lang) })}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

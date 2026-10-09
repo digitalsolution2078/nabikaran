@@ -88,7 +88,7 @@ export async function prepareReminderAction(p: Principal, raw: unknown, db: Db =
   const kind = input.reminder_id ? "update_reminder" : "create_reminder";
   if (input.reminder_id && !(await getReminder(p, input.reminder_id, db))) throw new HttpError(404, "Reminder not found", "not_found");
 
-  const preview = await previewSchedule(p, toReminderInput(input), db, now);
+  const preview = await previewSchedule(p, { ...toReminderInput(input), renewalId: input.reminder_id ?? null }, db, now);
   if (preview.lines.length === 0) throw new HttpError(400, "Every reminder time is already in the past; choose an earlier offset or a later expiry.", "nothing_to_schedule");
   const requiresUserConfirmation = needsConfirmation(input);
   const confirmationPrompt = requiresUserConfirmation ? buildPrompt(input, preview) : `Schedule ${preview.lines.length} SMS reminder(s) for ${input.label}, expiring ${preview.expiry.local} Nepal time, reserving ${preview.reservedOnConfirmCredits} credits now?`;

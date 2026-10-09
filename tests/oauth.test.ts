@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTestDb, createUser } from "./helpers/db";
+import { createTestDb, createUser, fund } from "./helpers/db";
 import type { Db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { registerClient, isAllowedRedirectUri, redirectUriMatches, authenticateClient } from "@/lib/oauth/clients";
@@ -170,6 +170,7 @@ describe("resource server token validation", () => {
 
   it("user isolation across tokens: a token for Bob never sees Alice", async () => {
     const bob = await createUser(db, "+9779841000603");
+    await fund(db, userId, 10);
     await createReminder({ userId, via: "web", scopes: ["reminders:write"], locale: "ne-NP" }, { category: "other", label: "Alice only", calendar: "AD", expiryDate: "2030-01-01", localTime: "09:00", offsets: [0], notes: null, familyMemberLabel: null }, {}, db);
     const { tokens } = await login(undefined, bob);
     const r = await verifyAccessToken(tokens.access_token, db);
