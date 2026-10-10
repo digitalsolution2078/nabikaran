@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
-import { getPlanState } from "@/lib/services/plans";
+import { getPlanState, getProPrefs } from "@/lib/services/plans";
+import { ProPrefs } from "@/components/ProPrefs";
+import { ProBadge } from "@/components/Shell";
 import { readWallet } from "@/lib/core/wallet";
 import { formatDate, localizeNumber } from "@/lib/i18n/format";
 import { ProActions } from "@/components/ProActions";
@@ -14,7 +16,7 @@ export const metadata = { title: "Pro" };
 export default async function ProPage() {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login?next=/pro");
-  const [st, wallet] = await Promise.all([getPlanState(user.id), readWallet(user.id)]);
+  const [st, wallet, proPrefs] = await Promise.all([getPlanState(user.id), readWallet(user.id), getProPrefs(user.id)]);
   const o = st.offer;
   const n = (x: number) => localizeNumber(x, prefs.lang);
   if (st.tier === "basic" && !o.enabled) {
@@ -29,10 +31,11 @@ export default async function ProPage() {
   ];
   return (
     <div className="stack">
-      <div className="page-head"><h1><Icon name="star" /> {t("pro.title")}</h1></div>
+      <div className="page-head"><h1>{t("pro.title")} <ProBadge /></h1></div>
+      <p className="lead" style={{ marginTop: -8 }}>{t("pro.tagline")}</p>
 
       {st.tier === "pro" && (
-        <section className="card pro-status">
+        <section className="card pro-status pro-hero">
           <div className="row between" style={{ flexWrap: "wrap", gap: 8 }}>
             <h2 style={{ margin: 0 }}>{st.kind === "trial" ? t("pro.trialActive") : st.kind === "grant" ? t("pro.granted") : t("pro.active")}</h2>
             <span className="badge ok">{t("pro.endsOn", { date: formatDate(st.endsAt!, prefs), n: n(st.daysLeft) })}</span>
@@ -53,7 +56,7 @@ export default async function ProPage() {
                   </div>
                 ))}
               </div>
-              <p className="hint">{t("pro.allowanceHint")}</p>
+              <p className="hint">{t("pro.allowanceHint")} {t("plan.credits")}: <strong>{n(wallet.available)}</strong></p>
             </>
           )}
           <div className="row mt" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -63,10 +66,11 @@ export default async function ProPage() {
         </section>
       )}
 
+      {st.tier === "pro" && st.kind !== "trial" && <ProPrefs initial={proPrefs} />}
       {/* The offer (trial / buy / add a year) shows for Basic, trial, and in the last 30 days of a plan. */}
       {(st.tier === "basic" || st.kind === "trial" || (st.daysLeft <= 30 && !st.queuedUntil)) && (
       <section className="card pro-offer">
-        {st.tier === "basic" && <p className="lead" style={{ marginTop: 0 }}>{t("pro.tagline")}</p>}
+        {st.tier === "basic" && <p style={{ marginTop: 0 }}>{t("pro.upgradeText")}</p>}
         <div className="pro-price"><strong>{t("pro.price", { n: n(o.price_npr) })}</strong></div>
         <ul className="checklist">
           {benefits.map((b) => <li key={b}><Icon name="check" size={16} /> <span>{b}</span></li>)}

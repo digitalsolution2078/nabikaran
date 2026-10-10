@@ -16,7 +16,7 @@ export async function GET(req: Request, ctx: Ctx) {
 }
 
 const patchSchema = z.union([
-  z.object({ action: z.enum(["pause", "resume", "cancel"]), idempotencyKey: z.string().max(64).optional().nullable() }),
+  z.object({ action: z.enum(["pause", "resume", "cancel"]), idempotencyKey: z.string().max(64).optional().nullable(), useCredits: z.boolean().optional() }),
   reminderInputSchema.extend({ idempotencyKey: z.string().max(64).optional().nullable() }),
 ]);
 
@@ -29,7 +29,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     const renewalId = uuid.parse(id);
     const body = await parseBody(req, patchSchema);
     const key = idempotencyKeyFrom(req, body);
-    if ("action" in body) return json(await setReminderStatus(principal, renewalId, body.action, { idempotencyKey: key }));
+    if ("action" in body) return json(await setReminderStatus(principal, renewalId, body.action, { idempotencyKey: key, useCredits: body.useCredits }));
     const { idempotencyKey: _k, ...input } = body;
     void _k;
     return json(await updateReminder(principal, renewalId, input, { idempotencyKey: key }));

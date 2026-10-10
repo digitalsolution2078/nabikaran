@@ -127,6 +127,8 @@ export async function startTrial(userId: string, db: Db = getDb(), now: Date = n
  * its included messages; the credits they held go back to the wallet.
  */
 async function refundIntoAllowance(tx: Db, userId: string): Promise<number> {
+  // These messages were already paid with credits, so moving them never needs a new permission.
+  await tx.query("select set_config('nabikaran.allow_credits', 'on', true)");
   const { rows } = await tx.query<{ id: string }>(
     `select j.id from reminder_jobs j join credit_reservations r on r.reminder_job_id = j.id
       where j.user_id = $1 and j.status = 'scheduled' and r.status = 'active' and r.allowance_units = 0
@@ -232,6 +234,7 @@ export async function revokePlan(admin: { id: string }, planId: string, reason: 
   await db.tx(async (tx) => {
     const { rows } = await tx.query<{ user_id: string }>("update user_plans set status = 'revoked' where id = $1 and status = 'active' returning user_id", [planId]);
     if (!rows[0]) throw new HttpError(404, "Active plan not found", "not_found");
+    await tx.query("select set_config('nabikaran.allow_credits', 'on', true)");
     const { rows: jobs } = await tx.query<{ id: string }>(
       `select j.id from reminder_jobs j join credit_reservations r on r.reminder_job_id = j.id
         where r.allowance_plan_id = $1 and r.status = 'active' and j.status = 'scheduled' order by j.due_at_utc`,
@@ -295,4 +298,48 @@ export async function proReport(db: Db = getDb()): Promise<ProReport> {
     activePaid: c[0].paid, activeTrial: c[0].trial, activeGrant: c[0].grant, trialsStarted: c[0].trials, trialToPaid: c[0].converted, revenueCredits: Number(c[0].revenue),
     recent: recent.map((r) => ({ userId: r.user_id, phone: r.phone_e164, name: r.display_name, kind: r.kind, endsAt: new Date(r.ends_at).toISOString() })),
   };
+}
+
+/** Messages waiting because included messages ran out and the customer has not allowed credits yet. */
+export async function messagesAwaitingPermission(userId: string, db: Db = getDb()): Promise<{ count: number; credits: number }> {
+  const { rows } = await db.query<{ n: number; c: string }>(
+    "select count(*)::int as n, coalesce(sum(estimated_credits),0)::text as c from reminder_jobs where user_id = $1 and status = 'awaiting_credits' and last_error like 'included messages used up%'",
+    [userId],
+  );
+  return { count: rows[0].n, credits: Number(rows[0].c) };
+}
+
+/** The customer allows wallet credits for messages their included messages no longer cover. */
+export async function allowCreditsForWaiting(userId: string, db: Db = getDb()): Promise<{ scheduled: number; stillWaiting: number }> {
+  return db.tx(async (tx) => {
+    await tx.query("select set_config('nabikaran.allow_credits', 'on', true)");
+    const { rows } = await tx.query<{ id: string }>(
+      "select id from reminder_jobs where user_id = $1 and status = 'awaiting_credits' and last_error like 'included messages used up%' order by due_at_utc",
+      [userId],
+    );
+    let scheduled = 0;
+    for (const j of rows) {
+      const { rows: r } = await tx.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [j.id]);
+      if (r[0].wallet_reserve_for_job === "scheduled") scheduled++;
+    }
+    await audit(tx, who(userId), "plan.credits_allowed", { type: "user", id: userId }, { scheduled, waiting: rows.length - scheduled });
+    return { scheduled, stillWaiting: rows.length - scheduled };
+  });
+}
+
+export interface ProPrefs {
+  creditFallback: boolean;
+  digest: "off" | "weekly" | "monthly";
+}
+
+export async function getProPrefs(userId: string, db: Db = getDb()): Promise<ProPrefs> {
+  const { rows } = await db.query<{ f: boolean; d: ProPrefs["digest"] }>("select pro_credit_fallback as f, digest_frequency as d from users where id = $1", [userId]);
+  return { creditFallback: Boolean(rows[0]?.f), digest: rows[0]?.d ?? "weekly" };
+}
+
+export async function setProPrefs(userId: string, prefs: Partial<ProPrefs>, db: Db = getDb()): Promise<ProPrefs> {
+  if (prefs.creditFallback !== undefined) await db.query("update users set pro_credit_fallback = $2, updated_at = now() where id = $1", [userId, prefs.creditFallback]);
+  if (prefs.digest !== undefined) await db.query("update users set digest_frequency = $2, updated_at = now() where id = $1", [userId, prefs.digest]);
+  await audit(db, who(userId), "plan.prefs_updated", { type: "user", id: userId }, prefs as Record<string, unknown>);
+  return getProPrefs(userId, db);
 }

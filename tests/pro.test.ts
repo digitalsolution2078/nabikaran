@@ -145,7 +145,14 @@ describe("Pro included messages in reminders", () => {
       [u],
     );
     const before = await wallet(db, u);
-    const { reminder } = await createReminder(principalFor(u), { category: "other", label: "Two msgs", calendar: "AD", expiryDate: inDays(40), offsets: [7 * 1440, 1440], ...base }, {}, db);
+    const input = { category: "other" as const, label: "Two msgs", calendar: "AD" as const, expiryDate: inDays(40), offsets: [7 * 1440, 1440], ...base };
+    // Credits beyond included messages need the customer's permission; nothing is saved without it.
+    const pv = await previewSchedule(principalFor(u), input, db);
+    expect(pv.permissionCredits).toBe(3);
+    expect(pv.warnings).toContain("credits_permission_required");
+    await expect(createReminder(principalFor(u), input, {}, db)).rejects.toMatchObject({ status: 409, code: "credits_permission_required", detail: { credits: 3 } });
+    expect((await wallet(db, u)).reserved).toBe(before.reserved);
+    const { reminder } = await createReminder(principalFor(u), { ...input, useCredits: true }, {}, db);
     expect((await wallet(db, u)).reserved).toBe(before.reserved + 3); // one included, one paid
     const a1 = await allowance(u);
     expect(a1.granted - a1.reserved - a1.used).toBe(0);
@@ -291,7 +298,7 @@ describe("Pro subscription manager", () => {
     const { reminder } = await createReminder(p, { category: "subscription", label: "Netflix", calendar: "AD", expiryDate: inDays(-40), offsets: [1440], repeatMonths: 1, subscription: { amount: 15.49, currency: "USD", paymentMethod: "Card ••1234", autoRenew: true }, ...base }, {}, db);
     expect(new Date(reminder.expiry.utc).getTime()).toBeGreaterThan(Date.now());
     expect(reminder.repeatMonths).toBe(1);
-    expect(reminder.subscription).toEqual({ amount: 15.49, currency: "USD", paymentMethod: "Card ••1234", autoRenew: true });
+    expect(reminder.subscription).toEqual({ amount: 15.49, currency: "USD", paymentMethod: "Card ••1234", autoRenew: true, isTrial: false, cancelNoticeDays: null });
     await createReminder(p, { category: "subscription", label: "WorldLink", calendar: "AD", expiryDate: inDays(20), offsets: [1440], repeatYearly: true, subscription: { amount: 12000, currency: "NPR", paymentMethod: "eSewa", autoRenew: false }, ...base }, {}, db);
     const view = await listSubscriptions(u, db);
     expect(view.items).toHaveLength(2);
@@ -345,5 +352,142 @@ describe("admin secrets", () => {
     } finally {
       process.env.EMAIL_PROVIDER = "mock";
     }
+  });
+});
+
+describe("Spec: recurrence for every plan, trials, cancel-by, history, credit permission", () => {
+  it("Basic accounts can repeat monthly, quarterly or every N months", async () => {
+    const b = await createUser(db, "+9779841000940");
+    await fund(db, b, 30);
+    const { reminder } = await createReminder(principalFor(b), { category: "other", label: "Rent", calendar: "AD", expiryDate: inDays(5), offsets: [1440], repeatMonths: 1, ...base }, {}, db);
+    expect(reminder.repeatMonths).toBe(1);
+    expect(reminder.subscription).toBeNull();
+    const { reminder: q } = await createReminder(principalFor(b), { category: "other", label: "Every 2 months", calendar: "AD", expiryDate: inDays(5), offsets: [1440], repeatMonths: 2, ...base }, {}, db);
+    expect(q.repeatMonths).toBe(2);
+  });
+
+  it("free trial: own wording, a cancel-by reminder, and it becomes a paid subscription after the trial date", async () => {
+    const u = await createUser(db, "+9779841000941");
+    await fund(db, u, 1100);
+    await buyPro(u, "k-trial-0001", db);
+    const p = principalFor(u, "en-NP");
+    const { reminder } = await createReminder(p, {
+      category: "free_trial", label: "Netflix", calendar: "AD", expiryDate: inDays(10), offsets: [2 * 1440], repeatMonths: 1,
+      subscription: { amount: 15.49, currency: "USD", paymentMethod: "Card", autoRenew: true, isTrial: true, cancelNoticeDays: 2 }, ...base,
+    }, {}, db);
+    expect(reminder.subscription).toMatchObject({ isTrial: true, cancelNoticeDays: 2 });
+    const pv = await previewSchedule(p, { category: "free_trial", label: "Netflix", calendar: "AD", expiryDate: inDays(10), localTime: "09:00", offsets: [2 * 1440] }, db);
+    expect(pv.lines[0].smsText).toContain("free trial ends");
+    expect(pv.lines[0].smsText).toContain("Cancel before then");
+    // The cancel-by reminder: 2 days before, with its own wording and messages.
+    const { rows: comp } = await db.query<{ id: string; category: string; expiry_at_utc: string; label: string }>("select id, category, expiry_at_utc, label from renewal_items where linked_to = $1 and status = 'active'", [reminder.id]);
+    expect(comp).toHaveLength(1);
+    expect(comp[0]).toMatchObject({ category: "cancel_deadline", label: "Netflix" });
+    expect(new Date(reminder.expiry.utc).getTime() - new Date(comp[0].expiry_at_utc).getTime()).toBe(2 * 86_400_000);
+    const { rows: cj } = await db.query<{ n: number }>("select count(*)::int as n from reminder_jobs where renewal_id = $1 and status = 'scheduled'", [comp[0].id]);
+    expect(cj[0].n).toBe(3);
+    const cpv = await previewSchedule(p, { category: "cancel_deadline", label: "Netflix", calendar: "AD", expiryDate: inDays(8), localTime: "09:00", offsets: [1440] }, db);
+    expect(cpv.lines[0].smsText).toContain("Last day to cancel Netflix");
+
+    // Trial date passes: history records it and it becomes a subscription.
+    await db.query("update reminder_jobs set status = 'delivered' where renewal_id in ($1, $2)", [reminder.id, comp[0].id]);
+    await db.query("update renewal_items set expiry_at_utc = now() - interval '1 day', date_input_raw = $2 where id = $1", [reminder.id, inDays(-1)]);
+    await rolloverYearly(db, new Date());
+    const { rows: after } = await db.query<{ category: string; sub_is_trial: boolean }>("select category, sub_is_trial from renewal_items where id = $1", [reminder.id]);
+    expect(after[0]).toEqual({ category: "subscription", sub_is_trial: false });
+    const { listRenewalHistory } = await import("@/lib/core/reminders");
+    const h = await listRenewalHistory(u, db);
+    expect(h[0]).toMatchObject({ label: "Netflix", source: "auto", amount: 15.49, currency: "USD" });
+    // Pausing the subscription pauses its cancel-by reminder too.
+    await setReminderStatus(p, reminder.id, "pause", {}, db);
+    const { rows: cs } = await db.query<{ status: string }>("select status from renewal_items where linked_to = $1 and status <> 'deleted'", [reminder.id]);
+    expect(cs.every((c) => c.status === "paused")).toBe(true);
+  });
+
+  it("mark as renewed: records cost and moves a one-time reminder to the new date", async () => {
+    const u = await createUser(db, "+9779841000942");
+    await fund(db, u, 1100);
+    const { markRenewed } = await import("@/lib/core/reminders");
+    const { reminder } = await createReminder(principalFor(u), { category: "bluebook", label: "Ba 2 Pa 1234", calendar: "AD", expiryDate: inDays(20), offsets: [7 * 1440], ...base }, {}, db);
+    await expect(markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0), nextExpiryDate: inDays(385) }, db)).rejects.toMatchObject({ code: "pro_required" });
+    await buyPro(u, "k-renew-0001", db);
+    await expect(markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0) }, db)).rejects.toMatchObject({ code: "next_expiry_required" });
+    const r = await markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0), amount: 2500, currency: "NPR", note: "Yatayat office", nextExpiryDate: inDays(385) }, db);
+    expect(r.reminder.inputDate).toBe(inDays(385));
+    expect(r.history[0]).toMatchObject({ source: "manual", amount: 2500, note: "Yatayat office" });
+  });
+
+  it("background re-planning respects the credit permission; the customer can allow it later or in advance", async () => {
+    const u = await createUser(db, "+9779841000943");
+    await fund(db, u, 1100);
+    await buyPro(u, "k-perm-00001", db);
+    const { reminder } = await createReminder(principalFor(u), { category: "other", label: "Yearly", calendar: "AD", expiryDate: inDays(3), offsets: [1440], repeatYearly: true, ...base }, {}, db);
+    await db.query("update plan_allowances a set granted = a.reserved + a.used from user_plans p where p.id = a.user_plan_id and p.user_id = $1 and a.channel = 'sms'", [u]);
+    // The next cycle falls inside the plan: with no permission it waits.
+    await db.query("update reminder_jobs set status = 'delivered' where renewal_id = $1", [reminder.id]);
+    await db.query("update renewal_items set expiry_at_utc = now() - interval '1 day', date_input_raw = $2, repeat_anchor = $3 where id = $1", [reminder.id, inDays(-1), inDays(-1).slice(5)]);
+    await db.query("update user_plans set ends_at = now() + interval '800 days' where user_id = $1 and kind = 'paid'", [u]);
+    await rolloverYearly(db, new Date());
+    const { messagesAwaitingPermission, allowCreditsForWaiting, setProPrefs } = await import("@/lib/services/plans");
+    expect((await messagesAwaitingPermission(u, db)).count).toBe(1);
+    expect(await allowCreditsForWaiting(u, db)).toEqual({ scheduled: 1, stillWaiting: 0 });
+    expect((await messagesAwaitingPermission(u, db)).count).toBe(0);
+    // Allowed in advance: no question asked.
+    expect(await setProPrefs(u, { creditFallback: true }, db)).toMatchObject({ creditFallback: true });
+    const { summary } = await createReminder(principalFor(u), { category: "other", label: "No ask", calendar: "AD", expiryDate: inDays(30), offsets: [1440], ...base }, {}, db);
+    expect(summary.scheduled).toBe(1);
+  });
+
+  it("warns when messages fall after Pro ends", async () => {
+    const u = await createUser(db, "+9779841000944");
+    await startTrial(u, db);
+    const pv = await previewSchedule(principalFor(u), { label: "Later", calendar: "AD", expiryDate: inDays(60), localTime: "09:00", offsets: [1440] }, db);
+    expect(pv.warnings).toContain("after_pro_ends");
+    expect(pv.proEndsAt).not.toBeNull();
+  });
+});
+
+describe("Spec: email summaries and Pro-ending notices", () => {
+  it("sends a weekly summary to Pro accounts with a verified email, once per period, in Nepal daytime", async () => {
+    const { runDigests } = await import("@/lib/services/digest");
+    const u = await createUser(db, "+9779841000950");
+    await fund(db, u, 1100);
+    await buyPro(u, "k-dig-000001", db);
+    await db.query("update users set email = 'digest@example.com', email_verified_at = now() where id = $1", [u]);
+    await createReminder(principalFor(u), { category: "subscription", label: "Spotify", calendar: "AD", expiryDate: inDays(10), offsets: [1440], repeatMonths: 1,
+      subscription: { amount: 599, currency: "NPR", paymentMethod: "eSewa", autoRenew: true, cancelNoticeDays: 3 }, ...base }, {}, db);
+    const night = new Date("2026-10-10T18:00:00Z"); // 23:45 in Nepal
+    expect(await runDigests(db, night)).toBe(0);
+    // The next moment that is Nepal daytime (and after the plan started).
+    const day = new Date(Date.now() + 60_000);
+    while (((day.getUTCHours() * 60 + day.getUTCMinutes() + 345) % 1440) / 60 < 8 || ((day.getUTCHours() * 60 + day.getUTCMinutes() + 345) % 1440) / 60 >= 19) day.setTime(day.getTime() + 3600_000);
+    const before = mail.sent.length;
+    expect(await runDigests(db, day)).toBeGreaterThanOrEqual(1);
+    const m = mail.sent.slice(before).find((x) => x.to === "digest@example.com")!;
+    expect(m.text).toContain("Last day to cancel Spotify");
+    expect(m.text).toContain("from the amounts you entered");
+    expect(await runDigests(db, day)).toBe(0); // once per week
+    await db.query("update users set digest_frequency = 'off', last_digest_at = null where id = $1", [u]);
+    expect(await runDigests(db, day)).toBe(0);
+  });
+
+  it("warns 14 and 3 days before Pro ends, once each, saying what changes", async () => {
+    const { runProNotices } = await import("@/lib/services/digest");
+    const u = await createUser(db, "+9779841000951");
+    await fund(db, u, 1100);
+    await buyPro(u, "k-note-00001", db);
+    await db.query("update users set email = 'ending@example.com', email_verified_at = now() where id = $1", [u]);
+    await db.query("update user_plans set ends_at = now() + interval '10 days' where user_id = $1 and kind = 'paid'", [u]);
+    const before = mail.sent.length;
+    await runProNotices(db, new Date());
+    await runProNotices(db, new Date());
+    const sent = mail.sent.slice(before).filter((x) => x.to === "ending@example.com");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toContain("Your Nabikaran Pro ends on");
+    expect(sent[0].text).toContain("stay as they are");
+    expect(sent[0].text).not.toMatch(/cancel(led|s) automatically/i);
+    await db.query("update user_plans set ends_at = now() + interval '2 days' where user_id = $1 and kind = 'paid'", [u]);
+    await runProNotices(db, new Date());
+    expect(mail.sent.slice(before).filter((x) => x.to === "ending@example.com")).toHaveLength(2);
   });
 });

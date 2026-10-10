@@ -3,7 +3,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
 import { webPrincipal } from "@/lib/core/principal";
-import { getReminder } from "@/lib/core/reminders";
+import { getReminder, listRenewalHistory as listRenewals } from "@/lib/core/reminders";
+import { isPro } from "@/lib/services/plans";
+import { MarkRenewed } from "@/components/MarkRenewed";
+import { ProBadge } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ChannelBadge, ChannelBadges } from "@/components/ChannelBadge";
 import { listRenewalHistory } from "@/lib/services/customer-summary";
@@ -22,7 +25,11 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
   const r = await getReminder(webPrincipal(user), id).catch(() => null);
   if (!r) notFound();
   const d = daysUntil(r.expiry.utc);
-  const [history, group] = await Promise.all([listRenewalHistory(user.id, r.id), r.groupId ? getGroup(user.id, r.groupId) : Promise.resolve(null)]);
+  const [history, group, pro] = await Promise.all([listRenewalHistory(user.id, r.id), r.groupId ? getGroup(user.id, r.groupId) : Promise.resolve(null), isPro(user.id)]);
+  const renewals = pro ? (await listRenewals(user.id)).filter((h) => h.renewalId === r.id) : [];
+  // Suggested new expiry for "Mark as renewed": one year after the current date, in the reminder's calendar.
+  const cur = (r.inputDate ?? r.expiry.ad).split("-").map(Number);
+  const suggestedNext = cur.length === 3 ? `${cur[0] + 1}-${String(cur[1]).padStart(2, "0")}-${String(cur[2]).padStart(2, "0")}` : "";
   const groupName = group?.name ?? null;
   const n = (v: number) => localizeNumber(v, prefs.lang);
   const pending = r.jobs.filter((j) => ["scheduled", "planned", "awaiting_credits", "sending", "unknown"].includes(j.status));
@@ -45,8 +52,26 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
         <div className="mt row">
           {r.status !== "cancelled" && <Link href={`/renewals/${r.id}/edit`} className="btn btn-primary btn-sm"><Icon name="edit" size={14} /> {t("rem.editBtn")}</Link>}
           <RenewalActions id={r.id} status={r.status} />
+          {pro && r.status === "active" && !r.linkedTo && (
+            <MarkRenewed id={r.id} repeats={r.repeatYearly || Boolean(r.repeatMonths)} calendar={r.inputCalendar} suggestedNext={suggestedNext} currency={r.subscription?.currency ?? "NPR"} />
+          )}
         </div>
+        {r.linkedTo && <p className="hint mb-0 mt"><Icon name="info" size={12} /> <Link href={`/renewals/${r.linkedTo}`}>{t("sub.cancelNotice")} →</Link></p>}
       </div>
+
+      {renewals.length > 0 && (
+        <section className="card">
+          <h2>{t("hist.title")} <ProBadge small /></h2>
+          <div className="list">
+            {renewals.map((h) => (
+              <div key={h.id} className="list-item">
+                <span className="grow">{formatDate(`${h.renewedOn}T06:15:00Z`, prefs)} · <span className="small muted">{h.source === "auto" ? t("hist.auto") : t("hist.manual")}{h.note ? ` · ${h.note}` : ""}</span></span>
+                {h.amount !== null && <span className="sub-amt">{h.currency} {n(h.amount)}</span>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {lifecycle === "expired" && (
         <div className="alert info"><Icon name="info" /> <span>{t("rem.expiredHint")} <Link href={`/renewals/${r.id}/edit`}>{t("rem.editBtn")} →</Link></span></div>

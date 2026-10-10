@@ -129,17 +129,65 @@ alter table renewal_items add column if not exists sub_amount numeric(12,2);
 alter table renewal_items add column if not exists sub_currency text;
 alter table renewal_items add column if not exists sub_payment_method text;
 alter table renewal_items add column if not exists sub_auto_renew boolean;
--- Repeat every 1, 3 or 6 months (yearly keeps using repeat_yearly).
+-- Repeat every N months, 1–11 (monthly, quarterly, half-yearly, custom); yearly keeps using repeat_yearly.
+-- Available on every plan.
 alter table renewal_items add column if not exists repeat_months int;
+-- Pro: a free trial (the date is when it turns into a paid subscription), and
+-- a cancellation deadline N days before the renewal date.
+alter table renewal_items add column if not exists sub_is_trial boolean not null default false;
+alter table renewal_items add column if not exists cancel_notice_days int;
+-- A reminder managed by another one (the "cancel by" reminder of a subscription).
+alter table renewal_items add column if not exists linked_to uuid references renewal_items(id) on delete cascade;
+create index if not exists renewal_items_linked_idx on renewal_items (linked_to) where linked_to is not null;
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'renewal_items_repeat_months_check') then
-    alter table renewal_items add constraint renewal_items_repeat_months_check check (repeat_months is null or repeat_months in (1,3,6));
+    alter table renewal_items add constraint renewal_items_repeat_months_check check (repeat_months is null or repeat_months between 1 and 11);
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'renewal_items_cancel_notice_check') then
+    alter table renewal_items add constraint renewal_items_cancel_notice_check check (cancel_notice_days is null or cancel_notice_days between 0 and 90);
   end if;
   if not exists (select 1 from pg_constraint where conname = 'renewal_items_sub_amount_check') then
     alter table renewal_items add constraint renewal_items_sub_amount_check check (sub_amount is null or sub_amount >= 0);
   end if;
 end $$;
+
+-- Pro: renewal history (marked renewed by the customer, or a subscription that rolled over).
+create table if not exists renewal_history (
+  id            uuid primary key default gen_random_uuid(),
+  renewal_id    uuid references renewal_items(id) on delete set null,
+  user_id       uuid not null references users(id) on delete cascade,
+  label         text not null,
+  category      text not null,
+  renewed_on    date not null,
+  amount        numeric(12,2) check (amount is null or amount >= 0),
+  currency      text,
+  previous_due  timestamptz,
+  next_due      timestamptz,
+  source        text not null check (source in ('manual','auto')),
+  note          text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists renewal_history_user_idx on renewal_history (user_id, renewed_on desc);
+
+-- Customer preferences for Pro.
+-- pro_credit_fallback: when included messages run out, use wallet credits without asking again.
+alter table users add column if not exists pro_credit_fallback boolean not null default false;
+alter table users add column if not exists digest_frequency text not null default 'weekly';
+alter table users add column if not exists last_digest_at timestamptz;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'users_digest_frequency_check') then
+    alter table users add constraint users_digest_frequency_check check (digest_frequency in ('off','weekly','monthly'));
+  end if;
+end $$;
+
+-- One-off notices already sent (e.g. "Pro ends in 14 days"), so each goes once.
+create table if not exists user_notices (
+  key        text primary key,
+  user_id    uuid not null references users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
 
 -- ---------------------------------------------------------------------------
 -- 4. Wallet functions that also use included messages
@@ -205,6 +253,18 @@ begin
     end if;
   end if;
 
+  -- Included messages used up while Pro is active: credits only with the customer's
+  -- permission (asked when saving, or "use credits automatically" in Pro settings).
+  if not active_r
+     and coalesce(current_setting('nabikaran.allow_credits', true), '') <> 'on'
+     and not coalesce((select u.pro_credit_fallback from users u where u.id = j.user_id), false)
+     and exists (select 1 from user_plans p join plan_allowances a on a.user_plan_id = p.id and a.channel = j.channel
+                  where p.user_id = j.user_id and p.status = 'active' and p.kind in ('paid','grant')
+                    and p.starts_at <= now() and p.ends_at > now() and j.due_at_utc < p.ends_at and a.granted > 0) then
+    update reminder_jobs set status = 'awaiting_credits', last_error = 'included messages used up: allow wallet credits', updated_at = now() where id = j.id;
+    return 'needs_permission';
+  end if;
+
   -- Credits (unchanged behaviour).
   if active_r then
     delta := j.estimated_credits - r.held_credits;
@@ -225,7 +285,7 @@ begin
   end if;
   update wallets set reserved_credits = reserved_credits + delta, version = version + 1, updated_at = now()
     where user_id = j.user_id;
-  update reminder_jobs set status = 'scheduled', updated_at = now() where id = j.id;
+  update reminder_jobs set status = 'scheduled', last_error = null, updated_at = now() where id = j.id;
   return 'scheduled';
 end $$;
 

@@ -58,7 +58,9 @@ export interface ReminderDTO {
   /** Pro: repeats every 1, 3 or 6 months. */
   repeatMonths: number | null;
   /** Pro: subscription details (amount per cycle, payment method). */
-  subscription: { amount: number | null; currency: string; paymentMethod: string | null; autoRenew: boolean | null } | null;
+  subscription: { amount: number | null; currency: string; paymentMethod: string | null; autoRenew: boolean | null; isTrial: boolean; cancelNoticeDays: number | null } | null;
+  /** Managed by another reminder (the "cancel by" reminder of a subscription). */
+  linkedTo: string | null;
   jobs: ReminderJobDTO[];
   createdAt: string;
   updatedAt: string;
@@ -76,7 +78,9 @@ export type Warning =
   | "sms_label_adjusted"
   | "whatsapp_unavailable"
   | "whatsapp_consent_required"
-  | "email_unavailable";
+  | "email_unavailable"
+  | "credits_permission_required"
+  | "after_pro_ends";
 
 export interface SchedulePreviewLine {
   channel: Channel;
@@ -116,6 +120,10 @@ export interface SchedulePreview {
   wallet: { available: number; reserved: number; posted: number };
   sufficient: boolean;
   shortfallCredits: number;
+  /** Pro: credits that need the customer's permission (included messages do not cover them). */
+  permissionCredits: number;
+  /** Pro: when the current plan ends (messages after this use credits). */
+  proEndsAt: string | null;
   warnings: Warning[];
   dropped: { past: number; duplicate: number; overCap: number };
 }

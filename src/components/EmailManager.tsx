@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 interface Status { email: string | null; verified: boolean }
 
 /** Pro: add and verify an email (for email reminders and email sign-in). */
-export function EmailManager({ initial }: { initial: Status }) {
+export function EmailManager({ initial, digest: initialDigest = "weekly" }: { initial: Status; digest?: "off" | "weekly" | "monthly" }) {
   const { t } = usePrefs();
   const [st, setSt] = useState<Status>(initial);
   const [email, setEmail] = useState(initial.verified ? "" : initial.email ?? "");
@@ -15,6 +15,7 @@ export function EmailManager({ initial }: { initial: Status }) {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [digest, setDigest] = useState(initialDigest);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -68,6 +69,21 @@ export function EmailManager({ initial }: { initial: Status }) {
           </div>
           <button className="btn btn-primary" disabled={busy || code.length !== 6}>{t("email.verify")}</button>
         </form>
+      )}
+      {st.verified && (
+        <div className="field mt mb-0">
+          <label htmlFor="em-digest">{t("email.digest")}</label>
+          <select id="em-digest" value={digest} style={{ maxWidth: 220 }} onChange={(e) => {
+            const v = e.target.value as typeof digest;
+            setDigest(v);
+            run(async () => { await api("/api/pro", { method: "POST", json: { action: "prefs", digest: v } }); setMsg({ ok: true, text: t("pro.prefs.saved") }); });
+          }}>
+            <option value="weekly">{t("email.digest.weekly")}</option>
+            <option value="monthly">{t("email.digest.monthly")}</option>
+            <option value="off">{t("email.digest.off")}</option>
+          </select>
+          <span className="hint">{t("email.digestHint")}</span>
+        </div>
       )}
       {msg && <div className={`alert ${msg.ok ? "ok" : "bad"} mt`} role="status">{msg.text}</div>}
     </section>

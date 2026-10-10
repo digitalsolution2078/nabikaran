@@ -12,6 +12,8 @@ export interface SubscriptionItem {
   paymentMethod: string | null;
   autoRenew: boolean | null;
   channels: string[];
+  isTrial: boolean;
+  cancelNoticeDays: number | null;
 }
 
 export interface SubscriptionsView {
@@ -24,12 +26,13 @@ export interface SubscriptionsView {
 export async function listSubscriptions(userId: string, db: Db = getDb(), now: Date = new Date()): Promise<SubscriptionsView> {
   const { rows } = await db.query<{
     id: string; label: string; status: string; expiry_at_utc: string; sub_amount: string | null; sub_currency: string | null; repeat_months: number | null; repeat_yearly: boolean;
-    sub_payment_method: string | null; sub_auto_renew: boolean | null; channels: string[];
+    sub_payment_method: string | null; sub_auto_renew: boolean | null; channels: string[]; sub_is_trial: boolean; cancel_notice_days: number | null;
   }>(
-    `select id, label, status, expiry_at_utc, sub_amount::text, sub_currency, repeat_months, repeat_yearly, sub_payment_method, sub_auto_renew, channels
+    `select id, label, status, expiry_at_utc, sub_amount::text, sub_currency, repeat_months, repeat_yearly, sub_payment_method, sub_auto_renew, channels, sub_is_trial, cancel_notice_days
        from renewal_items
       where owner_user_id = $1 and status <> 'deleted'
-        and (sub_amount is not null or sub_payment_method is not null or repeat_months is not null or category = 'subscription')
+        and linked_to is null
+        and (sub_amount is not null or sub_payment_method is not null or sub_is_trial or cancel_notice_days is not null or category in ('subscription','free_trial'))
       order by status = 'active' desc, expiry_at_utc`,
     [userId],
   );
@@ -44,6 +47,8 @@ export async function listSubscriptions(userId: string, db: Db = getDb(), now: D
     paymentMethod: r.sub_payment_method,
     autoRenew: r.sub_auto_renew,
     channels: r.channels ?? ["sms"],
+    isTrial: Boolean(r.sub_is_trial),
+    cancelNoticeDays: r.cancel_notice_days,
   }));
   const totals = new Map<string, number>();
   for (const s of items) {

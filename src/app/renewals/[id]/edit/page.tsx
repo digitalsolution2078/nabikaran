@@ -60,6 +60,7 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
             channels: r.channels,
             groupId: r.groupId,
             repeatYearly: r.repeatYearly,
+            repeatMonths: r.repeatMonths,
           }}
         />
       )}

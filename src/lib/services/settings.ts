@@ -105,7 +105,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   referral: { enabled: true, referrer_credits: 20, referee_credits: 10, min_topup_npr: 50, max_rewards_per_referrer: 25, message: "" },
   pin: { enabled: true, max_attempts: 5 },
   // Off until an admin turns it on (after setting up email in Admin → Pro & email).
-  pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 500 },
+  pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 400 },
   email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
 };
 

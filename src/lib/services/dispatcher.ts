@@ -16,6 +16,7 @@ import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../sch
 import { redactPhone } from "../phone";
 import { pushReminders, type ReminderPush } from "./push";
 import { getEmailProvider, textToHtml } from "../providers/email";
+import { runDigests, runProNotices } from "./digest";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -218,6 +219,8 @@ export interface ReconcileSummary {
   unknownResolved: number;
   promotedPlanned: number;
   rolledYearly: number;
+  digests?: number;
+  proNotices?: number;
 }
 
 /**
@@ -335,6 +338,10 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
 
   // 4. Yearly reminders (birthdays, anniversaries) move to next year's date.
   out.rolledYearly = (await rolloverYearly(db, now)).rolled;
+
+  // 5. Pro: email summaries and "Pro ends soon" notices (free, best effort).
+  out.digests = await runDigests(db, now).catch((e) => { console.warn(`[digest] ${(e as Error).message}`); return 0; });
+  out.proNotices = await runProNotices(db, now).catch((e) => { console.warn(`[pro-notice] ${(e as Error).message}`); return 0; });
   return out;
 }
 

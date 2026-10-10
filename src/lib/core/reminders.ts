@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getDb, type Db } from "../db";
-import { bsToAd, parseBsInput } from "../bs-date";
-import { kathmanduToUtc, parseIsoDate, DEFAULT_LOCAL_TIME, parseLocalTime } from "../time";
+import { adToBs, bsToAd, parseBsInput } from "../bs-date";
+import { kathmanduToUtc, parseIsoDate, DEFAULT_LOCAL_TIME, parseLocalTime, utcToKathmandu, pad2 } from "../time";
 import { planReminders, MAX_OFFSET_MINUTES, type Candidate } from "../scheduler";
 import { renderReminder, type TemplateRow } from "../sms/templates";
 import { renderWhatsApp, type WaTemplateRow } from "../whatsapp/templates";
@@ -40,15 +40,21 @@ export const reminderInputSchema = z.object({
   groupId: z.string().uuid().nullable().optional(),
   /** Repeat every year on the same day (birthdays, anniversaries, yearly renewals). Omitted on edit = keep. */
   repeatYearly: z.boolean().optional(),
-  /** Pro: repeat every 1, 3 or 6 months (subscriptions). Omitted on edit = keep; null = stop. */
-  repeatMonths: z.union([z.literal(1), z.literal(3), z.literal(6)]).nullable().optional(),
+  /** Repeat every N months (1–11; 12 = repeatYearly). Every plan. Omitted on edit = keep; null = stop. */
+  repeatMonths: z.number().int().min(1).max(11).nullable().optional(),
   /** Pro: subscription details. Omitted on edit = keep; null = remove. */
   subscription: z.object({
     amount: z.number().min(0).max(100_000_000).nullable(),
     currency: z.enum(SUB_CURRENCIES).default("NPR"),
     paymentMethod: z.string().trim().max(40).nullable().default(null),
     autoRenew: z.boolean().nullable().default(null),
+    /** The date is when a free trial turns into a paid subscription. */
+    isTrial: z.boolean().optional(),
+    /** Must be cancelled this many days before the renewal date: adds a "cancel by" reminder. */
+    cancelNoticeDays: z.number().int().min(0).max(90).nullable().optional(),
   }).nullable().optional(),
+  /** Pro: the customer agreed to use wallet credits for messages their included messages do not cover. */
+  useCredits: z.boolean().optional(),
 });
 /** Channels default to SMS only when omitted (web forms, MCP, older callers). */
 export type ReminderInput = Omit<z.infer<typeof reminderInputSchema>, "channels"> & { channels?: Channel[] };
@@ -79,6 +85,9 @@ export interface RenewalRow {
   sub_currency?: string | null;
   sub_payment_method?: string | null;
   sub_auto_renew?: boolean | null;
+  sub_is_trial?: boolean;
+  cancel_notice_days?: number | null;
+  linked_to?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -180,9 +189,10 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
     groupId: r.group_id ?? null,
     repeatYearly: Boolean(r.repeat_yearly),
     repeatMonths: r.repeat_months ?? null,
-    subscription: r.sub_amount !== null && r.sub_amount !== undefined || r.sub_payment_method || r.repeat_months
-      ? { amount: r.sub_amount === null || r.sub_amount === undefined ? null : Number(r.sub_amount), currency: r.sub_currency ?? "NPR", paymentMethod: r.sub_payment_method ?? null, autoRenew: r.sub_auto_renew ?? null }
+    subscription: (r.sub_amount !== null && r.sub_amount !== undefined) || r.sub_payment_method || r.sub_is_trial || (r.cancel_notice_days !== null && r.cancel_notice_days !== undefined) || r.category === "subscription" || r.category === "free_trial"
+      ? { amount: r.sub_amount === null || r.sub_amount === undefined ? null : Number(r.sub_amount), currency: r.sub_currency ?? "NPR", paymentMethod: r.sub_payment_method ?? null, autoRenew: r.sub_auto_renew ?? null, isTrial: Boolean(r.sub_is_trial), cancelNoticeDays: r.cancel_notice_days ?? null }
       : null,
+    linkedTo: r.linked_to ?? null,
     jobs: jobs
       .filter((j) => j.cycle_no === r.cycle_no)
       .map<ReminderJobDTO>((j) => ({
@@ -204,19 +214,24 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
  * Included messages a paid/grant Pro plan still has (plus, when editing, the
  * ones this reminder holds now and would give back). Null without such a plan.
  */
-async function includedLeft(db: Db, userId: string, renewalId: string | null, now: Date): Promise<{ endsAt: Date; left: Record<Channel, number> } | null> {
+async function includedLeft(db: Db, userId: string, renewalId: string | null, now: Date): Promise<{ endsAt: Date; left: Record<Channel, number>; granted: Record<Channel, number>; fallback: boolean } | null> {
   const { rows } = await db.query<{ id: string; ends_at: string }>(
     `select id, ends_at from user_plans where user_id = $1 and status = 'active' and kind in ('paid','grant') and starts_at <= $2 and ends_at > $2
       order by ends_at limit 1`,
     [userId, now.toISOString()],
   );
   if (!rows[0]) return null;
-  const { rows: a } = await db.query<{ channel: Channel; left: number }>(
-    "select channel, (granted - reserved - used)::int as left from plan_allowances where user_plan_id = $1",
+  const { rows: a } = await db.query<{ channel: Channel; left: number; granted: number }>(
+    "select channel, (granted - reserved - used)::int as left, granted from plan_allowances where user_plan_id = $1",
     [rows[0].id],
   );
   const left: Record<Channel, number> = { sms: 0, whatsapp: 0, email: 0 };
-  for (const r of a) left[r.channel] = Math.max(0, r.left);
+  const granted: Record<Channel, number> = { sms: 0, whatsapp: 0, email: 0 };
+  for (const r of a) {
+    left[r.channel] = Math.max(0, r.left);
+    granted[r.channel] = r.granted;
+  }
+  const { rows: u } = await db.query<{ f: boolean }>("select pro_credit_fallback as f from users where id = $1", [userId]);
   if (renewalId) {
     const { rows: held } = await db.query<{ channel: Channel; n: number }>(
       `select j.channel, sum(r.allowance_units)::int as n from credit_reservations r join reminder_jobs j on j.id = r.reminder_job_id
@@ -225,7 +240,16 @@ async function includedLeft(db: Db, userId: string, renewalId: string | null, no
     );
     for (const h of held) left[h.channel] += h.n;
   }
-  return { endsAt: new Date(rows[0].ends_at), left };
+  return { endsAt: new Date(rows[0].ends_at), left, granted, fallback: Boolean(u[0]?.f) };
+}
+
+/** End of the Pro plan running now (any kind), or null. */
+async function proEnd(db: Db, userId: string, now: Date): Promise<Date | null> {
+  const { rows } = await db.query<{ e: string | null }>(
+    "select max(ends_at) as e from user_plans where user_id = $1 and status = 'active' and starts_at <= $2 and ends_at > $2",
+    [userId, now.toISOString()],
+  );
+  return rows[0]?.e ? new Date(rows[0].e) : null;
 }
 
 /** Email reminders need Pro, a verified email and email set up by the admin. */
@@ -340,6 +364,14 @@ export async function previewSchedule(
       }
     }
   }
+  // Pro: credits beyond included messages need the customer's permission (unless they allowed it in Pro settings).
+  let permissionCredits = 0;
+  if (allowance && !allowance.fallback) {
+    for (const l of lines) {
+      if (!l.included && allowance.granted[l.channel] > 0 && new Date(l.due.utc).getTime() < allowance.endsAt.getTime()) permissionCredits += l.credits;
+    }
+  }
+  const proEndsAt = await proEnd(db, p.userId, now);
   const byChannel: Partial<Record<Channel, ChannelCost>> = {};
   for (const ch of channels) {
     const ls = lines.filter((l) => l.channel === ch);
@@ -360,6 +392,8 @@ export async function previewSchedule(
   if (wantsWa && isOccasion(input.category)) warnings.push("whatsapp_not_for_occasions");
   if (wantsWa && consent && !consent.rows[0]?.at) warnings.push("whatsapp_consent_required");
   if (wantsEmail && !emailOk) warnings.push("email_unavailable");
+  if (permissionCredits > 0) warnings.push("credits_permission_required");
+  if (proEndsAt && lines.some((l) => new Date(l.due.utc).getTime() >= proEndsAt.getTime())) warnings.push("after_pro_ends");
   // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
   const shortfallCredits = Math.max(0, reservedOnConfirmCredits - (wallet.available + releasable));
   if (shortfallCredits > 0) warnings.push("insufficient_credits");
@@ -375,6 +409,8 @@ export async function previewSchedule(
     wallet,
     sufficient: shortfallCredits === 0,
     shortfallCredits,
+    permissionCredits,
+    proEndsAt: proEndsAt ? proEndsAt.toISOString() : null,
     warnings,
     dropped: { past: plan.droppedPast, duplicate: plan.droppedDuplicate, overCap: plan.droppedOverCap },
   };
@@ -421,6 +457,7 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
   ]);
   const expiry = new Date(renewal.expiry_at_utc);
   const result: MaterializeSummary = { scheduled: 0, awaiting: 0, planned: 0 };
+  let needsPermission = 0;
 
   await tx.query("update reminder_rules set enabled = false where renewal_id = $1", [renewal.id]);
   for (const c of candidates) {
@@ -456,7 +493,10 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       // on must never be silently skipped later for lack of credits.
       const { rows: res } = await tx.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [jobRows[0].id]);
       if (res[0].wallet_reserve_for_job === "scheduled") result.scheduled++;
-      else result.awaiting++;
+      else {
+        result.awaiting++;
+        if (res[0].wallet_reserve_for_job === "needs_permission") needsPermission += credits;
+      }
       if (ch === "whatsapp") await audit(tx, null, "whatsapp.message.scheduled", { type: "reminder_job", id: jobRows[0].id }, { due: c.dueAtUtc.toISOString(), credits });
     }
   }
@@ -468,6 +508,7 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       [renewal.id, off],
     );
   }
+  if (needsPermission > 0 && !opts.allowAwaiting) throw creditsPermissionRequired(needsPermission);
   if (result.awaiting > 0 && !opts.allowAwaiting) {
     // Abort the whole transaction: no reminder is saved half-funded.
     const need = await tx.query<{ n: string }>(
@@ -528,19 +569,147 @@ async function loadDto(tx: Db, renewalId: string): Promise<ReminderDTO> {
 
 /** Subscription details and every-N-months repeat are Pro features. */
 async function assertProFields(tx: Db, userId: string, input: ReminderInput): Promise<void> {
-  if (!input.subscription && !input.repeatMonths) return;
+  if (!input.subscription) return;
   const { rows } = await tx.query("select 1 from user_plans where user_id = $1 and status = 'active' and starts_at <= now() and ends_at > now() limit 1", [userId]);
   if (!rows[0]) throw new HttpError(403, "Subscriptions are a Nabikaran Pro feature.", "pro_required");
 }
 
 const subColumns = (sub: ReminderInput["subscription"]) =>
-  sub ? [sub.amount, sub.currency, sub.paymentMethod || null, sub.autoRenew] : [null, null, null, null];
+  sub ? [sub.amount, sub.currency, sub.paymentMethod || null, sub.autoRenew, Boolean(sub.isTrial), sub.cancelNoticeDays ?? null] : [null, null, null, null, false, null];
+
+/** The customer agreed (in this request) to use wallet credits beyond their included messages. */
+async function allowCreditsFor(tx: Db, input: { useCredits?: boolean }): Promise<void> {
+  if (input.useCredits) await tx.query("select set_config('nabikaran.allow_credits', 'on', true)");
+}
+
+export function creditsPermissionRequired(credits: number): HttpError {
+  return new HttpError(
+    409,
+    `Your included Pro messages do not cover all of this reminder. Allow ${credits} wallet credits for the rest? Nothing was saved.`,
+    "credits_permission_required",
+    { credits },
+  );
+}
+
+/** "Cancel by" reminders: 3 days, 1 day and on the last day to cancel. */
+const CANCEL_OFFSETS = [3 * 1440, 1440, 0];
+
+/**
+ * Pro: keep the "cancel by" reminder of a subscription in step with it. It is a
+ * normal reminder (own messages, funded like any other) linked to the parent, on
+ * the date `cancel_notice_days` before the renewal. Removed when the setting is
+ * cleared, the parent stops, or the deadline has passed.
+ */
+async function syncCancelReminder(tx: Db, parent: RenewalRow, locale: string, now: Date, opts: { allowAwaiting?: boolean } = {}): Promise<void> {
+  const { rows: found } = await tx.query<RenewalRow>("select * from renewal_items where linked_to = $1 and status <> 'deleted' for update", [parent.id]);
+  const comp = found[0];
+  const days = parent.cancel_notice_days;
+  const cancelAt = days === null || days === undefined || parent.status !== "active" ? null : new Date(new Date(parent.expiry_at_utc).getTime() - days * 86_400_000);
+  if (comp) await cancelUnsentJobs(tx, comp.id, "cancel deadline updated");
+  if (!cancelAt || cancelAt.getTime() <= now.getTime()) {
+    if (comp) await tx.query("update renewal_items set status = 'deleted', updated_at = now() where id = $1", [comp.id]);
+    return;
+  }
+  const k = utcToKathmandu(cancelAt);
+  const d = parent.date_input_calendar === "BS" ? adToBs({ year: k.year, month: k.month, day: k.day }) : { year: k.year, month: k.month, day: k.day };
+  const raw = `${d.year}-${pad2(d.month)}-${pad2(d.day)}`;
+  // The "last day to cancel" wording exists for SMS and email; WhatsApp templates are renewal-only.
+  const channels = normalizeChannels(parent.channels).filter((c) => c !== "whatsapp");
+  if (!channels.length) channels.push("sms");
+  const { rows } = comp
+    ? await tx.query<RenewalRow>(
+        `update renewal_items set label = $2, expiry_at_utc = $3, local_time = $4, date_input_calendar = $5, date_input_raw = $6, channels = $7, group_id = $8,
+           status = 'active', cycle_no = cycle_no + 1, updated_at = now() where id = $1 returning *`,
+        [comp.id, parent.label, cancelAt.toISOString(), parent.local_time, parent.date_input_calendar, raw, channels, parent.group_id ?? null],
+      )
+    : await tx.query<RenewalRow>(
+        `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, channels, group_id, linked_to)
+         values ($1, 'cancel_deadline', $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
+        [parent.owner_user_id, parent.label, cancelAt.toISOString(), parent.local_time, parent.date_input_calendar, raw, channels, parent.group_id ?? null, parent.id],
+      );
+  const plan = planReminders(cancelAt, CANCEL_OFFSETS.map((offsetMinutes) => ({ offsetMinutes })), now);
+  await materializeJobs(tx, rows[0], locale, plan.candidates, opts);
+}
+
+export interface RenewalHistoryRow {
+  id: string;
+  renewalId: string | null;
+  label: string;
+  category: string;
+  renewedOn: string;
+  amount: number | null;
+  currency: string | null;
+  previousDue: string | null;
+  nextDue: string | null;
+  source: "manual" | "auto";
+  note: string | null;
+}
+
+export async function listRenewalHistory(userId: string, db: Db = getDb(), limit = 200): Promise<RenewalHistoryRow[]> {
+  const { rows } = await db.query<{ id: string; renewal_id: string | null; label: string; category: string; renewed_on: string | Date; amount: string | null; currency: string | null; previous_due: string | null; next_due: string | null; source: "manual" | "auto"; note: string | null }>(
+    "select id, renewal_id, label, category, renewed_on, amount::text, currency, previous_due, next_due, source, note from renewal_history where user_id = $1 order by renewed_on desc, created_at desc limit $2",
+    [userId, limit],
+  );
+  const iso = (v: string | Date | null) => (v === null ? null : new Date(v).toISOString());
+  const day = (v: string | Date) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
+  return rows.map((r) => ({
+    id: r.id, renewalId: r.renewal_id, label: r.label, category: r.category, renewedOn: day(r.renewed_on), amount: r.amount === null ? null : Number(r.amount),
+    currency: r.currency, previousDue: iso(r.previous_due), nextDue: iso(r.next_due), source: r.source, note: r.note,
+  }));
+}
+
+export const markRenewedSchema = z.object({
+  renewedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  amount: z.number().min(0).max(100_000_000).nullable().default(null),
+  currency: z.enum(SUB_CURRENCIES).default("NPR"),
+  note: z.string().trim().max(200).nullable().default(null),
+  /** For a one-time reminder: the new expiry date (same calendar as the reminder). Repeating reminders move on their own. */
+  nextExpiryDate: z.string().trim().max(12).nullable().default(null),
+  useCredits: z.boolean().optional(),
+});
+
+/**
+ * Pro: record that a renewal was done (date, cost, note). A one-time reminder
+ * moves to the new expiry date (its messages are re-planned and funded); a
+ * repeating one keeps its schedule.
+ */
+export async function markRenewed(p: Principal, renewalId: string, raw: z.input<typeof markRenewedSchema>, db: Db = getDb(), now = new Date()): Promise<{ reminder: ReminderDTO; history: RenewalHistoryRow[] }> {
+  requireScope(p, "reminders:write");
+  const input = markRenewedSchema.parse(raw);
+  return db.tx(async (tx) => {
+    const { rows: plan } = await tx.query("select 1 from user_plans where user_id = $1 and status = 'active' and starts_at <= now() and ends_at > now() limit 1", [p.userId]);
+    if (!plan[0]) throw new HttpError(403, "Renewal history is a Nabikaran Pro feature.", "pro_required");
+    const { rows } = await tx.query<RenewalRow>("select * from renewal_items where id = $1 and owner_user_id = $2 and status <> 'deleted' for update", [renewalId, p.userId]);
+    const r = rows[0];
+    if (!r) throw new HttpError(404, "Reminder not found", "not_found");
+    const repeats = Boolean(r.repeat_yearly || r.repeat_months);
+    let next: Date | null = repeats ? new Date(r.expiry_at_utc) : null;
+    if (!repeats) {
+      if (!input.nextExpiryDate) throw new HttpError(400, "Enter the new expiry date.", "next_expiry_required");
+      const { rows: offs } = await tx.query<{ offset_minutes: number }>("select offset_minutes from reminder_rules where renewal_id = $1 and enabled order by offset_minutes desc", [r.id]);
+      const res = await updateReminderIn(tx, p, r.id, {
+        category: r.category as ReminderInput["category"], label: r.label, calendar: r.date_input_calendar, expiryDate: input.nextExpiryDate, localTime: r.local_time,
+        notes: r.notes, familyMemberLabel: r.family_member_label, templateSlug: r.template_slug ?? null, offsets: offs.map((o) => o.offset_minutes),
+        channels: normalizeChannels(r.channels), useCredits: input.useCredits,
+      }, now, { renewed: true });
+      next = new Date(res.reminder.expiry.utc);
+    }
+    await tx.query(
+      `insert into renewal_history (renewal_id, user_id, label, category, renewed_on, amount, currency, previous_due, next_due, source, note)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'manual',$10)`,
+      [r.id, p.userId, r.label, r.category, input.renewedOn, input.amount, input.amount === null ? null : input.currency, r.expiry_at_utc, next?.toISOString() ?? null, input.note],
+    );
+    await audit(tx, p, "reminder.renewed", { type: "renewal", id: r.id }, { renewedOn: input.renewedOn, amount: input.amount, currency: input.currency });
+    return { reminder: await loadDto(tx, r.id), history: (await listRenewalHistory(p.userId, tx)).filter((h) => h.renewalId === r.id) };
+  });
+}
 
 /** Transaction-scoped create (no idempotency wrapper). Used by createReminder and by prepared-action confirmation. */
 export async function createReminderIn(tx: Db, p: Principal, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
   requireScope(p, "reminders:write");
   await assertNotLocked(p.userId, tx);
   await assertProFields(tx, p.userId, input);
+  await allowCreditsFor(tx, input);
   const repeatMonths = input.repeatMonths ?? null;
   const repeatYearly = Boolean(input.repeatYearly) && !repeatMonths;
   const sched = resolveSchedule(input, repeatYearly, now, repeatMonths);
@@ -550,14 +719,15 @@ export async function createReminderIn(tx: Db, p: Principal, input: ReminderInpu
   await assertOwnGroup(tx, p.userId, input.groupId);
   const { rows } = await tx.query<RenewalRow>(
     `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug, channels, group_id, repeat_yearly, repeat_anchor,
-       repeat_months, sub_amount, sub_currency, sub_payment_method, sub_auto_renew)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *`,
+       repeat_months, sub_amount, sub_currency, sub_payment_method, sub_auto_renew, sub_is_trial, cancel_notice_days)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) returning *`,
     [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null, channels,
       input.groupId ?? null, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null, repeatMonths, ...subColumns(input.subscription)],
   );
   const renewal = rows[0];
   const repeats = repeatYearly || Boolean(repeatMonths);
   const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeats ? input.offsets : [] });
+  await syncCancelReminder(tx, renewal, p.locale, now);
   await audit(tx, p, "reminder.create", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
   return { reminder: await loadDto(tx, renewal.id), summary };
 }
@@ -591,11 +761,13 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
   if (!existing[0]) throw new HttpError(404, "Reminder not found", "not_found");
   // Omitted group / repeat / subscription fields keep their current values (assistants and older callers do not send them).
   await assertProFields(tx, p.userId, input);
+  await allowCreditsFor(tx, input);
   const repeatMonths = input.repeatMonths === undefined ? existing[0].repeat_months ?? null : input.repeatMonths;
   const repeatYearly = (input.repeatYearly ?? Boolean(existing[0].repeat_yearly)) && !repeatMonths;
   const groupId = input.groupId === undefined ? existing[0].group_id ?? null : input.groupId;
   const keepSub = input.subscription === undefined;
-  const sub = keepSub ? [existing[0].sub_amount ?? null, existing[0].sub_currency ?? null, existing[0].sub_payment_method ?? null, existing[0].sub_auto_renew ?? null] : subColumns(input.subscription);
+  const e0 = existing[0];
+  const sub = keepSub ? [e0.sub_amount ?? null, e0.sub_currency ?? null, e0.sub_payment_method ?? null, e0.sub_auto_renew ?? null, Boolean(e0.sub_is_trial), e0.cancel_notice_days ?? null] : subColumns(input.subscription);
   const sched = resolveSchedule(input, repeatYearly, now, repeatMonths);
   const expiryAtUtc = sched.expiryAtUtc;
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
@@ -605,7 +777,7 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
   const { rows } = await tx.query<RenewalRow>(
     `update renewal_items set category=$3, label=$4, expiry_at_utc=$5, local_time=$6, date_input_calendar=$7, date_input_raw=$8, notes=$9,
        family_member_label=$10, channels=$11, template_slug = coalesce((select slug from document_templates where slug = $12), template_slug),
-       group_id=$13, repeat_yearly=$14, repeat_anchor=$15, repeat_months=$16, sub_amount=$17, sub_currency=$18, sub_payment_method=$19, sub_auto_renew=$20,
+       group_id=$13, repeat_yearly=$14, repeat_anchor=$15, repeat_months=$16, sub_amount=$17, sub_currency=$18, sub_payment_method=$19, sub_auto_renew=$20, sub_is_trial=$21, cancel_notice_days=$22,
        status='active', cycle_no = cycle_no + 1, updated_at = now()
      where id = $1 and owner_user_id = $2 returning *`,
     [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, channels, input.templateSlug ?? null,
@@ -614,6 +786,7 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
   const renewal = rows[0];
   const repeats = repeatYearly || Boolean(repeatMonths);
   const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeats ? input.offsets : [] })), cancelled };
+  await syncCancelReminder(tx, renewal, p.locale, now);
   await audit(tx, p, "reminder.update", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
   return { reminder: await loadDto(tx, renewal.id), summary };
 }
@@ -643,7 +816,7 @@ export async function setReminderStatus(
   p: Principal,
   renewalId: string,
   action: StatusAction,
-  opts: { idempotencyKey?: string | null } = {},
+  opts: { idempotencyKey?: string | null; useCredits?: boolean } = {},
   db: Db = getDb(),
 ): Promise<{ reminder: ReminderDTO | null; cancelled: number; resumed: number; replayed: boolean }> {
   requireScope(p, "reminders:write");
@@ -659,16 +832,23 @@ export async function setReminderStatus(
       let resumed = 0;
       if (action === "resume") {
         await assertNotLocked(p.userId, tx);
+        await allowCreditsFor(tx, { useCredits: opts.useCredits });
         await tx.query("update renewal_items set status = 'active', updated_at = now() where id = $1", [renewalId]);
         const { rows: jobs } = await tx.query<{ id: string }>(
           "select id from reminder_jobs where renewal_id = $1 and cycle_no = $2 and status = 'cancelled' and last_error = 'paused' and due_at_utc > now()",
           [renewalId, r.cycle_no],
         );
         let short = 0;
+        let permission = 0;
         for (const j of jobs) {
           await tx.query("update reminder_jobs set status = 'planned', last_error = null, updated_at = now() where id = $1", [j.id]);
           const { rows: res } = await tx.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [j.id]);
+          if (res[0].wallet_reserve_for_job === "needs_permission") permission++;
           if (res[0].wallet_reserve_for_job !== "scheduled") short++;
+        }
+        if (permission > 0) {
+          const { rows: need } = await tx.query<{ n: string }>("select coalesce(sum(estimated_credits),0)::text as n from reminder_jobs where id = any($1::uuid[]) and status = 'awaiting_credits'", [jobs.map((j) => j.id)]);
+          throw creditsPermissionRequired(Number(need[0].n));
         }
         if (short > 0) {
           const { rows: need } = await tx.query<{ n: string }>(
@@ -682,6 +862,19 @@ export async function setReminderStatus(
         const status = action === "pause" ? "paused" : action === "cancel" ? "cancelled" : "deleted";
         cancelled = await cancelUnsentJobs(tx, renewalId, action === "pause" ? "paused" : status);
         await tx.query("update renewal_items set status = $2, updated_at = now() where id = $1", [renewalId, status]);
+        // The subscription's "cancel by" reminder follows it.
+        const { rows: linked } = await tx.query<{ id: string }>("select id from renewal_items where linked_to = $1 and status <> 'deleted'", [renewalId]);
+        for (const l of linked) {
+          cancelled += await cancelUnsentJobs(tx, l.id, action === "pause" ? "paused" : status);
+          await tx.query("update renewal_items set status = $2, updated_at = now() where id = $1", [l.id, status]);
+        }
+      }
+      if (action === "resume") {
+        const { rows: cur } = await tx.query<RenewalRow>("select * from renewal_items where id = $1", [renewalId]);
+        if (cur[0]?.cancel_notice_days !== null && cur[0]?.cancel_notice_days !== undefined) {
+          await tx.query("update renewal_items set status = 'active' where linked_to = $1 and status = 'paused'", [renewalId]);
+          await syncCancelReminder(tx, cur[0], p.locale, new Date());
+        }
       }
       await audit(tx, p, `reminder.${action}`, { type: "renewal", id: renewalId }, { cancelled, resumed });
       return { reminder: action === "delete" ? null : await loadDto(tx, renewalId), cancelled, resumed };
@@ -799,13 +992,27 @@ export async function rolloverYearly(db: Db = getDb(), now: Date = new Date(), l
       }
       // Messages of the finished year that were never funded are closed, not sent late.
       await cancelUnsentJobs(tx, r.id, "missed: year ended without credits");
+      // A subscription renewed (or a free trial turned paid): keep it in the renewal history.
+      const isSub = r.category === "subscription" || r.category === "free_trial" || r.sub_amount !== null && r.sub_amount !== undefined;
+      if (isSub) {
+        const k = utcToKathmandu(new Date(r.expiry_at_utc));
+        await tx.query(
+          `insert into renewal_history (renewal_id, user_id, label, category, renewed_on, amount, currency, previous_due, next_due, source, note)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'auto',$10)`,
+          [r.id, r.owner_user_id, r.label, r.category, `${k.year}-${pad2(k.month)}-${pad2(k.day)}`, r.sub_amount ?? null, r.sub_amount === null || r.sub_amount === undefined ? null : r.sub_currency ?? "NPR",
+            r.expiry_at_utc, next.utc.toISOString(), r.sub_is_trial ? "Free trial ended; now a paid subscription" : null],
+        );
+      }
       const { rows: upd } = await tx.query<RenewalRow>(
-        "update renewal_items set expiry_at_utc = $2, date_input_raw = $3, cycle_no = cycle_no + 1, updated_at = now() where id = $1 returning *",
+        `update renewal_items set expiry_at_utc = $2, date_input_raw = $3, cycle_no = cycle_no + 1,
+           category = case when category = 'free_trial' then 'subscription' else category end, sub_is_trial = false, updated_at = now()
+         where id = $1 returning *`,
         [r.id, next.utc.toISOString(), next.raw],
       );
       const { rows: offs } = await tx.query<{ offset_minutes: number }>("select offset_minutes from reminder_rules where renewal_id = $1 and enabled", [r.id]);
       const plan = planReminders(next.utc, offs.map((o) => ({ offsetMinutes: o.offset_minutes })), now);
       const summary = await materializeJobs(tx, upd[0], r.locale, plan.candidates, { allowAwaiting: true, keepOffsets: offs.map((o) => o.offset_minutes) });
+      await syncCancelReminder(tx, upd[0], r.locale, now, { allowAwaiting: true });
       await tx.query("insert into audit_events (actor_via, action, target_type, target_id, json_detail_redacted) values ('worker','reminder.rollover','renewal',$1,$2)", [
         r.id, JSON.stringify({ next: next.raw, ...summary }),
       ]);

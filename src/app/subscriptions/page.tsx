@@ -47,7 +47,7 @@ export default async function SubscriptionsPage() {
         </section>
       )}
 
-      <section className="card">
+      <section className="card" id="add">
         <h2>{t("sub.add")}</h2>
         <SubscriptionForm emailAvailable={email.verified && Boolean(provider)} />
       </section>
@@ -59,10 +59,11 @@ export default async function SubscriptionsPage() {
             {data.items.map((s) => (
               <Link href={`/renewals/${s.id}`} key={s.id} className="list-item">
                 <span className="grow">
-                  <strong>{s.label}</strong> {s.status !== "active" && <span className="badge warn">{s.status}</span>}<br />
+                  <strong>{s.label}</strong> {s.isTrial && <span className="badge warn">{t("sub.trialBadge")}</span>} {s.status !== "active" && <span className="badge warn">{s.status}</span>}<br />
                   <span className="small muted">
-                    {s.cycleMonths ? t(`sub.cycle.${s.cycleMonths}` as MessageKey) : "—"} · {t("sub.next", { date: formatDate(s.nextAt, prefs) })}
+                    {s.cycleMonths ? ([1, 3, 6, 12].includes(s.cycleMonths) ? t(`sub.cycle.${s.cycleMonths}` as MessageKey) : t("rem.repeat.everyN", { n: s.cycleMonths })) : "—"} · {t("sub.next", { date: formatDate(s.nextAt, prefs) })}
                     {s.paymentMethod ? ` · ${s.paymentMethod}` : ""}{s.autoRenew ? ` · ${t("sub.autoRenew")}` : ""}
+                    {s.cancelNoticeDays !== null ? ` · ${t("sub.cancelBy", { date: formatDate(new Date(new Date(s.nextAt).getTime() - s.cancelNoticeDays * 86_400_000), prefs) })}` : ""}
                   </span>
                 </span>
                 <span className="row" style={{ gap: 8 }}>

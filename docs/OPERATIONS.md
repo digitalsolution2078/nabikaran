@@ -291,3 +291,32 @@ How the key is handled:
   - email sign-in stops, but phone OTP and PIN keep working;
   - email reminders fail with "credits returned" if the customer later removes their email.
 - **Reports:** Admin → Pro & email shows active paid, trial and given plans, trial-to-paid conversions and sales. The customer CSV export has `email`, `email_verified`, `plan` and `plan_ends_at` columns.
+
+### 16.3 Basic and Pro (what each plan gets)
+
+| | Basic | Pro |
+|---|---|---|
+| Reminders, groups, AD/BS, Nepali/English, SMS/WhatsApp, wallet credits | ✓ | ✓ |
+| Repeat monthly, every 3 or 6 months, yearly, or every N months | ✓ | ✓ |
+| Subscription manager (amount, currency, cycle, payment method, auto-renew) | — | ✓ |
+| Free-trial tracker and "cancel by" deadline alerts | — | ✓ |
+| Insights (monthly/yearly commitments, by payment method, next 90 days) | — | ✓ |
+| Renewal history ("Mark as renewed", automatic entries when a subscription renews) | — | ✓ |
+| Email reminders, weekly or monthly email summary, email sign-in | — | ✓ |
+| Included messages per year (default 100 SMS / 100 WhatsApp / 400 email) | — | ✓ (paid plan) |
+
+Rules enforced on the server:
+
+- Pro screens (`/subscriptions`, `/insights`, `/history`) redirect Basic accounts to `/pro`. Pro APIs answer `403 pro_required`.
+- Membership, included messages and wallet credits are kept separate. The Pro page and the sidebar show both included messages and credits, and every preview shows which messages are "Included".
+- **Credits after included messages run out need permission.**
+  - When the customer saves a reminder, they tick a checkbox to allow it (API code `credits_permission_required`).
+  - Background re-planning (yearly or monthly roll-over) does not use credits silently. The messages wait, and the dashboard shows "Messages waiting for your OK" with an **Allow credits** button.
+  - A customer can allow this in advance in **Pro → Pro settings**.
+- **When Pro expires:** records and credits stay, nothing is deleted, and messages use credits as before.
+  - Notices go out by email and push 14 and 3 days before a paid plan ends, and 2 days before a trial ends. They are not sent when another year is already bought.
+  - The dashboard shows a notice in the last 30 days.
+- **Wording:** messages never claim that Nabikaran cancels anything, detects usage or saves money. "Cancel by" messages remind the customer to cancel themselves, and insights use only figures the customer entered.
+- **"Cancel by" reminder:** it is a normal reminder linked to its subscription. It moves, pauses and stops with the subscription, and uses SMS or email (WhatsApp templates are renewal-only).
+
+Not built yet: screenshot-to-reminder (planned after cost and accuracy tests), family sharing, Google Calendar, escalation, price-change history.

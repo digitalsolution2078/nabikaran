@@ -1,6 +1,6 @@
 import { estimateSegments, isGsm7, type SegmentEstimate } from "./segments";
 import { formatKathmandu, daysBetween } from "../time";
-import { isOccasion } from "../categories";
+import { hasOwnWording } from "../categories";
 
 /**
  * Outgoing reminder SMS are English or Romanized Nepali only, encoded as
@@ -58,6 +58,15 @@ export const FALLBACK_TEMPLATES: TemplateRow[] = [
   { locale: "en-NP", category: "event_today", body: "Nabikaran: {label} is today ({date})." },
   { locale: "ne-NP", category: "event", body: "Nabikaran: {label} {days} din pachhi ({date}) chha." },
   { locale: "ne-NP", category: "event_today", body: "Nabikaran: {label} aaja ({date}) chha." },
+  // Pro: free trials and cancellation deadlines. Never claim the service cancels anything itself.
+  { locale: "en-NP", category: "free_trial", body: "Nabikaran: Your {label} free trial ends in {days} day(s), on {date}. Cancel before then if you do not want to be charged." },
+  { locale: "en-NP", category: "free_trial_today", body: "Nabikaran: Your {label} free trial ends today ({date}). Cancel today if you do not want to be charged." },
+  { locale: "ne-NP", category: "free_trial", body: "Nabikaran: Tapaiko {label} free trial {days} din pachhi ({date}) sakinchha. Paisa katna nadina tyo bhanda agadi cancel garnuhos." },
+  { locale: "ne-NP", category: "free_trial_today", body: "Nabikaran: Tapaiko {label} free trial aaja ({date}) sakinchha. Paisa katna nadina aajai cancel garnuhos." },
+  { locale: "en-NP", category: "cancel_deadline", body: "Nabikaran: Last day to cancel {label} is {date}, in {days} day(s). After that it may renew and charge you." },
+  { locale: "en-NP", category: "cancel_deadline_today", body: "Nabikaran: Today ({date}) is the last day to cancel {label}. After today it may renew and charge you." },
+  { locale: "ne-NP", category: "cancel_deadline", body: "Nabikaran: {label} cancel garne antim din {date} ho ({days} din baki). Tyaspachhi renew bhai paisa katna sakchha." },
+  { locale: "ne-NP", category: "cancel_deadline_today", body: "Nabikaran: Aaja ({date}) {label} cancel garne antim din ho. Bholi dekhi renew bhai paisa katna sakchha." },
 ];
 
 const GSM_EXTENDED = /[\^{}\\[\]~|€]/g;
@@ -111,7 +120,7 @@ function fill(body: string, label: string, days: number, date: string): string {
 export function renderReminder(input: RenderInput, templates: TemplateRow[] = FALLBACK_TEMPLATES): RenderedMessage {
   const locale = input.locale ?? "en-NP";
   const days = Math.max(0, daysBetween(input.dueAtUtc, input.expiryAtUtc));
-  const kind = isOccasion(input.category) ? input.category : null;
+  const kind = hasOwnWording(input.category) ? input.category! : null;
   const category = kind ? (days === 0 ? `${kind}_today` : kind) : days === 0 ? "today" : "default";
   const tpl = pickTemplate(templates, locale, category);
   const date = formatKathmandu(input.expiryAtUtc, false);

@@ -32,10 +32,12 @@ const OFFSETS = [7 * 1440, 3 * 1440, 1440, 0];
 export function SubscriptionForm({ emailAvailable }: { emailAvailable: boolean }) {
   const { t, prefs } = usePrefs();
   const router = useRouter();
-  const [f, setF] = useState({ label: "", amount: "", currency: "NPR", cycle: 1 as 1 | 3 | 6 | 12, date: "", payment: "", autoRenew: true, offsets: [7 * 1440, 1440], email: false });
+  const [f, setF] = useState({ label: "", amount: "", currency: "NPR", cycle: 1 as 1 | 3 | 6 | 12, date: "", payment: "", autoRenew: true, offsets: [7 * 1440, 1440], email: false, trial: false, cancelDays: "" as string });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [short, setShort] = useState<number | null>(null);
+  const [permission, setPermission] = useState<number | null>(null);
+  const [useCredits, setUseCredits] = useState(false);
   const [key, setKey] = useState(() => crypto.randomUUID());
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((o) => ({ ...o, [k]: v }));
 
@@ -58,7 +60,7 @@ export function SubscriptionForm({ emailAvailable }: { emailAvailable: boolean }
       await api("/api/renewals", {
         method: "POST",
         json: {
-          category: "subscription",
+          category: f.trial ? "free_trial" : "subscription",
           label: f.label.trim(),
           calendar: "AD",
           expiryDate: f.date,
@@ -67,16 +69,20 @@ export function SubscriptionForm({ emailAvailable }: { emailAvailable: boolean }
           channels: f.email ? ["sms", "email"] : ["sms"],
           repeatYearly: f.cycle === 12,
           repeatMonths: f.cycle === 12 ? null : f.cycle,
-          subscription: { amount: f.amount === "" ? null : Number(f.amount), currency: f.currency, paymentMethod: f.payment.trim() || null, autoRenew: f.autoRenew },
+          subscription: { amount: f.amount === "" ? null : Number(f.amount), currency: f.currency, paymentMethod: f.payment.trim() || null, autoRenew: f.autoRenew, isTrial: f.trial, cancelNoticeDays: f.cancelDays === "" ? null : Number(f.cancelDays) },
           idempotencyKey: key,
+          useCredits,
         },
       });
       setMsg({ ok: true, text: t("sub.saved") });
+      setPermission(null);
+      setUseCredits(false);
       setF((o) => ({ ...o, label: "", amount: "", date: "", payment: "" }));
       setKey(crypto.randomUUID());
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.code === "insufficient_credits") setShort(Number(err.detail?.shortfallCredits ?? 1));
+      if (err instanceof ApiError && err.code === "credits_permission_required") setPermission(Number(err.detail?.credits ?? 1));
       setMsg({ ok: false, text: (err as Error).message });
     } finally {
       setBusy(false);
@@ -114,7 +120,7 @@ export function SubscriptionForm({ emailAvailable }: { emailAvailable: boolean }
           </div>
         </div>
         <div className="field">
-          <label htmlFor="sub-date">{t("sub.nextCharge")}</label>
+          <label htmlFor="sub-date">{f.trial ? t("sub.trialEnds") : t("sub.nextCharge")}</label>
           <input id="sub-date" type="date" value={f.date} onChange={(e) => set("date", e.target.value)} required />
           {preview && <span className="hint">BS: {preview}</span>}
         </div>
@@ -131,8 +137,25 @@ export function SubscriptionForm({ emailAvailable }: { emailAvailable: boolean }
           </div>
         </div>
       </div>
-      <label className="row small" style={{ marginBottom: 8 }}><input type="checkbox" checked={f.autoRenew} onChange={(e) => set("autoRenew", e.target.checked)} /> {t("sub.autoRenew")}</label>
+      <div className="grid grid-2">
+        <div className="field">
+          <span className="label">&nbsp;</span>
+          <label className="row small"><input type="checkbox" checked={f.trial} onChange={(e) => set("trial", e.target.checked)} /> {t("sub.isTrial")}</label>
+          <label className="row small"><input type="checkbox" checked={f.autoRenew} onChange={(e) => set("autoRenew", e.target.checked)} /> {t("sub.autoRenew")}</label>
+        </div>
+        <div className="field">
+          <label htmlFor="sub-cancel">{t("sub.cancelNotice")}</label>
+          <select id="sub-cancel" value={f.cancelDays} onChange={(e) => set("cancelDays", e.target.value)}>
+            <option value="">{t("sub.cancelNone")}</option>
+            <option value="0">{t("sub.cancelSameDay")}</option>
+            {[1, 2, 3, 7, 14, 30].map((d) => <option key={d} value={String(d)}>{t("sub.cancelDays", { n: d })}</option>)}
+          </select>
+        </div>
+      </div>
       {emailAvailable && <label className="row small" style={{ marginBottom: 8 }}><input type="checkbox" checked={f.email} onChange={(e) => set("email", e.target.checked)} /> {t("channel.alsoEmail")}</label>}
+      {permission !== null && (
+        <label className="row small alert pro"><input type="checkbox" checked={useCredits} onChange={(e) => setUseCredits(e.target.checked)} /> <span>{t("rem.useCredits", { credits: permission })}</span></label>
+      )}
       {msg && <div className={`alert ${msg.ok ? "ok" : "bad"}`} role="status">{msg.text} {short ? <Link href={`/wallet?amount=${short}&next=${encodeURIComponent("/subscriptions")}`}>{t("dash.topUp")} →</Link> : null}</div>}
       <button className="btn btn-primary" disabled={busy || !f.label.trim() || !f.date || f.offsets.length === 0}>{busy ? <span className="spinner" /> : <Icon name="plus" size={16} />} {t("sub.save")}</button>
     </form>
