@@ -165,3 +165,56 @@ Storage: table `seo_pages` (migration `0008`). Production applies it automatical
 ## 11. Uptime
 
 The **Production check** workflow runs every 30 minutes from GitHub's servers (site, database, schema, MCP). GitHub emails the repository owner when it fails. **Actions → Production check** shows the history.
+
+## 12. Referral programme
+
+Settings live under **Admin → Settings & roles → Referral programme**:
+- on/off;
+- credits for the inviter and for the new customer;
+- qualifying paid top-up amount;
+- most rewards per inviter;
+- an optional campaign line.
+
+The same page shows the **Referral results**: invited, rewarded, bonus credits paid, and the top inviters.
+
+How it works:
+- **Invite link:** every customer has an invite link `nabikaran.org/r/CODE` under **Settings → Invite friends**, with WhatsApp, Viber and share buttons. The link is remembered for 30 days.
+- **Who counts:** only a **new** account opened through the link is recorded as invited.
+- **When bonuses are paid:**
+  - Both bonuses are paid once, when the new customer's *paid* top-ups reach the threshold.
+  - All three top-up paths trigger the payment: Khalti/gateway, Fonepay dynamic QR, and manual QR approval.
+  - Sign-ups alone earn nothing, so fake accounts cannot farm credits.
+- **Cap:** above the per-inviter cap, the new customer still gets the bonus and the inviter does not.
+- **Ledger:** bonuses are ledger type `referral` ("Referral bonus" in the statement), credited by `wallet_credit_referral`, which is idempotent per reward and side.
+
+## 13. PIN sign-in
+
+Customers can set an optional 4–6 digit PIN in **Settings → Quick sign-in PIN**. They then use **Sign in with mobile + PIN** on the login page. No SMS is sent, so no sign-in fee is charged.
+
+| Topic | Rule |
+|---|---|
+| Weak PINs | Repeated digits, sequences and the end of the phone number are refused. |
+| Storage | scrypt with a per-user salt and the server pepper. The PIN itself is never stored. |
+| Changing or removing | Needs the current PIN. |
+| Lockout | After the configured number of wrong tries (default 5) the PIN locks. Only a normal SMS-code sign-in unlocks it. |
+| Error messages | Wrong PIN and unknown number give the same message. |
+| Staff accounts | Cannot use PINs; they always use SMS codes. |
+| Rate limits | 20 attempts per IP per 10 minutes and 10 per number per 15 minutes. |
+
+**Admin → Settings & roles → PIN sign-in** turns the feature off and sets the attempt limit. Audit events: `auth.pin_set`, `auth.pin_login`, `auth.pin_failed`, `auth.pin_locked`, `auth.pin_removed`.
+
+## 14. Customer data export (super admin)
+
+**Admin → Users** shows the download buttons to a super admin only (permission `customers.export`). There are two exports:
+- **Download active customers (CSV):** active customer accounts.
+- **All accounts incl. staff:** every account, including staff.
+
+| Topic | Detail |
+|---|---|
+| Columns | Phone, name, language, joined and last sign-in, available and reserved credits, paid top-ups, credits spent, active and total reminders, groups, WhatsApp opt-in, PIN on/off, referral code, inviter's phone, rewarded referrals |
+| Format | UTF-8 with a BOM, so Excel shows Nepali names correctly |
+| Formula safety | Cells starting with `= + - @` are prefixed with `'`, so Excel or Sheets never runs them as formulas |
+| Limits | 10 downloads per hour |
+| Audit | Every download is recorded as `admin.customers_exported`, with the row count |
+
+The file contains personal data: store it securely and delete it when done.

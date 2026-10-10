@@ -29,7 +29,8 @@ export type Permission =
   | "settings.manage"         // top-up limits, QR destination, sign-in fee
   | "roles.manage"            // assign staff roles
   | "notes.write"             // support notes on a customer
-  | "oauth.manage";           // MCP client kill-switch
+  | "oauth.manage"            // MCP client kill-switch
+  | "customers.export";       // download the full customer list (personal data)
 
 const MATRIX: Record<Role, readonly Permission[]> = {
   user: [],
@@ -41,6 +42,7 @@ const MATRIX: Record<Role, readonly Permission[]> = {
   super_admin: [
     "admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "adjustments.direct",
     "templates.manage", "sms.manage", "whatsapp.manage", "settings.manage", "roles.manage", "notes.write", "oauth.manage",
+    "customers.export",
   ],
 };
 

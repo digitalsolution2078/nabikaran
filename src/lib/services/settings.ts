@@ -43,19 +43,45 @@ export const whatsappSettingsSchema = z.object({
   default_language: z.string().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Use a Meta language code such as en or ne"),
 });
 
+/** Referral programme. Rewards are paid after the invited customer's first qualifying paid top-up. */
+export const referralSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** Credits for the person who shared the link. */
+  referrer_credits: z.number().int().min(0).max(1000),
+  /** Credits for the new customer. */
+  referee_credits: z.number().int().min(0).max(1000),
+  /** The invited customer's paid top-ups must reach this many rupees before anyone is rewarded. */
+  min_topup_npr: z.number().int().min(1).max(100000),
+  /** Most rewards one customer can earn (stops farming). */
+  max_rewards_per_referrer: z.number().int().min(0).max(10000),
+  /** Optional line shown on the invite card and landing page. */
+  message: z.string().max(200),
+});
+
+/** Optional PIN sign-in (skips the OTP SMS and the sign-in fee). */
+export const pinSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** Wrong attempts before the PIN locks (a normal OTP sign-in unlocks it). */
+  max_attempts: z.number().int().min(3).max(10),
+});
+
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
 export type ManualQrSettings = z.infer<typeof manualQrSettingsSchema>;
 export type SigninSettings = z.infer<typeof signinSettingsSchema>;
 export type WhatsappSettings = z.infer<typeof whatsappSettingsSchema>;
+export type ReferralSettings = z.infer<typeof referralSettingsSchema>;
+export type PinSettings = z.infer<typeof pinSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
   whatsapp: { enabled: false, phone_number_id: "", business_account_id: "", template_namespace: "", default_language: "en" },
+  referral: { enabled: true, referrer_credits: 20, referee_credits: 10, min_topup_npr: 50, max_rewards_per_referrer: 25, message: "" },
+  pin: { enabled: true, max_attempts: 5 },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

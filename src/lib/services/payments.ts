@@ -4,6 +4,7 @@ import { getPaymentGateway, type LookupResult } from "../payments";
 import { env } from "../env";
 import { HttpError } from "../core/errors";
 import { retryAwaitingCredits } from "../core/wallet";
+import { rewardReferralIfQualified } from "./referrals";
 import { validateTopupAmount } from "./settings";
 
 export interface PackRow {
@@ -131,6 +132,7 @@ export async function confirmPaymentByRef(gatewayName: string, gatewayRef: strin
   });
   if (!credited) return { result: "already_credited", orderId: order.id };
   await retryAwaitingCredits(order.user_id, db);
+  await rewardReferralIfQualified(order.user_id, db).catch((e) => console.error("[referral] reward failed", e));
   return { result: "credited", orderId: order.id, credits: Number(order.credits) };
 }
 
