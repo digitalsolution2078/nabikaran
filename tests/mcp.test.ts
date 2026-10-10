@@ -83,12 +83,12 @@ describe("MCP authentication", () => {
 });
 
 describe("MCP tools", () => {
-  it("lists exactly the seven tools; read tools are annotated read-only, write tools are not", async () => {
+  it("lists exactly the eight tools; read tools are annotated read-only, write tools are not", async () => {
     const c = await connect(await tokenFor(alice));
     const { tools } = await c.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
     const ro = (n: string) => tools.find((t) => t.name === n)?.annotations?.readOnlyHint;
-    expect(["get_account", "get_credit_balance", "list_reminders", "prepare_reminder"].every((n) => ro(n) === true)).toBe(true);
+    expect(["get_account", "get_credit_balance", "list_reminders", "list_groups", "prepare_reminder"].every((n) => ro(n) === true)).toBe(true);
     expect(["confirm_reminder", "update_reminder", "cancel_reminder"].every((n) => ro(n) === false)).toBe(true);
     await c.close();
   });

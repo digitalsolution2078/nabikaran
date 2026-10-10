@@ -20,13 +20,13 @@ describe("embedded schema steps", () => {
   });
 
   it("report present and do nothing on a fully migrated database", async () => {
-    expect(await schemaStatus(db)).toEqual({ "0007_groups_yearly": true });
-    expect(await ensureSchema(db)).toEqual({ applied: [], present: ["0007_groups_yearly"] });
+    expect(await schemaStatus(db)).toEqual({ "0007_groups_yearly": true, "0008_seo_pages": true });
+    expect(await ensureSchema(db)).toEqual({ applied: [], present: ["0007_groups_yearly", "0008_seo_pages"] });
   });
 
   it("report missing when the step is not in place", async () => {
     await db.query("alter table renewal_items rename column repeat_anchor to repeat_anchor_tmp");
-    expect(await schemaStatus(db)).toEqual({ "0007_groups_yearly": false });
+    expect(await schemaStatus(db)).toMatchObject({ "0007_groups_yearly": false });
     await db.query("alter table renewal_items rename column repeat_anchor_tmp to repeat_anchor");
   });
 });

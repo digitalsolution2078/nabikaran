@@ -2,12 +2,13 @@ import Link from "next/link";
 import { getRequestContext } from "@/lib/i18n/server";
 import { Icon } from "@/components/Icon";
 import { listDocTemplates } from "@/lib/services/admin-console";
-import { SEO_PAGES } from "@/lib/seo-pages";
+import { listSeoPages } from "@/lib/services/seo";
 
 export default async function Home() {
   const { t, prefs, user } = await getRequestContext();
   const templates = await listDocTemplates(false).catch(() => []);
   const popular = templates.filter((x) => x.popular).slice(0, 10);
+  const seoPages = await listSeoPages();
   const cta = user ? "/dashboard" : "/login";
   return (
     <>
@@ -104,7 +105,7 @@ export default async function Home() {
       <section className="section" style={{ maxWidth: 760, margin: "0 auto" }}>
         <div className="section-title"><h2>{prefs.lang === "ne" ? "लोकप्रिय सम्झना" : "Popular reminders"}</h2></div>
         <div className="chips" style={{ justifyContent: "center" }}>
-          {SEO_PAGES.map((p) => <Link key={p.slug} href={`/renewal-reminder/${p.slug}`} className="chip">{p.h1.replace(/ for Nepal|, for Nepal/, "")}</Link>)}
+          {seoPages.map((p) => <Link key={p.slug} href={`/renewal-reminder/${p.slug}`} className="chip">{p.h1.replace(/ for Nepal|, for Nepal/, "")}</Link>)}
         </div>
       </section>
     </>

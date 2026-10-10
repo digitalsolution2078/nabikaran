@@ -6,7 +6,8 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { getDb } from "../db";
 import { audit } from "../core/audit";
 import { HttpError, RateLimitError, ScopeError } from "../core/errors";
-import { principalSubject, type Principal } from "../core/principal";
+import { principalSubject, requireScope, type Principal } from "../core/principal";
+import { listGroups } from "../services/groups";
 import { checkRateLimit, countEvent } from "../core/rate-limit";
 import { getAccount } from "../core/account";
 import { getWalletSummary } from "../core/wallet";
@@ -77,6 +78,7 @@ export function createMcpServer(): McpServer {
       "Nabikaran sends SMS renewal reminders to the user's verified Nepal mobile number.",
       "Credits: 1 credit = NPR 1; each SMS segment costs the rate shown by get_credit_balance.",
       "Top-ups happen only on the website (use top_up_url). Reminders are only ever sent to the user's own verified phone.",
+      "Birthdays and anniversaries of friends or family: use category birthday/anniversary with repeat_yearly=true; the SMS still goes to the user, never to the friend.",
       "Dates: Nepal time (Asia/Kathmandu). Both Gregorian (AD) and Bikram Sambat (BS) are returned; always show the user both when they matter.",
     ].join(" "),
   });
@@ -144,7 +146,7 @@ export function createMcpServer(): McpServer {
     async (args, extra) =>
       run("list_reminders", extra, async (p) => {
         const { reminders, nextCursor } = await listReminders(p, { status: args.status, category: args.category, limit: args.limit, cursor: args.cursor ?? null });
-        const lines = reminders.map((r) => `• ${r.label} (${r.category}) expires ${r.expiry.local} NPT${r.expiry.bs ? ` / BS ${r.expiry.bs.display}` : ""} — ${r.status}, ${r.jobs.length} reminder(s)`);
+        const lines = reminders.map((r) => `• ${r.label} (${r.category})${r.repeatYearly ? " [every year]" : ""} on ${r.expiry.local} NPT${r.expiry.bs ? ` / BS ${r.expiry.bs.display}` : ""} — ${r.status}, ${r.jobs.length} reminder(s)`);
         return ok(reminders.length ? lines.join("\n") : "No reminders match.", {
           reminders: reminders.map((r) => ({
             id: r.id,
@@ -158,9 +160,29 @@ export function createMcpServer(): McpServer {
             expiry_bs: r.expiry.bs?.date ?? null,
             expiry_bs_display: r.expiry.bs?.display ?? null,
             family_member_label: r.familyMemberLabel,
+            repeat_yearly: r.repeatYearly,
+            group_id: r.groupId,
             jobs: r.jobs.map((j) => ({ id: j.id, offset_minutes: j.offsetMinutes, due_local: `${j.due.local} NPT`, due_at_utc: j.due.utc, status: j.status, estimated_credits: j.estimatedCredits })),
           })),
           next_cursor: nextCursor,
+        });
+      }),
+  );
+
+  server.registerTool(
+    "list_groups",
+    {
+      title: "List reminder groups",
+      description: "The user's reminder groups (e.g. \"Friends' birthdays\") with their type and how many active reminders each has. Use a group_id with prepare_reminder to file a new reminder in a group.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (_args, extra) =>
+      run("list_groups", extra, async (p) => {
+        requireScope(p, "reminders:read");
+        const groups = await listGroups(p.userId);
+        return ok(groups.length ? groups.map((g) => `• ${g.name} (${g.kind}) — ${g.active} active`).join("\n") : "No groups yet. The user can create groups on the website (Reminders → Manage groups).", {
+          groups: groups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, active_reminders: g.active, total_reminders: g.total })),
         });
       }),
   );
@@ -195,6 +217,8 @@ export function createMcpServer(): McpServer {
         family_member_label: z.string().max(60).nullable().optional().describe("Optional owner label; SMS still goes to the account holder's phone."),
         notes: z.string().max(500).nullable().optional(),
         channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).optional().describe("Delivery channels; default SMS. WhatsApp works only if the user enabled it on the website (assistants cannot give WhatsApp consent). Messages always go to the account holder's own verified number."),
+        repeat_yearly: z.boolean().optional().describe("Repeat every year on the same day. Use for birthdays and anniversaries (category birthday / anniversary, label = the person's name in English letters). A past date such as a birth date moves to the next occurrence. The reminder still goes only to the account holder, never to the person whose birthday it is. Birthday/anniversary/event reminders are SMS only."),
+        group_id: z.string().uuid().nullable().optional().describe("Optional group from list_groups, e.g. the user's 'Friends' birthdays' group."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -310,8 +334,10 @@ function reminderOut(r: import("../core/dto").ReminderDTO) {
     expiry_ad: r.expiry.ad,
     expiry_bs: r.expiry.bs?.date ?? null,
     expiry_bs_display: r.expiry.bs?.display ?? null,
+    repeat_yearly: r.repeatYearly,
+    group_id: r.groupId,
     jobs: r.jobs.map((j) => ({ id: j.id, offset_minutes: j.offsetMinutes, due_local: `${j.due.local} NPT`, due_at_utc: j.due.utc, status: j.status, estimated_credits: j.estimatedCredits })),
   };
 }
 
-export const TOOL_NAMES = ["get_account", "get_credit_balance", "list_reminders", "prepare_reminder", "confirm_reminder", "update_reminder", "cancel_reminder"] as const;
+export const TOOL_NAMES = ["get_account", "get_credit_balance", "list_reminders", "list_groups", "prepare_reminder", "confirm_reminder", "update_reminder", "cancel_reminder"] as const;

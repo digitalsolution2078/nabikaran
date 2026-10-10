@@ -1,22 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { SEO_PAGES, seoPage } from "@/lib/seo-pages";
+import { getSeoPage } from "@/lib/services/seo";
 import { env } from "@/lib/env";
 
-export function generateStaticParams() {
-  return SEO_PAGES.map((p) => ({ slug: p.slug }));
-}
+// Pages are editable by admins, so they are rendered per request.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
-  const p = seoPage((await params).slug);
+  const p = await getSeoPage((await params).slug);
   if (!p) return {};
   const url = `${env.appUrl}/renewal-reminder/${p.slug}`;
   return { title: p.title, description: p.description, alternates: { canonical: url }, openGraph: { title: p.title, description: p.description, url, type: "article" } };
 }
 
 export default async function SeoLanding({ params }: { params: Promise<{ slug: string }> }) {
-  const p = seoPage((await params).slug);
+  const p = await getSeoPage((await params).slug);
   if (!p) notFound();
   const start = p.template ? `/renewals/new?template=${p.template}` : "/renewals/new";
   const jsonLd = {

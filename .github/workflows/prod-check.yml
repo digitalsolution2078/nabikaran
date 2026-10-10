@@ -1,12 +1,15 @@
 name: Production check
 
-# Runs after every successful deploy (and by hand) from GitHub's servers:
-# confirms https://nabikaran.org is up, the database answers and every
-# embedded schema step (e.g. migration 0007) is in place.
+# Runs after every successful deploy, every 30 minutes (uptime) and by hand,
+# from GitHub's servers: confirms https://nabikaran.org is up, the database
+# answers, every embedded schema step is in place, and the MCP endpoint used by
+# ChatGPT / Claude is reachable. A failure is emailed to the repository owner.
 on:
   workflow_run:
     workflows: [Deploy]
     types: [completed]
+  schedule:
+    - cron: "7,37 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -14,7 +17,7 @@ permissions:
 
 jobs:
   check:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -36,3 +39,16 @@ jobs:
           done
           echo "::error::Production check failed: $(cat health.json 2>/dev/null | head -c 400)"
           exit 1
+
+      - name: MCP endpoint for ChatGPT / Claude
+        run: |
+          set -u
+          meta=$(curl -sS --max-time 20 https://mcp.nabikaran.org/.well-known/oauth-protected-resource || true)
+          echo "protected-resource: ${meta:0:300}"
+          echo "$meta" | jq -e '.resource == "https://mcp.nabikaran.org/mcp"' >/dev/null \
+            || { echo "::error::mcp.nabikaran.org metadata is wrong or unreachable (check Traefik route and MCP_PUBLIC_URL; docs/MCP_SETUP.md)"; exit 1; }
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -X POST -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' https://mcp.nabikaran.org/mcp || echo 000)
+          echo "unauthenticated /mcp: HTTP $code (401 expected)"
+          [ "$code" = 401 ] || { echo "::error::/mcp should answer 401 without a token, got $code"; exit 1; }
+          echo "::notice::MCP endpoint OK"

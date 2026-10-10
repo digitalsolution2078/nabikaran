@@ -146,3 +146,22 @@ To check by hand on the server:
 docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "select * from _schema_migrations order by 1 desc limit 3"
 docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "\d reminder_groups"
 ```
+
+## 10. SEO landing pages (admin)
+
+**Admin → SEO pages** lists every page under `/renewal-reminder/…`.
+- **Built-in pages** come from `src/lib/seo-pages.ts`.
+- An admin with *templates.manage* (content manager, operations admin, super admin) can:
+  - **edit** a built-in page (title, Google description, heading, text, Nepali paragraph, schedule, FAQs, order);
+  - **hide** a page;
+  - **reset** a page to its built-in text;
+  - **add** new pages.
+- Changes are live immediately and appear in `sitemap.xml`.
+- Saving is refused when the text states official validity periods or deadlines as fact, or promises delivery or renewals.
+- Every save and reset is recorded in the audit log.
+
+Storage: table `seo_pages` (migration `0008`). Production applies it automatically at start-up.
+
+## 11. Uptime
+
+The **Production check** workflow runs every 30 minutes from GitHub's servers (site, database, schema, MCP). GitHub emails the repository owner when it fails. **Actions → Production check** shows the history.

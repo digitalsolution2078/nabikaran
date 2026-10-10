@@ -6,7 +6,7 @@ import { instantDTO, type ReminderDTO, type SchedulePreview, type Warning } from
 import { HttpError } from "./errors";
 import { withIdempotency } from "./idempotency";
 import { requireScope, type Principal } from "./principal";
-import { CATEGORIES, createReminderIn, getReminder, previewSchedule, resolveExpiry, updateReminderIn, type ReminderInput } from "./reminders";
+import { CATEGORIES, createReminderIn, getReminder, previewSchedule, resolveSchedule, updateReminderIn, type ReminderInput } from "./reminders";
 import { getActivePricing } from "./wallet";
 
 /**
@@ -43,6 +43,10 @@ export const prepareInputSchema = z.object({
   notes: z.string().max(500).nullable().optional(),
   /** Delivery channels. WhatsApp requires the user to have opted in on the website; assistants cannot give consent. */
   channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).default(["sms"]),
+  /** Repeat every year (birthdays, anniversaries). On an edit, omitted = keep the current setting. */
+  repeat_yearly: z.boolean().optional(),
+  /** Put the reminder in one of the user's groups (see list_groups). On an edit, omitted = keep; null = remove. */
+  group_id: z.string().uuid().nullable().optional(),
 });
 export type PrepareInput = z.infer<typeof prepareInputSchema>;
 
@@ -67,7 +71,13 @@ function toReminderInput(i: PrepareInput): ReminderInput {
     familyMemberLabel: i.family_member_label ?? null,
     offsets: i.offsets_minutes,
     channels: [...new Set(i.channels ?? ["sms"])],
+    repeatYearly: i.repeat_yearly,
+    groupId: i.group_id,
   };
+}
+
+function scheduleOf(i: PrepareInput, now: Date) {
+  return resolveSchedule({ calendar: i.expiry.calendar, expiryDate: i.expiry.date, localTime: i.expiry.local_time }, Boolean(i.repeat_yearly), now);
 }
 
 function needsConfirmation(i: PrepareInput): boolean {
@@ -78,7 +88,7 @@ function needsConfirmation(i: PrepareInput): boolean {
  * What the assistant must show the user before confirming: exact message text,
  * channel(s), AD and BS dates, the full schedule, and the credit cost.
  */
-export function buildSummary(label: string, preview: SchedulePreview): string {
+export function buildSummary(label: string, preview: SchedulePreview, repeatYearly = false): string {
   const bs = preview.expiry.bs?.display ?? "—";
   const chans = preview.channels.map((c) => (c === "sms" ? "SMS" : "WhatsApp")).join(" + ");
   const when = [...new Set(preview.lines.map((l) => l.due.local))].join(", ");
@@ -90,7 +100,7 @@ export function buildSummary(label: string, preview: SchedulePreview): string {
     const b = preview.byChannel[c];
     return b ? `${c === "sms" ? "SMS" : "WhatsApp"} ${b.messages} × ${b.creditsPerUnit} = ${b.credits}` : "";
   }).filter(Boolean).join(", ");
-  return `Reminder "${label}". Expiry ${preview.expiry.ad} (AD) = ${bs} (BS), ${preview.expiry.local.slice(11)} Nepal time. ` +
+  return `Reminder "${label}". Date ${preview.expiry.ad} (AD) = ${bs} (BS), ${preview.expiry.local.slice(11)} Nepal time.${repeatYearly ? " Repeats every year on this date; next year's credits are reserved after this date." : ""} ` +
     `Channel: ${chans}. Sends at (Nepal time): ${when}. ${sample}. Cost: ${costs}; total ${preview.reservedOnConfirmCredits} credits reserved now ` +
     `(wallet available ${preview.wallet.available}${preview.sufficient ? "" : `, short by ${preview.shortfallCredits} — the user must top up on the website first`}).`;
 }
@@ -99,7 +109,7 @@ function buildPrompt(i: PrepareInput, preview: SchedulePreview): string {
   const ad = preview.expiry.ad;
   const bs = preview.expiry.bs?.display ?? "—";
   const why = i.expiry.calendar === "BS" ? "You entered a Bikram Sambat date" : i.expiry.source === "extracted_from_image" ? "This date was read from a document image" : "This date was inferred";
-  return `${why}. Please confirm the converted date ${ad} (AD) = ${bs} (BS). ${buildSummary(i.label, preview)} ` +
+  return `${why}. Please confirm the converted date ${ad} (AD) = ${bs} (BS). ${buildSummary(i.label, preview, Boolean(i.repeat_yearly))} ` +
     `म्याद सकिने मिति ${ad} (ई.सं.) = ${bs} (वि.सं.) हो? पुष्टि गर्नुहोस्।`;
 }
 
@@ -108,14 +118,21 @@ export async function prepareReminderAction(p: Principal, raw: unknown, db: Db =
   const parsed = prepareInputSchema.safeParse(raw);
   if (!parsed.success) throw new HttpError(400, parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "), "invalid_input");
   const input = parsed.data;
-  resolveExpiry({ calendar: input.expiry.calendar, expiryDate: input.expiry.date, localTime: input.expiry.local_time }); // throws invalid_date / invalid_bs_date
   const kind = input.reminder_id ? "update_reminder" : "create_reminder";
-  if (input.reminder_id && !(await getReminder(p, input.reminder_id, db))) throw new HttpError(404, "Reminder not found", "not_found");
+  const existing = input.reminder_id ? await getReminder(p, input.reminder_id, db) : null;
+  if (input.reminder_id && !existing) throw new HttpError(404, "Reminder not found", "not_found");
+  // Pin the effective yearly setting in the snapshot so confirm resolves the same date.
+  input.repeat_yearly = input.repeat_yearly ?? existing?.repeatYearly ?? false;
+  if (input.group_id) {
+    const { rows } = await db.query("select 1 from reminder_groups where id = $1 and owner_user_id = $2", [input.group_id, p.userId]);
+    if (!rows[0]) throw new HttpError(404, "Group not found; call list_groups.", "group_not_found");
+  }
+  scheduleOf(input, now); // throws invalid_date / invalid_bs_date
 
   const preview = await previewSchedule(p, { ...toReminderInput(input), renewalId: input.reminder_id ?? null }, db, now);
   if (preview.lines.length === 0) throw new HttpError(400, "Every reminder time is already in the past; choose an earlier offset or a later expiry.", "nothing_to_schedule");
   const requiresUserConfirmation = needsConfirmation(input);
-  const confirmationPrompt = requiresUserConfirmation ? buildPrompt(input, preview) : `Please confirm with the user before saving. ${buildSummary(input.label, preview)}`;
+  const confirmationPrompt = requiresUserConfirmation ? buildPrompt(input, preview) : `Please confirm with the user before saving. ${buildSummary(input.label, preview, Boolean(input.repeat_yearly))}`;
 
   const { rows } = await db.query<{ id: string; expires_at: string }>(
     `insert into prepared_actions (user_id, client_id, kind, input, preview, pricing_version, expires_at)
@@ -181,7 +198,7 @@ export async function confirmPreparedAction(p: Principal, c: ConfirmInput, db: D
         throw new HttpError(409, "This date needs explicit user confirmation. Show the converted date, then call prepare_reminder again with expiry.user_confirmed=true.", "confirmation_required");
       }
       // Re-resolve now: the live schedule must still match what was previewed (same expiry instant).
-      const liveExpiry = instantDTO(resolveExpiry({ calendar: input.expiry.calendar, expiryDate: input.expiry.date, localTime: input.expiry.local_time }));
+      const liveExpiry = instantDTO(scheduleOf(input, now).expiryAtUtc);
       if (liveExpiry.utc !== pa.preview.expiry.utc) throw new HttpError(409, "Expiry resolution changed; prepare again.", "preview_stale");
 
       const detail = { preparedId: pa.id, idempotencyKey: c.idempotencyKey ?? null };
