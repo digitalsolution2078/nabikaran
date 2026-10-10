@@ -1,0 +1,38 @@
+name: Production check
+
+# Runs after every successful deploy (and by hand) from GitHub's servers:
+# confirms https://nabikaran.org is up, the database answers and every
+# embedded schema step (e.g. migration 0007) is in place.
+on:
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Health, database and schema
+        env:
+          URL: https://nabikaran.org/api/health
+        run: |
+          set -u
+          for i in $(seq 1 20); do
+            code=$(curl -sS -o health.json -w '%{http_code}' --max-time 20 "$URL" || echo 000)
+            echo "attempt $i: HTTP $code $(head -c 400 health.json 2>/dev/null)"
+            if [ "$code" = 200 ] || [ "$code" = 503 ]; then
+              if jq -e '.db == "ok" and (.schema // {} | length > 0) and (.schema | all(.[]; . == true))' health.json >/dev/null; then
+                echo "::notice::Production OK: $(jq -c '{status, db, schema, dispatcher: .dispatcher.ok}' health.json)"
+                exit 0
+              fi
+            fi
+            sleep 30
+          done
+          echo "::error::Production check failed: $(cat health.json 2>/dev/null | head -c 400)"
+          exit 1

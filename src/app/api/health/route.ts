@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { schemaStatus } from "@/lib/schema-ensure";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,9 @@ export async function GET() {
     const last = rows[0]?.at ? new Date(rows[0].at) : null;
     const ageMin = last ? Math.round((Date.now() - last.getTime()) / 60_000) : null;
     const dispatcherOk = ageMin !== null && ageMin < 3;
+    const schema = await schemaStatus();
     return NextResponse.json(
-      { status: dispatcherOk ? "ok" : "degraded", db: "ok", dispatcher: { lastRunAt: last?.toISOString() ?? null, minutesAgo: ageMin, ok: dispatcherOk }, latencyMs: Date.now() - startedAt },
+      { status: dispatcherOk ? "ok" : "degraded", db: "ok", schema, dispatcher: { lastRunAt: last?.toISOString() ?? null, minutesAgo: ageMin, ok: dispatcherOk }, latencyMs: Date.now() - startedAt },
       { status: dispatcherOk ? 200 : 503, headers: { "cache-control": "no-store" } },
     );
   } catch (e) {

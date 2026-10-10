@@ -133,7 +133,14 @@ Reminders do not depend on the app. SMS and WhatsApp are sent from the server wh
   - **Safety:** the import is idempotent.
   - **Audit:** recorded as `reminder.import`.
 
-After deploying, confirm the migration ran:
+Production has no migrate step that this repository controls, so the app applies missing additive schema steps itself when it starts (`src/instrumentation.ts`, `src/lib/schema-steps.ts`).
+- The steps are exact copies of migration files, and a test keeps them in sync.
+- The first start that applies a step records `schema.ensure_applied` in the audit log.
+- To turn this off, set `SCHEMA_AUTO_ENSURE=off`.
+
+After every successful deploy, the **Production check** workflow calls `https://nabikaran.org/api/health` from GitHub's servers. It fails unless the database answers and every value in `schema` is `true`.
+
+To check by hand on the server:
 
 ```bash
 docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -c "select * from _schema_migrations order by 1 desc limit 3"
