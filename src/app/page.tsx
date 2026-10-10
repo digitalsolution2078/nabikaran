@@ -12,15 +12,16 @@ export default async function Home() {
   const cta = user ? "/dashboard" : "/login";
   return (
     <>
-      <section className="hero">
+      <section className="hero-band">
+      <div className="hero">
         <div>
           <span className="eyebrow"><Icon name="zap" size={16} /> {t("landing.badge")}</span>
           <h1>Nepal ko personal <span className="hl">renewal command center.</span></h1>
           <p className="small muted mb-0">{prefs.lang === "ne" ? "हरेक नवीकरण, समयमै — SMS र WhatsApp मा।" : "Every renewal, on time — by SMS and WhatsApp."}</p>
           <p className="lead">{t("landing.subtitle")}</p>
           <div className="row mt">
-            <Link href={cta} className="btn btn-primary btn-lg">{user ? t("nav.dashboard") : t("landing.cta")} <Icon name="arrowRight" size={18} /></Link>
-            <a href="#how" className="btn btn-secondary btn-lg">{t("landing.ctaSecondary")}</a>
+            <Link href={cta} className="btn btn-accent btn-lg">{user ? t("nav.dashboard") : t("landing.cta")} <Icon name="arrowRight" size={18} /></Link>
+            <a href="#how" className="btn btn-outline-light btn-lg">{t("landing.ctaSecondary")}</a>
           </div>
           <div className="row mt small muted">
             <span className="row"><Icon name="check" size={16} /> {t("landing.f1")}</span>
@@ -41,6 +42,7 @@ export default async function Home() {
             </div>
           </div>
         </div>
+      </div>
       </section>
 
       <section className="section" id="how">

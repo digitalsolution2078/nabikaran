@@ -10,6 +10,9 @@ import { InviteFriends } from "@/components/InviteFriends";
 import { PinManager } from "@/components/PinManager";
 import { PushManager } from "@/components/PushManager";
 import { EmailManager } from "@/components/EmailManager";
+import { ThemePicker } from "@/components/ThemePicker";
+import { cookies } from "next/headers";
+import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 import { getProPrefs, isPro } from "@/lib/services/plans";
 import { emailStatus } from "@/lib/services/email-auth";
 import { referralSummary } from "@/lib/services/referrals";
@@ -40,6 +43,7 @@ export default async function SettingsPage() {
           message={ref.settings.message} invited={ref.invited} rewarded={ref.rewarded} pending={ref.pending} creditsEarned={ref.creditsEarned} />
       )}
       {pro && <EmailManager initial={email} digest={proPrefs.digest} />}
+      <ThemePicker initial={parseTheme((await cookies()).get(THEME_COOKIE)?.value)} />
       <PushManager />
       <PinManager initial={pin} />
       <InstallApp variant="card" />

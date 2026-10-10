@@ -21,6 +21,17 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const inviter = refCode && refCfg.enabled ? await referrerByCode(refCode).catch(() => null) : null;
   return (
     <div className="auth-wrap">
+      <div className="auth-split">
+        <aside className="auth-brand" aria-hidden>
+          <span className="logo-mark big">न</span>
+          <h2>{t("dash.basicHeadline")}</h2>
+          <ul>
+            <li><Icon name="check" size={16} /> {t("landing.f1")}</li>
+            <li><Icon name="check" size={16} /> {t("landing.f2")}</li>
+            <li><Icon name="check" size={16} /> {t("landing.f3")}</li>
+          </ul>
+          <span className="small">Nabikaran · नवीकरण</span>
+        </aside>
       <div className="auth-card">
         <div className="card" style={{ padding: 26 }}>
           <div className="avatar-icon" style={{ marginBottom: 12 }}><Icon name="lock" /></div>
@@ -33,6 +44,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           {proCfg.enabled && emailProvider && <EmailLogin next={safeNext} />}
         </div>
         <p className="small muted mt" style={{ textAlign: "center" }}>{t("landing.a3")}</p>
+      </div>
       </div>
     </div>
   );

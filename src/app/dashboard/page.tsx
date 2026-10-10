@@ -55,12 +55,18 @@ export default async function Dashboard() {
 
   return (
     <div className="stack">
-      <div className="page-head">
-        <div>
+      <section className={`welcome-hero${isPro ? " is-pro" : ""}`}>
+        <div className="grow">
           <h1>{t("dash.greeting")}{user.displayName ? `, ${user.displayName}` : ""}</h1>
           <p>{isPro ? t("dash.proHeadline") : t("dash.basicHeadline")}</p>
         </div>
-      </div>
+        {s && (
+          <Link href="/wallet" className="welcome-credits">
+            <span className="small">{t("dash.available")}</span>
+            <strong>{n(s.wallet.available)}</strong>
+          </Link>
+        )}
+      </section>
 
       <nav className="quick-actions" aria-label={t("dash.quick")}>
         <Link href="/renewals/new" className="qa qa-primary"><Icon name="plus" /> <span>{t("dash.addReminder")}</span></Link>
