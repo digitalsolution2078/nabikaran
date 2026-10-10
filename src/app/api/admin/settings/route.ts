@@ -5,7 +5,7 @@ import { setSetting } from "@/lib/services/settings";
 export async function POST(req: Request) {
   return handle(async () => {
     const admin = await requirePermission(req, "settings.manage");
-    const { key, value } = await parseBody(req, z.object({ key: z.enum(["topup", "manual_qr", "signin"]), value: z.unknown() }));
+    const { key, value } = await parseBody(req, z.object({ key: z.enum(["topup", "manual_qr", "signin", "referral", "pin"]), value: z.unknown() }));
     return json({ ok: true, value: await setSetting(admin, key, value) });
   });
 }

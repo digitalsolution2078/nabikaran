@@ -3,6 +3,7 @@ import { getDb, type Db } from "../db";
 import { audit } from "../core/audit";
 import { HttpError } from "../core/errors";
 import { retryAwaitingCredits } from "../core/wallet";
+import { rewardReferralIfQualified } from "./referrals";
 import { getSetting, validateTopupAmount } from "./settings";
 import { createDynamicQr, fonepayEnabled, getQrStatus } from "../providers/payments/fonepay";
 
@@ -167,7 +168,10 @@ export async function checkGatewayTopup(requestId: string, userId: string | null
     const st = await getQrStatus(r.reference);
     if (st.status === "success" && st.traceId) {
       const { rows: c } = await db.query<{ confirm_gateway_topup: boolean }>("select confirm_gateway_topup($1, $2)", [r.id, st.traceId]);
-      if (c[0]?.confirm_gateway_topup) await retryAwaitingCredits(r.user_id, db);
+      if (c[0]?.confirm_gateway_topup) {
+        await retryAwaitingCredits(r.user_id, db);
+        await rewardReferralIfQualified(r.user_id, db).catch((e) => console.error("[referral] reward failed", e));
+      }
     }
   }
   const { rows: cur } = await db.query<Row & { user_id: string }>("select * from manual_topup_requests where id = $1", [requestId]);
@@ -238,7 +242,10 @@ export async function approveManualTopup(adminId: string, requestId: string, ban
     });
     if (credited) {
       const { rows } = await db.query<{ user_id: string }>("select user_id from manual_topup_requests where id = $1", [requestId]);
-      if (rows[0]) await retryAwaitingCredits(rows[0].user_id, db);
+      if (rows[0]) {
+        await retryAwaitingCredits(rows[0].user_id, db);
+        await rewardReferralIfQualified(rows[0].user_id, db).catch((e) => console.error("[referral] reward failed", e));
+      }
     }
     return { credited };
   } catch (e) {

@@ -6,15 +6,22 @@ import { setSessionCookie } from "@/lib/auth/session";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { PREFS_COOKIE, decodePrefs, encodePrefs } from "@/lib/i18n/prefs";
+import { REFERRAL_COOKIE, attachReferral } from "@/lib/services/referrals";
 
-const schema = z.object({ phone: z.string().min(7).max(20), code: z.string().length(6) });
+const schema = z.object({ phone: z.string().min(7).max(20), code: z.string().length(6), ref: z.string().max(12).optional() });
 
 export async function POST(req: Request) {
   return handle(async () => {
     await limit(`ip:${clientIp(req) ?? "unknown"}`, "otp:verify", 30, 600);
-    const { phone, code } = await parseBody(req, schema);
+    const { phone, code, ref } = await parseBody(req, schema);
     const { userId, isNew } = await verifyOtp(phone, code);
     await setSessionCookie(userId);
+    const jar0 = await cookies();
+    if (isNew) {
+      // A new account opened from an invite link (cookie) or ?ref= on the sign-in page.
+      await attachReferral(userId, jar0.get(REFERRAL_COOKIE)?.value ?? ref).catch((e) => console.error("[referral] attach failed", e));
+    }
+    if (jar0.get(REFERRAL_COOKIE)) jar0.delete(REFERRAL_COOKIE);
     // Preference sync: a choice made as a guest wins for new accounts; otherwise the
     // profile wins and is copied into the cookie for this browser.
     const jar = await cookies();

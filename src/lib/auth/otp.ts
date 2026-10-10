@@ -118,7 +118,8 @@ export async function verifyOtp(phone: string, code: string, db: Db = getDb()): 
       isNew = true;
       await tx.query("insert into wallets (user_id) values ($1) on conflict do nothing", [userId]);
     } else {
-      await tx.query("update users set phone_verified_at = coalesce(phone_verified_at, now()), updated_at = now() where id = $1", [userId]);
+      // A successful SMS-code sign-in also unlocks a PIN that was locked by wrong attempts.
+      await tx.query("update users set phone_verified_at = coalesce(phone_verified_at, now()), pin_failed_count = 0, pin_locked = false, updated_at = now() where id = $1", [userId]);
     }
     await tx.query("update phone_verifications set consumed_at = now(), user_id = $2 where id = $1", [v.id, userId]);
     await tx.query("insert into audit_events (actor_user_id, action, target_type, target_id) values ($1, 'auth.otp_verified', 'user', $2)", [userId, userId]);

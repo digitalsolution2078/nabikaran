@@ -434,3 +434,10 @@ tr.row-bad td { background: var(--bad-bg); }
 .group-row { flex-wrap: wrap; align-items: center; }
 .group-row .rr-main { flex: 1 1 180px; min-width: 0; }
 .group-row .group-actions { flex-wrap: nowrap; gap: 6px; margin-left: auto; }
+.pin-switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 16px; padding: 10px 12px; border: 1px dashed var(--brand-200); border-radius: var(--radius-sm); background: var(--brand-50); }
+@media (prefers-color-scheme: dark) { .pin-switch { background: #221a3d; border-color: #3a2d63; } }
+.copy-field { min-width: 0; max-width: 100%; }
+.copy-field > span { min-width: 0; overflow-wrap: anywhere; word-break: break-all; }
+.invite-card .copy-field > span { font-size: 14px; }
+.invite-card .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 420px) { .invite-card .grid-3 .stat .label { font-size: 12px; } }

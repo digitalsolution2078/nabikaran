@@ -10,9 +10,10 @@ import { readWallet, type WalletView } from "../core/wallet";
  *   reversed        a top-up reversed (refund / chargeback)
  *   fee             sign-in SMS
  *   adjustment      admin credit/debit with a recorded reason
+ *   bonus           referral bonus credits
  * Reservations are not ledger rows: they are holds shown separately.
  */
-export type LedgerCategory = "purchased" | "spent_sms" | "spent_whatsapp" | "refunded" | "reversed" | "fee" | "adjustment";
+export type LedgerCategory = "purchased" | "spent_sms" | "spent_whatsapp" | "refunded" | "reversed" | "fee" | "adjustment" | "bonus";
 
 export interface StatementRow {
   id: number;
@@ -35,6 +36,7 @@ const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : new Date(Stri
 export function categorize(type: string, referenceType: string | null, channel: string | null): LedgerCategory {
   if (type === "topup") return "purchased";
   if (type === "fee") return "fee";
+  if (type === "referral") return "bonus";
   if (type === "adjustment") return "adjustment";
   if (type === "debit") return channel === "whatsapp" ? "spent_whatsapp" : "spent_sms";
   if (type === "reversal") return referenceType === "payment_order" ? "reversed" : "refunded";
@@ -59,7 +61,7 @@ export async function getStatement(userId: string, db: Db = getDb(), limit = 300
       [userId],
     ),
   ]);
-  const t: Record<LedgerCategory, number> = { purchased: 0, spent_sms: 0, spent_whatsapp: 0, refunded: 0, reversed: 0, fee: 0, adjustment: 0 };
+  const t: Record<LedgerCategory, number> = { purchased: 0, spent_sms: 0, spent_whatsapp: 0, refunded: 0, reversed: 0, fee: 0, adjustment: 0, bonus: 0 };
   for (const r of totals.rows) t[categorize(r.type, r.reference_type, r.channel)] += Number(r.total);
   return {
     wallet,

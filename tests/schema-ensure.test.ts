@@ -20,8 +20,8 @@ describe("embedded schema steps", () => {
   });
 
   it("report present and do nothing on a fully migrated database", async () => {
-    expect(await schemaStatus(db)).toEqual({ "0007_groups_yearly": true, "0008_seo_pages": true });
-    expect(await ensureSchema(db)).toEqual({ applied: [], present: ["0007_groups_yearly", "0008_seo_pages"] });
+    expect(await schemaStatus(db)).toEqual({ "0007_groups_yearly": true, "0008_seo_pages": true, "0009_referrals_pin": true });
+    expect(await ensureSchema(db)).toEqual({ applied: [], present: ["0007_groups_yearly", "0008_seo_pages", "0009_referrals_pin"] });
   });
 
   it("report missing when the step is not in place", async () => {

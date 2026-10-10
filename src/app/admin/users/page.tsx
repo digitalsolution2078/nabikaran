@@ -2,14 +2,25 @@ import Link from "next/link";
 import { searchUsers } from "@/lib/services/admin-console";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatPhoneLocal } from "@/lib/phone";
+import { getCurrentUser } from "@/lib/auth/session";
+import { can } from "@/lib/auth/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminUsers({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q = "" } = await searchParams;
-  const users = await searchUsers(q, 100);
+  const [users, me] = await Promise.all([searchUsers(q, 100), getCurrentUser()]);
   return (
     <div className="stack">
+      {can(me?.role, "customers.export") && (
+        <div className="card row between">
+          <span><strong>Customer data</strong><br /><span className="small muted">CSV with phone, name, wallet, top-ups, reminders, groups, referral and PIN status. Contains personal data: every download is recorded in the audit log.</span></span>
+          <span className="row">
+            <a className="btn btn-primary" href="/api/admin/export/customers" download>Download active customers (CSV)</a>
+            <a className="btn btn-secondary" href="/api/admin/export/customers?status=all&staff=1" download>All accounts incl. staff</a>
+          </span>
+        </div>
+      )}
       <form className="card row" method="get" role="search">
         <label htmlFor="q" className="sr-only">Search users</label>
         <input id="q" name="q" type="search" defaultValue={q} placeholder="Name, phone number or email" style={{ flex: 1, minWidth: 220 }} />
