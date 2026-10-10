@@ -14,6 +14,7 @@ import { getActivePricing } from "../core/wallet";
 import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../scheduler";
 
 import { redactPhone } from "../phone";
+import { pushReminders, type ReminderPush } from "./push";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -70,6 +71,7 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
     : [pricing, [], null, false];
   const waProvider = hasWa ? getWhatsAppProvider() : null;
 
+  const pushes: ReminderPush[] = [];
   for (const job of jobs) {
     // Atomic pre-send verification inside a transaction: renewal active, phone verified,
     // reservation active, no accepted/pending attempt, due.
@@ -125,6 +127,8 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       summary.skipped++;
       continue;
     }
+    // Free web push alongside the message (once per occurrence, sent after the loop).
+    pushes.push({ userId: job.user_id, renewalId: job.renewal_id, occurrenceKey: `${job.renewal_id}:${job.cycle_no}:${new Date(job.due_at_utc).toISOString()}`, body: pre.text });
 
     // Exactly one provider call per attempt.
     const outcome = pre.wa
@@ -184,6 +188,7 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       console.warn(`[dispatch] unknown outcome job=${job.id} to=${redactPhone(pre.to)}: ${outcome.reason}`);
     });
   }
+  if (pushes.length) await pushReminders(pushes, db);
   return summary;
 }
 

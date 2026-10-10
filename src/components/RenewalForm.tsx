@@ -84,7 +84,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
   const groupTpl = startGroup && startGroup.kind !== "custom" ? templates.find((x) => x.category === startGroup.kind) : undefined;
   const preselected = templates.find((x) => x.slug === initialTemplate) ?? groupTpl ?? null;
   const preOccasion = preselected?.group_key === "occasions";
-  const [step, setStep] = useState<Step>(renewalId || preselected ? 1 : 0);
+  const [step, setStep] = useState<Step>(1);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<string | null>(null);
   const [v, setV] = useState<RenewalFormValues>({
@@ -142,18 +142,41 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
   };
   const toggle = (m: number) => set("offsets", v.offsets.includes(m) ? v.offsets.filter((x) => x !== m) : [...v.offsets, m]);
 
+  /** True when the label is still the chosen template's default name. */
+  const chosenTplLabel = (old: RenewalFormValues) => {
+    const tpl = templates.find((x) => x.slug === old.templateSlug);
+    return Boolean(tpl && old.label === tpl.sms_label);
+  };
+
   const chooseTemplate = (tpl: TemplateOption) => {
     const tplChannels = (tpl.default_channels ?? ["sms"]).filter((c): c is "sms" | "whatsapp" => c === "sms" || (c === "whatsapp" && whatsapp.available));
     const occ = tpl.group_key === "occasions";
     setV((old) => ({
       ...old,
       category: tpl.category,
-      label: old.label && renewalId ? old.label : occ ? "" : tpl.sms_label,
+      // Keep a name the customer typed; replace only an empty name or the previous template's default.
+      label: old.label && (renewalId || !chosenTplLabel(old)) ? old.label : occ ? "" : tpl.sms_label,
       offsets: tpl.default_offsets,
       templateSlug: tpl.slug,
       channels: occ ? ["sms"] : renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"],
       repeatYearly: renewalId ? old.repeatYearly : occ ? tpl.category !== "event" : false,
       localTime: !renewalId && occ ? "08:00" : old.localTime,
+    }));
+    setPreview(null);
+    setStep(1);
+  };
+
+  // Back to a plain custom reminder (no template).
+  const useCustom = () => {
+    setV((old) => ({
+      ...old,
+      category: "other",
+      label: chosenTplLabel(old) ? "" : old.label,
+      offsets: [30 * 1440, 7 * 1440, 1440, 0],
+      templateSlug: null,
+      channels: old.channels.length ? old.channels : ["sms"],
+      repeatYearly: false,
+      localTime: "09:00",
     }));
     setPreview(null);
     setStep(1);
@@ -265,6 +288,12 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
 
       {step === 0 && (
         <section className="card">
+          {!renewalId && (
+            <button type="button" className="tpl tpl-custom" onClick={useCustom} style={{ width: "100%", marginBottom: 14 }}>
+              <span className="avatar-icon" style={{ width: 34, height: 34 }}><Icon name="plus" size={18} /></span>
+              <span><span className="name">{t("rem.useCustom")}</span><br /><span className="desc">{t("rem.customIntro")}</span></span>
+            </button>
+          )}
           <div className="field">
             <label htmlFor="tpl-search" className="sr-only">{t("rem.searchTemplates")}</label>
             <div className="input-affix"><span><Icon name="search" size={16} /></span><input id="tpl-search" type="search" placeholder={t("rem.searchTemplates")} value={query} onChange={(e) => setQuery(e.target.value)} /></div>
@@ -291,12 +320,22 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       )}
 
       {step === 1 && (
+        <div className={renewalId ? undefined : "form-with-side"}>
         <section className="card">
+          {!chosenTpl && !renewalId && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="row between" style={{ gap: 8 }}>
+                <h2 style={{ marginBottom: 4 }}>{t("rem.customReminder")}</h2>
+                <button type="button" className="btn btn-secondary btn-sm tpl-jump" onClick={() => setStep(0)}><Icon name="search" size={14} /> {t("rem.pickTemplate")}</button>
+              </div>
+              <p className="muted small" style={{ margin: 0 }}>{t("rem.customIntro")}</p>
+            </div>
+          )}
           {chosenTpl && (
             <div className="alert info">
               <Icon name={iconForGroup(chosenTpl.group_key)} />
               <span><strong>{lang === "ne" ? chosenTpl.name_ne : chosenTpl.name_en}</strong><br /><span className="small">{lang === "ne" ? chosenTpl.description_ne : chosenTpl.description_en}</span>
-                {!renewalId && <> · <button type="button" className="btn btn-ghost btn-sm" onClick={() => setStep(0)}>{t("rem.step.template")} ↺</button></>}
+                {!renewalId && <> · <button type="button" className="btn btn-ghost btn-sm" onClick={useCustom}>{t("rem.useCustom")}</button></>}
               </span>
             </div>
           )}
@@ -359,10 +398,26 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             </div>
           </details>
           <div className="row between mt">
-            {!renewalId ? <button type="button" className="btn btn-secondary" onClick={() => setStep(0)}>{t("rem.back")}</button> : <span />}
+            <span />
             <button type="button" className="btn btn-primary" disabled={!detailsValid} onClick={() => setStep(2)}>{t("rem.next")} <Icon name="arrowRight" size={16} /></button>
           </div>
         </section>
+        {!renewalId && (
+          <aside className="card tpl-side" aria-labelledby="tpl-side-h">
+            <h3 id="tpl-side-h" style={{ marginBottom: 2 }}>{t("rem.pickTemplate")}</h3>
+            <p className="hint" style={{ marginTop: 0 }}>{t("rem.pickTemplateHint")}</p>
+            <div className="tpl-side-list">
+              {(popular.length ? popular : templates).slice(0, 8).map((tpl) => (
+                <button type="button" key={tpl.slug} className="tpl" aria-pressed={tpl.slug === v.templateSlug} onClick={() => chooseTemplate(tpl)}>
+                  <span className="avatar-icon" style={{ width: 30, height: 30 }}><Icon name={iconForGroup(tpl.group_key)} size={16} /></span>
+                  <span className="name">{lang === "ne" ? tpl.name_ne : tpl.name_en}</span>
+                </button>
+              ))}
+            </div>
+            <button type="button" className="btn btn-secondary btn-sm mt" style={{ width: "100%" }} onClick={() => setStep(0)}><Icon name="search" size={14} /> {t("rem.browseTemplates")}</button>
+          </aside>
+        )}
+        </div>
       )}
 
       {step === 2 && (

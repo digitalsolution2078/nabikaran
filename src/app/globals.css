@@ -441,3 +441,16 @@ tr.row-bad td { background: var(--bad-bg); }
 .invite-card .copy-field > span { font-size: 14px; }
 .invite-card .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 420px) { .invite-card .grid-3 .stat .label { font-size: 12px; } }
+
+/* Add reminder: custom form first, templates on the side */
+.form-with-side { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.tpl-jump { flex-shrink: 0; }
+.tpl-side-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.tpl-side-list .tpl { flex: 0 0 auto; align-items: center; padding: 8px 10px; }
+.tpl-custom { border-style: dashed; }
+@media (min-width: 900px) {
+  .form-with-side { grid-template-columns: minmax(0, 1fr) 280px; align-items: start; }
+  .form-with-side > .tpl-side { position: sticky; top: 80px; }
+  .tpl-jump { display: none; }
+  .tpl-side-list { flex-direction: column; overflow: visible; }
+}

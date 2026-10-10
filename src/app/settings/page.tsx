@@ -8,6 +8,7 @@ import { listConnections } from "@/lib/oauth/tokens";
 import { formatPhoneLocal } from "@/lib/phone";
 import { InviteFriends } from "@/components/InviteFriends";
 import { PinManager } from "@/components/PinManager";
+import { PushManager } from "@/components/PushManager";
 import { referralSummary } from "@/lib/services/referrals";
 import { pinStatus } from "@/lib/auth/pin";
 import { env } from "@/lib/env";
@@ -35,6 +36,7 @@ export default async function SettingsPage() {
         <InviteFriends link={link} referrerCredits={ref.settings.referrer_credits} refereeCredits={ref.settings.referee_credits} minTopup={ref.settings.min_topup_npr}
           message={ref.settings.message} invited={ref.invited} rewarded={ref.rewarded} pending={ref.pending} creditsEarned={ref.creditsEarned} />
       )}
+      <PushManager />
       <PinManager initial={pin} />
       <InstallApp variant="card" />
       <ConnectedApps connections={connections} />

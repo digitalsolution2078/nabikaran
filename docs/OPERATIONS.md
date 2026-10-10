@@ -218,3 +218,26 @@ Customers can set an optional 4–6 digit PIN in **Settings → Quick sign-in PI
 | Audit | Every download is recorded as `admin.customers_exported`, with the row count |
 
 The file contains personal data: store it securely and delete it when done.
+
+## 15. Web push notifications (free)
+
+Customers turn on notifications in **Settings → Phone notifications**. Each reminder message the dispatcher sends (SMS or WhatsApp) also goes out as a push notification to that customer's devices.
+
+- **Cost.** Push uses no credits.
+- **Effect on SMS and WhatsApp.** None. A push failure never stops or changes an SMS or WhatsApp send.
+- **Duplicates.** A reminder going by both SMS and WhatsApp produces one push, not two (`push_deliveries`).
+- **Keys.** No setup is needed. On first use the app creates a VAPID key pair and stores it in `app_secrets`. That table is server-only and does not appear in Admin settings.
+  - To manage the keys yourself, set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and optionally `VAPID_SUBJECT` (`mailto:` or `https:`) on the web service.
+  - Changing the keys stops every existing device until its customer turns notifications on again.
+- **Devices.**
+  - Up to 10 devices per customer.
+  - A device the push service reports as gone (HTTP 404/410) is removed automatically.
+  - The server only posts to the browser push services: Google FCM, Mozilla, Apple and Microsoft.
+- **iPhone.** Notifications work only after the customer adds the site to the Home Screen (iOS 16.4 or later) and turns notifications on from inside the installed app.
+- **Private windows.** Notifications cannot be turned on in private or incognito windows.
+
+Check how many devices are registered:
+
+```bash
+docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -tAc "select count(*), count(distinct user_id) from push_subscriptions"
+```
