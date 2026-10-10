@@ -9,6 +9,7 @@ const TABS: [string, string, boolean][] = [
   ["/admin/wallet/topups", "Top-ups", false],
   ["/admin/sms", "Channels & pricing", false],
   ["/admin/templates", "Templates", false],
+  ["/admin/seo", "SEO pages", false],
   ["/admin/audit", "Audit log", false],
   ["/admin/settings", "Settings & roles", true],
 ];

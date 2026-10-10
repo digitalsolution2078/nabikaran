@@ -8,8 +8,9 @@ Nabikaran exposes a remote MCP server at **`https://mcp.nabikaran.org/mcp`**. A 
 |---|---|---|
 | `get_account` | `account:read` | Name, masked phone, language |
 | `get_credit_balance` | `wallet:read` | Balance, reserved credits, top-up link |
-| `list_reminders` | `reminders:read` | Reminders with schedule and message status |
-| `prepare_reminder` | `reminders:write` | Resolves the date (BS/AD), message text, schedule and cost; saves nothing |
+| `list_reminders` | `reminders:read` | Reminders with schedule, message status, group and yearly flag |
+| `list_groups` | `reminders:read` | The user's groups (e.g. "Friends' birthdays") |
+| `prepare_reminder` | `reminders:write` | Resolves the date (BS/AD), message text, schedule and cost; saves nothing. Accepts `repeat_yearly` (birthdays, anniversaries) and `group_id` |
 | `confirm_reminder` | `reminders:write` | Saves a prepared reminder and reserves its credits |
 | `update_reminder` | `reminders:write` | Pause or resume (edits go through `prepare_reminder` with `reminder_id`) |
 | `cancel_reminder` | `reminders:write` | Cancels with `confirm: true`; reserved credits are released |
@@ -130,10 +131,14 @@ Run with a real staff account, and record the transcript as evidence.
 | 7 | "Cancel garde." | `cancel_reminder` with confirmation; credits released |
 | 8 | Disconnect in **Settings → Connected apps**, then ask again | 401; ChatGPT asks to sign in again |
 | 9 | A second account asks for reminders | Sees only its own |
+| 10 | "Mero sathi Ram Sharma ko birthday Shrawan 15 (BS) ho, Friends' birthdays group ma rakha" | `list_groups`, then `prepare_reminder` with `category: birthday`, `repeat_yearly: true`, `group_id`; the prompt says it repeats every year and the SMS goes only to the user |
 
 Steps 3–7 use real credits in production, so use a staff account and cancel afterwards.
 
 ## 6. Monitoring
+
+The **Production check** workflow (`.github/workflows/prod-check.yml`) runs after every deploy and every 30 minutes. It fails, and GitHub emails the repository owner, when `mcp.nabikaran.org` stops returning the protected-resource metadata or `/mcp` stops answering 401 without a token.
+
 
 - **Admin → Overview → AI assistants (MCP):**
   - connected users;

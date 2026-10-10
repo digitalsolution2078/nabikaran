@@ -108,6 +108,23 @@ export const SEO_PAGES: SeoPage[] = [
     faqs: [{ q: "Can Nabikaran renew my domain automatically?", a: "No. Nabikaran is a reminder service; renew with your registrar." }, ...COMMON_FAQ],
   },
   {
+    slug: "birthday-reminder-nepal",
+    template: "birthday",
+    title: "Birthday reminder Nepal — SMS before friends' birthdays | Nabikaran",
+    description: "Never forget a friend's or family member's birthday. Add birthdays in BS or AD, or import a whole list, and get an SMS on your own phone every year.",
+    h1: "Birthday reminders for Nepal, every year",
+    intro: "Facebook does not always remind you, and phone calendars get lost when you change phones. Add your friends' and family's birthdays once, in Bikram Sambat or AD, and Nabikaran sends an SMS to your own number a day before and on the day, every year.",
+    nepali: "साथी र परिवारको जन्मदिन नबिर्सनुहोस्। एकपटक वि.सं. वा ई.सं. मा जन्म मिति राख्नुहोस्, हरेक वर्ष तपाईंकै फोनमा SMS आउँछ।",
+    remindWhat: ["Friends' and family birthdays", "Wedding and other anniversaries", "Import a whole list from Excel or Google Sheets", "Keep them in groups like \"Friends' birthdays\""],
+    schedule: "Most people choose 1 day before and on the day; the reminder repeats every year by itself.",
+    faqs: [
+      { q: "Does Nabikaran send an SMS to my friend?", a: "No. Every SMS goes only to your own verified number. Nabikaran reminds you, so you can wish them yourself." },
+      { q: "Can I enter the birth date in Bikram Sambat?", a: "Yes. Enter it in BS or AD; the reminder lands on the same BS or AD day each year." },
+      { q: "Can I add many birthdays at once?", a: "Yes. Paste a list or upload a CSV with name and date; you see the cost of every row before importing." },
+      ...COMMON_FAQ,
+    ],
+  },
+  {
     slug: "whatsapp-renewal-reminder-nepal",
     template: null,
     title: "WhatsApp renewal reminders Nepal — bluebook, licence, passport | Nabikaran",
