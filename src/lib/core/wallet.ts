@@ -73,7 +73,7 @@ export async function getLedger(p: Principal, limit = 50, db: Db = getDb()): Pro
   }));
 }
 
-export type Channel = "sms" | "whatsapp";
+export type Channel = "sms" | "whatsapp" | "email";
 
 /** Current price for a channel: credits per SMS unit, or per accepted WhatsApp template message. */
 export async function getActivePricing(db: Db = getDb(), channel: Channel = "sms"): Promise<{ id: number; creditsPerUnit: number }> {
@@ -95,7 +95,7 @@ export async function retryAwaitingCredits(userId: string, db: Db = getDb()): Pr
   for (const r of rows) {
     const { rows: res } = await db.query<{ wallet_reserve_for_job: string }>("select wallet_reserve_for_job($1)", [r.id]);
     if (res[0]?.wallet_reserve_for_job === "scheduled") scheduled++;
-    else break; // earliest-first; if this one cannot be funded, later ones cannot either
+    // A message on another channel may still be covered by Pro included messages, so keep going.
   }
   return scheduled;
 }

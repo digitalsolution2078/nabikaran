@@ -9,6 +9,9 @@ import { formatPhoneLocal } from "@/lib/phone";
 import { InviteFriends } from "@/components/InviteFriends";
 import { PinManager } from "@/components/PinManager";
 import { PushManager } from "@/components/PushManager";
+import { EmailManager } from "@/components/EmailManager";
+import { getProPrefs, isPro } from "@/lib/services/plans";
+import { emailStatus } from "@/lib/services/email-auth";
 import { referralSummary } from "@/lib/services/referrals";
 import { pinStatus } from "@/lib/auth/pin";
 import { env } from "@/lib/env";
@@ -19,7 +22,7 @@ export const metadata = { title: "Settings" };
 export default async function SettingsPage() {
   const { user, t } = await getRequestContext();
   if (!user) redirect("/login");
-  const [connections, ref, pin] = await Promise.all([listConnections(user.id), referralSummary(user.id), pinStatus(user.id)]);
+  const [connections, ref, pin, pro, email, proPrefs] = await Promise.all([listConnections(user.id), referralSummary(user.id), pinStatus(user.id), isPro(user.id), emailStatus(user.id), getProPrefs(user.id)]);
   const link = `${env.appUrl.replace(/\/$/, "")}/r/${ref.code}`;
   return (
     <div className="stack">
@@ -36,6 +39,7 @@ export default async function SettingsPage() {
         <InviteFriends link={link} referrerCredits={ref.settings.referrer_credits} refereeCredits={ref.settings.referee_credits} minTopup={ref.settings.min_topup_npr}
           message={ref.settings.message} invited={ref.invited} rewarded={ref.rewarded} pending={ref.pending} creditsEarned={ref.creditsEarned} />
       )}
+      {pro && <EmailManager initial={email} digest={proPrefs.digest} />}
       <PushManager />
       <PinManager initial={pin} />
       <InstallApp variant="card" />

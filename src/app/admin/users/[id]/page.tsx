@@ -9,6 +9,8 @@ import { NoteForm } from "@/components/admin/NoteForm";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AdjustCredits, RoleControl } from "@/components/admin/UserControls";
 import { formatPhoneLocal } from "@/lib/phone";
+import { PlanControl } from "@/components/admin/PlanControl";
+import { planHistory } from "@/lib/services/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +18,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
   const { id } = await params;
   const [me, d] = await Promise.all([getCurrentUser(), getUserDetail(id)]);
   if (!d || !me) notFound();
-  const [st, topups, msgs, notes, auditRows] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id)]);
+  const [st, topups, msgs, notes, auditRows, plans] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id)]);
   const u = d.user;
   const self = me.id === u.id;
   return (
@@ -32,6 +34,11 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
           <div className="stat"><div className="label">Reserved</div><div className="value">{u.reserved}</div></div>
           <div className="stat"><div className="label">Active reminders</div><div className="value">{u.activeReminders}</div></div>
         </div>
+      </section>
+
+      <section className="card">
+        <h2>Nabikaran Pro</h2>
+        <PlanControl userId={u.id} history={plans} canGrant={can(me.role, "plans.grant")} />
       </section>
 
       <div className="grid grid-2" style={{ alignItems: "start" }}>

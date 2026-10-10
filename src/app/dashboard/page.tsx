@@ -7,6 +7,12 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ChannelBadge } from "@/components/ChannelBadge";
 import { Icon, iconForCategory } from "@/components/Icon";
 import { InstallApp } from "@/components/InstallApp";
+import { getPlanState, messagesAwaitingPermission } from "@/lib/services/plans";
+import { getInsights } from "@/lib/services/insights";
+import { emailStatus } from "@/lib/services/email-auth";
+import { ProOverview } from "@/components/ProOverview";
+import { getDb } from "@/lib/db";
+import { getSetting } from "@/lib/services/settings";
 import { formatDate, formatDateTime, daysUntil, localizeNumber, offsetLabel } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/dict";
 
@@ -21,7 +27,25 @@ export const metadata = { title: "Dashboard" };
 export default async function Dashboard() {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login");
-  const [summaryR, lockR] = await Promise.allSettled([getCustomerSummary(user.id), getLockState(user.id)]);
+  const [summaryR, lockR, planR, offerR] = await Promise.allSettled([getCustomerSummary(user.id), getLockState(user.id), getPlanState(user.id), getSetting("pro")]);
+  const plan = planR.status === "fulfilled" ? planR.value : null;
+  const isPro = plan?.tier === "pro";
+  const showUpgrade = plan !== null && !isPro && offerR.status === "fulfilled" && offerR.value.enabled;
+  // Pro dashboard data (deadlines, spending, cancellation alerts, setup checklist).
+  const pro = isPro
+    ? await Promise.all([
+        getInsights(user.id),
+        messagesAwaitingPermission(user.id),
+        emailStatus(user.id),
+        getDb().query<{ subs: number; docs: number }>(
+          `select count(*) filter (where category in ('subscription','free_trial') or sub_amount is not null)::int as subs,
+                  count(*) filter (where category not in ('subscription','free_trial','cancel_deadline','birthday','anniversary','event') and sub_amount is null)::int as docs
+             from renewal_items where owner_user_id = $1 and status <> 'deleted'`,
+          [user.id],
+        ),
+      ]).catch((e) => { console.error(`[dashboard] pro overview failed for ${user.id}:`, e); return null; })
+    : null;
+  const offer = offerR.status === "fulfilled" ? offerR.value : null;
   if (summaryR.status === "rejected") console.error(`[dashboard] summary failed for user ${user.id}:`, summaryR.reason);
   if (lockR.status === "rejected") console.error(`[dashboard] lock state failed for user ${user.id}:`, lockR.reason);
   const s = summaryR.status === "fulfilled" ? summaryR.value : null;
@@ -34,12 +58,13 @@ export default async function Dashboard() {
       <div className="page-head">
         <div>
           <h1>{t("dash.greeting")}{user.displayName ? `, ${user.displayName}` : ""}</h1>
-          <p>{t("brand.tagline")}</p>
+          <p>{isPro ? t("dash.proHeadline") : t("dash.basicHeadline")}</p>
         </div>
       </div>
 
       <nav className="quick-actions" aria-label={t("dash.quick")}>
         <Link href="/renewals/new" className="qa qa-primary"><Icon name="plus" /> <span>{t("dash.addReminder")}</span></Link>
+        {isPro && <Link href="/subscriptions#add" className="qa"><Icon name="repeat" /> <span>{t("sub.addSub")}</span></Link>}
         <Link href={s && s.wallet.available < 0 ? `/wallet?amount=${Math.max(20, -s.wallet.available)}` : "/wallet"} className="qa"><Icon name="wallet" /> <span>{t("dash.topUp")}</span></Link>
         <Link href="/messages" className="qa"><Icon name="message" /> <span>{t("dash.viewPending")}</span></Link>
         <Link href="/renewals" className="qa"><Icon name="list" /> <span>{t("dash.viewAll")}</span></Link>
@@ -54,7 +79,17 @@ export default async function Dashboard() {
       {s && s.counts.awaitingCredits > 0 && (
         <div className="alert warn"><Icon name="alert" /> <span>{t("dash.awaitingCredits")} <Link href="/wallet">{t("lock.cta")} →</Link></span></div>
       )}
+      {isPro && pro && plan && (
+        <ProOverview t={t} prefs={prefs} plan={plan} ins={pro[0]} waiting={pro[1]}
+          onboarding={{ email: pro[2].verified, subscription: pro[3].rows[0].subs > 0, document: pro[3].rows[0].docs > 0 }} />
+      )}
       <InstallApp variant="banner" />
+      {showUpgrade && offer && (
+        <section className="card upgrade-card row between" style={{ flexWrap: "wrap", gap: 10 }}>
+          <span className="grow" style={{ minWidth: 220 }}><strong><Icon name="star" size={16} /> {t("pro.upgradeTitle")}</strong><br /><span className="small muted">{t("pro.upgradeText", { sms: localizeNumber(offer.allowance_sms, prefs.lang) })}</span></span>
+          <Link href="/pro" className="btn btn-primary btn-sm">{t("pro.seePro")}</Link>
+        </section>
+      )}
 
       {!s ? (
         <div className="alert bad" role="alert"><Icon name="alert" /> <span>{t("dash.sectionError")}</span></div>

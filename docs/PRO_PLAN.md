@@ -1,6 +1,37 @@
 # Nabikaran Pro: research and build plan
 
-Status: **proposal**. Nothing in this document is built yet. Free (Basic) stays as it is today.
+Status: **built** (migration `0011_pro`). Operations: `docs/OPERATIONS.md` §16.
+
+Decisions taken:
+
+- Allowances are **message counts**: 100 SMS parts, 100 WhatsApp messages and 400 emails per plan year.
+- The free trial lasts **7 days**. It includes all Pro features but **no** included messages.
+- Purchases are **final, with no refunds**.
+- Email is sent through **Resend**. The API key is pasted in Admin → Pro & email.
+- When included messages run out, messages use **wallet credits**. Email costs 1 credit each.
+- Price, length and allowances are admin-editable. Pro is off until an admin switches it on.
+
+Branding follows the Basic vs Pro brief: one brand with an orange Pro accent and a PRO badge.
+
+- Basic headline: "Your important dates, remembered."
+- Pro headline: "Your renewals, subscriptions and spending — in one place."
+- Every plan can repeat monthly, quarterly, yearly or every N months.
+- Pro adds subscriptions, free-trial and cancel-by alerts, Insights, Renewal history and email summaries.
+- Using credits beyond the included messages needs the customer's permission.
+- See `docs/OPERATIONS.md` §16.3.
+
+Not built yet (later):
+
+- screenshot-to-reminder (after cost and accuracy are tested);
+- family sharing;
+- Google Calendar;
+- escalation;
+- price-change history;
+- Pro-only MCP tools;
+- the `/pricing` page;
+- email bounce webhooks.
+
+The original proposal follows.
 
 ## 1. The offer
 

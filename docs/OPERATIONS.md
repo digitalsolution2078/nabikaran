@@ -241,3 +241,82 @@ Check how many devices are registered:
 ```bash
 docker exec nabikaran-db-1 psql -U nabikaran -d nabikaran -tAc "select count(*), count(distinct user_id) from push_subscriptions"
 ```
+
+## 16. Nabikaran Pro and email (Resend)
+
+Admin → **Pro & email** (super admin) is where both are set up.
+
+### 16.1 Email (Resend)
+
+1. In Resend, add the domain `nabikaran.org`. Resend shows SPF and DKIM DNS records: add them in Hostinger DNS and wait until Resend shows the domain as verified. Adding a DMARC record (`_dmarc` TXT `v=DMARC1; p=none; rua=mailto:...`) is recommended.
+2. In Resend, create an API key with **Sending access**.
+3. Admin → Pro & email:
+   - paste the key and press **Save key**;
+   - set the From address (for example `reminders@nabikaran.org`, on the verified domain);
+   - set an optional Reply-to;
+   - tick **Email on** and save.
+4. **Send test email** to your own inbox. If it lands in spam, recheck the SPF, DKIM and DMARC records.
+
+How the key is handled:
+
+- It is stored in `app_secrets` on the server. It is never returned to the browser, and the admin page shows only its last 4 characters.
+- The audit log records `secret.updated` / `secret.cleared` with the last 4 characters only.
+- To rotate it, paste a new key; the old one is replaced. **Remove** turns email off.
+- For local development and tests, `EMAIL_PROVIDER=mock` logs emails instead of sending them.
+
+### 16.2 Pro plan
+
+- **Off by default.** Tick **Pro on sale** after email works.
+- **Settings:** price (NPR), plan length, trial length, and included SMS / WhatsApp / email per plan. Changes apply to new purchases only.
+- **Free trial:**
+  - available once per account;
+  - gives Pro features only: subscriptions, email sign-in, email reminders paid with credits;
+  - includes no messages.
+- **Buying:**
+  - paid from the wallet (1 credit = NPR 1); customers top up first through the usual QR / Fonepay flow;
+  - a purchase is final, with no refund (see the Terms);
+  - buying while Pro is active adds another plan period after the current one.
+- **Included messages:**
+  - used first for any message due before the plan ends;
+  - when they run out, or for messages due after the plan ends, wallet credits are used as usual;
+  - a failed message gives its included message back, the same way failed messages get their credits back;
+  - buying Pro moves already-scheduled messages onto included messages and returns the credits they held.
+- **Admin → Users → (customer) → Nabikaran Pro:**
+  - **Give Pro** for N days, with or without included messages; a reason is required.
+  - **End now** stops a plan. Messages it was funding fall back to credits, and wait for credits if the wallet is short.
+  - Both actions are audited.
+- **When Pro ends:**
+  - data and reminders stay;
+  - subscription details stay visible on each reminder;
+  - email sign-in stops, but phone OTP and PIN keep working;
+  - email reminders fail with "credits returned" if the customer later removes their email.
+- **Reports:** Admin → Pro & email shows active paid, trial and given plans, trial-to-paid conversions and sales. The customer CSV export has `email`, `email_verified`, `plan` and `plan_ends_at` columns.
+
+### 16.3 Basic and Pro (what each plan gets)
+
+| | Basic | Pro |
+|---|---|---|
+| Reminders, groups, AD/BS, Nepali/English, SMS/WhatsApp, wallet credits | ✓ | ✓ |
+| Repeat monthly, every 3 or 6 months, yearly, or every N months | ✓ | ✓ |
+| Subscription manager (amount, currency, cycle, payment method, auto-renew) | — | ✓ |
+| Free-trial tracker and "cancel by" deadline alerts | — | ✓ |
+| Insights (monthly/yearly commitments, by payment method, next 90 days) | — | ✓ |
+| Renewal history ("Mark as renewed", automatic entries when a subscription renews) | — | ✓ |
+| Email reminders, weekly or monthly email summary, email sign-in | — | ✓ |
+| Included messages per year (default 100 SMS / 100 WhatsApp / 400 email) | — | ✓ (paid plan) |
+
+Rules enforced on the server:
+
+- Pro screens (`/subscriptions`, `/insights`, `/history`) redirect Basic accounts to `/pro`. Pro APIs answer `403 pro_required`.
+- Membership, included messages and wallet credits are kept separate. The Pro page and the sidebar show both included messages and credits, and every preview shows which messages are "Included".
+- **Credits after included messages run out need permission.**
+  - When the customer saves a reminder, they tick a checkbox to allow it (API code `credits_permission_required`).
+  - Background re-planning (yearly or monthly roll-over) does not use credits silently. The messages wait, and the dashboard shows "Messages waiting for your OK" with an **Allow credits** button.
+  - A customer can allow this in advance in **Pro → Pro settings**.
+- **When Pro expires:** records and credits stay, nothing is deleted, and messages use credits as before.
+  - Notices go out by email and push 14 and 3 days before a paid plan ends, and 2 days before a trial ends. They are not sent when another year is already bought.
+  - The dashboard shows a notice in the last 30 days.
+- **Wording:** messages never claim that Nabikaran cancels anything, detects usage or saves money. "Cancel by" messages remind the customer to cancel themselves, and insights use only figures the customer entered.
+- **"Cancel by" reminder:** it is a normal reminder linked to its subscription. It moves, pauses and stops with the subscription, and uses SMS or email (WhatsApp templates are renewal-only).
+
+Not built yet: screenshot-to-reminder (planned after cost and accuracy tests), family sharing, Google Calendar, escalation, price-change history.

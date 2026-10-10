@@ -18,6 +18,8 @@ export const CATEGORY_INFO = {
   domain: { en: "Domain", ne: "डोमेन", sms: "Domain", group: "business" },
   hosting: { en: "Hosting", ne: "होस्टिङ", sms: "Hosting", group: "business" },
   subscription: { en: "Subscription", ne: "सदस्यता", sms: "Subscription", group: "business" },
+  free_trial: { en: "Free trial", ne: "निःशुल्क ट्रायल", sms: "free trial", group: "business" },
+  cancel_deadline: { en: "Cancel by", ne: "रद्द गर्ने अन्तिम दिन", sms: "subscription", group: "business" },
   contract: { en: "Contract", ne: "सम्झौता", sms: "Contract", group: "business" },
   warranty: { en: "Warranty", ne: "वारेन्टी", sms: "Warranty", group: "custom" },
   other: { en: "Other", ne: "अन्य", sms: "Renewal", group: "custom" },
@@ -44,6 +46,12 @@ export function categoryName(category: string, lang: "ne" | "en"): string {
 /** Occasions (birthday, anniversary, event) use their own SMS wording and are SMS-only. */
 export const OCCASION_CATEGORIES = ["birthday", "anniversary", "event"] as const;
 export type OccasionCategory = (typeof OCCASION_CATEGORIES)[number];
+/** Categories with their own SMS wording (not "expires"). */
+export const WORDED_CATEGORIES = ["birthday", "anniversary", "event", "free_trial", "cancel_deadline"] as const;
+export function hasOwnWording(category: string | null | undefined): boolean {
+  return (WORDED_CATEGORIES as readonly string[]).includes(category ?? "");
+}
+
 export function isOccasion(category: string | null | undefined): category is OccasionCategory {
   return (OCCASION_CATEGORIES as readonly string[]).includes(category ?? "");
 }

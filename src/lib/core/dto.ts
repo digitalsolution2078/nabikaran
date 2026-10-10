@@ -26,7 +26,7 @@ export function instantDTO(d: Date): InstantDTO {
 }
 
 export type JobStatus = "planned" | "awaiting_credits" | "scheduled" | "sending" | "submitted" | "delivered" | "read" | "failed" | "unknown" | "cancelled";
-export type Channel = "sms" | "whatsapp";
+export type Channel = "sms" | "whatsapp" | "email";
 
 export interface ReminderJobDTO {
   id: string;
@@ -55,6 +55,12 @@ export interface ReminderDTO {
   templateSlug: string | null;
   groupId: string | null;
   repeatYearly: boolean;
+  /** Pro: repeats every 1, 3 or 6 months. */
+  repeatMonths: number | null;
+  /** Pro: subscription details (amount per cycle, payment method). */
+  subscription: { amount: number | null; currency: string; paymentMethod: string | null; autoRenew: boolean | null; isTrial: boolean; cancelNoticeDays: number | null } | null;
+  /** Managed by another reminder (the "cancel by" reminder of a subscription). */
+  linkedTo: string | null;
   jobs: ReminderJobDTO[];
   createdAt: string;
   updatedAt: string;
@@ -71,7 +77,10 @@ export type Warning =
   | "insufficient_credits"
   | "sms_label_adjusted"
   | "whatsapp_unavailable"
-  | "whatsapp_consent_required";
+  | "whatsapp_consent_required"
+  | "email_unavailable"
+  | "credits_permission_required"
+  | "after_pro_ends";
 
 export interface SchedulePreviewLine {
   channel: Channel;
@@ -84,12 +93,16 @@ export interface SchedulePreviewLine {
   credits: number;
   smsLabel: string;
   labelAdjusted: boolean;
+  /** Paid from Pro included messages (no credits). */
+  included?: boolean;
   /** WhatsApp only: the approved Meta template that will be sent. */
   whatsappTemplate?: { name: string; language: string; params: string[] };
 }
 
 export interface ChannelCost {
   messages: number;
+  /** Messages paid from Pro included messages. */
+  included?: number;
   credits: number;
   creditsPerUnit: number;
   pricingVersion: number;
@@ -107,6 +120,10 @@ export interface SchedulePreview {
   wallet: { available: number; reserved: number; posted: number };
   sufficient: boolean;
   shortfallCredits: number;
+  /** Pro: credits that need the customer's permission (included messages do not cover them). */
+  permissionCredits: number;
+  /** Pro: when the current plan ends (messages after this use credits). */
+  proEndsAt: string | null;
   warnings: Warning[];
   dropped: { past: number; duplicate: number; overCap: number };
 }

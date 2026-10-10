@@ -11,16 +11,18 @@ import { readWallet, type WalletView } from "../core/wallet";
  *   fee             sign-in SMS
  *   adjustment      admin credit/debit with a recorded reason
  *   bonus           referral bonus credits
+ *   spent_email     email reminder charged beyond the Pro allowance
+ *   plan            Nabikaran Pro bought with wallet credits
  * Reservations are not ledger rows: they are holds shown separately.
  */
-export type LedgerCategory = "purchased" | "spent_sms" | "spent_whatsapp" | "refunded" | "reversed" | "fee" | "adjustment" | "bonus";
+export type LedgerCategory = "purchased" | "spent_sms" | "spent_whatsapp" | "spent_email" | "refunded" | "reversed" | "fee" | "adjustment" | "bonus" | "plan";
 
 export interface StatementRow {
   id: number;
   createdAt: string;
   category: LedgerCategory;
   credits: number;
-  channel: "sms" | "whatsapp" | null;
+  channel: "sms" | "whatsapp" | "email" | null;
   description: string;
   reference: string | null;
 }
@@ -37,8 +39,9 @@ export function categorize(type: string, referenceType: string | null, channel: 
   if (type === "topup") return "purchased";
   if (type === "fee") return "fee";
   if (type === "referral") return "bonus";
+  if (type === "plan") return "plan";
   if (type === "adjustment") return "adjustment";
-  if (type === "debit") return channel === "whatsapp" ? "spent_whatsapp" : "spent_sms";
+  if (type === "debit") return channel === "whatsapp" ? "spent_whatsapp" : channel === "email" ? "spent_email" : "spent_sms";
   if (type === "reversal") return referenceType === "payment_order" ? "reversed" : "refunded";
   return "adjustment";
 }
@@ -61,7 +64,7 @@ export async function getStatement(userId: string, db: Db = getDb(), limit = 300
       [userId],
     ),
   ]);
-  const t: Record<LedgerCategory, number> = { purchased: 0, spent_sms: 0, spent_whatsapp: 0, refunded: 0, reversed: 0, fee: 0, adjustment: 0, bonus: 0 };
+  const t: Record<LedgerCategory, number> = { purchased: 0, spent_sms: 0, spent_whatsapp: 0, spent_email: 0, refunded: 0, reversed: 0, fee: 0, adjustment: 0, bonus: 0, plan: 0 };
   for (const r of totals.rows) t[categorize(r.type, r.reference_type, r.channel)] += Number(r.total);
   return {
     wallet,

@@ -202,7 +202,7 @@ img { max-width: 100%; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field > label, .label { font-size: 13px; font-weight: 600; color: var(--fg-2); }
 .hint { font-size: 12px; color: var(--muted); }
-.input, input[type="text"], input[type="tel"], input[type="date"], input[type="time"], input[type="number"], input[type="search"], input[type="email"], select, textarea {
+.input, input[type="text"], input[type="tel"], input[type="date"], input[type="time"], input[type="number"], input[type="search"], input[type="email"], input[type="password"], input:not([type]), select, textarea {
   width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--fg); font: 15px/1.4 var(--font);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -454,3 +454,39 @@ tr.row-bad td { background: var(--bad-bg); }
   .tpl-jump { display: none; }
   .tpl-side-list { flex-direction: column; overflow: visible; }
 }
+
+/* Pro */
+.pro-price { font-size: 22px; color: var(--heading, inherit); margin: 4px 0 10px; }
+.checklist { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 8px; }
+.checklist li { display: flex; gap: 8px; align-items: flex-start; }
+.checklist li svg { color: var(--ok); flex-shrink: 0; margin-top: 3px; }
+.meter { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+.meter span { display: block; height: 100%; background: var(--brand-600); }
+.ch-email { background: #ffedd5; color: #9a3412; }
+.sms-email { background: #fff7ed; border-color: #fed7aa; font-family: inherit; }
+@media (prefers-color-scheme: dark) { .ch-email { background: #431407; color: #fed7aa; } .sms-email { background: #1c1008; border-color: #7c2d12; } }
+.upgrade-card { border: 1px solid var(--brand-200); background: linear-gradient(135deg, var(--brand-50), var(--surface)); }
+.sub-list .list-item { align-items: center; }
+.sub-amt { font-weight: 700; white-space: nowrap; }
+.email-login { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.email-login summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--brand-700, var(--brand-600)); }
+
+/* Pro: one brand, an orange accent for Pro */
+:root { --pro: #ea580c; --pro-2: #f97316; --pro-bg: #fff7ed; --pro-line: #fed7aa; }
+@media (prefers-color-scheme: dark) { :root { --pro-bg: #1c1008; --pro-line: #7c2d12; } }
+.pro-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; color: #fff; background: linear-gradient(135deg, var(--pro-2), var(--pro)); box-shadow: 0 1px 2px rgba(234, 88, 12, 0.35); }
+.pro-badge.sm { font-size: 10px; padding: 1px 6px; margin-left: 6px; vertical-align: middle; }
+.basic-label { display: inline-flex; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: var(--fg-2); background: var(--surface-2); border: 1px solid var(--border); }
+.plan-line { display: flex; align-items: center; gap: 8px; text-decoration: none; margin-bottom: 6px; flex-wrap: wrap; }
+.allow-line { color: var(--pro); font-weight: 600; margin-bottom: 4px; }
+.side-card.pro-card { border-color: var(--pro-line); background: linear-gradient(160deg, var(--pro-bg), var(--surface)); }
+.mt-xs { margin-top: 4px; }
+.app.is-pro .sidebar .side-link.active { box-shadow: inset 3px 0 0 var(--pro); }
+.pro-hero { border: 1px solid var(--pro-line); background: linear-gradient(135deg, var(--pro-bg), var(--surface) 60%); }
+.pro-hero h1 { margin-bottom: 4px; }
+.pro-tiles .stat .value { color: var(--pro); }
+.mobile-logo { display: inline-flex; align-items: center; }
+.alert.pro { background: var(--pro-bg); border-color: var(--pro-line); color: var(--fg); }
+.checklist.todo li svg { color: var(--muted); }
+.checklist.todo li.done svg { color: var(--ok); }
+.checklist.todo li.done span { text-decoration: line-through; color: var(--muted); }

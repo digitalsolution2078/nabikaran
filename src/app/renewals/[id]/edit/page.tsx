@@ -8,6 +8,7 @@ import { listDocTemplates } from "@/lib/services/admin-console";
 import { getSetting } from "@/lib/services/settings";
 import { whatsappAvailable } from "@/lib/whatsapp/availability";
 import { getDb } from "@/lib/db";
+import { emailReminderAvailable } from "@/lib/services/email-auth";
 import { listGroups } from "@/lib/services/groups";
 import { RenewalForm } from "@/components/RenewalForm";
 import { LockNotice } from "@/components/LockNotice";
@@ -43,6 +44,7 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
           renewalId={r.id}
           topupMin={limits.min_npr}
           whatsapp={whatsapp}
+          emailAvailable={await emailReminderAvailable(user.id)}
           groups={groups}
           initial={{
             category: r.category,
@@ -53,11 +55,12 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
             notes: r.notes ?? "",
             familyMemberLabel: r.familyMemberLabel ?? "",
             // Yearly reminders keep offsets that are already past this year; read them from the rules.
-            offsets: r.repeatYearly && rules.rows.length ? rules.rows.map((x) => x.offset_minutes) : [...new Set(r.jobs.filter((j) => j.status !== "cancelled").map((j) => j.offsetMinutes))],
+            offsets: (r.repeatYearly || r.repeatMonths) && rules.rows.length ? rules.rows.map((x) => x.offset_minutes) : [...new Set(r.jobs.filter((j) => j.status !== "cancelled").map((j) => j.offsetMinutes))],
             templateSlug: r.templateSlug,
             channels: r.channels,
             groupId: r.groupId,
             repeatYearly: r.repeatYearly,
+            repeatMonths: r.repeatMonths,
           }}
         />
       )}

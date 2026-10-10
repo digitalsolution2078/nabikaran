@@ -13,7 +13,7 @@ import { formatDate, localizeNumber, offsetLabel } from "@/lib/i18n/format";
 import { kathmanduToUtc } from "@/lib/time";
 import { isSmsSafeLabel } from "@/lib/sms/templates";
 import { isOccasion } from "@/lib/categories";
-import { anchorFromInput, nextOccurrence } from "@/lib/recurrence";
+import { anchorFromInput, nextEveryMonths, nextOccurrence } from "@/lib/recurrence";
 
 export interface TemplateOption {
   slug: string;
@@ -39,10 +39,12 @@ export interface RenewalFormValues {
   familyMemberLabel: string;
   offsets: number[];
   templateSlug: string | null;
-  channels: Array<"sms" | "whatsapp">;
+  channels: Array<"sms" | "whatsapp" | "email">;
   whatsappConsent?: boolean;
   groupId: string | null;
   repeatYearly: boolean;
+  /** Repeat every N months (1–11); yearly uses repeatYearly. */
+  repeatMonths?: number | null;
 }
 
 export interface GroupOption {
@@ -75,7 +77,7 @@ interface Shortfall {
   locked?: boolean;
 }
 
-export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false }, groups = [], initialGroupId = null }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean }; groups?: GroupOption[]; initialGroupId?: string | null }) {
+export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false }, groups = [], initialGroupId = null, emailAvailable = false }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean }; groups?: GroupOption[]; initialGroupId?: string | null; emailAvailable?: boolean }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const lang = prefs.lang;
@@ -109,6 +111,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
   const [error, setError] = useState<string | null>(null);
   const [topup, setTopup] = useState<Shortfall | null>(null);
   const [bsConfirmed, setBsConfirmed] = useState(false);
+  const [useCredits, setUseCredits] = useState(false);
 
   // Restore a draft saved when the customer left to top up (new reminders only).
   useEffect(() => {
@@ -158,8 +161,9 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       label: old.label && (renewalId || !chosenTplLabel(old)) ? old.label : occ ? "" : tpl.sms_label,
       offsets: tpl.default_offsets,
       templateSlug: tpl.slug,
-      channels: occ ? ["sms"] : renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"],
+      channels: occ ? ["sms", ...old.channels.filter((c) => c === "email")] : renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"],
       repeatYearly: renewalId ? old.repeatYearly : occ ? tpl.category !== "event" : false,
+      repeatMonths: renewalId ? old.repeatMonths ?? null : null,
       localTime: !renewalId && occ ? "08:00" : old.localTime,
     }));
     setPreview(null);
@@ -176,6 +180,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       templateSlug: null,
       channels: old.channels.length ? old.channels : ["sms"],
       repeatYearly: false,
+      repeatMonths: null,
       localTime: "09:00",
     }));
     setPreview(null);
@@ -196,7 +201,11 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       const [y, m, d] = v.expiryDate.split("-").map(Number);
       if (!y || !m || !d) return null;
       let utc: Date;
-      if (v.repeatYearly) {
+      if (v.repeatMonths) {
+        const next = nextEveryMonths(v.calendar, v.expiryDate, v.localTime, v.repeatMonths, new Date());
+        if (!next) return null;
+        utc = next.utc;
+      } else if (v.repeatYearly) {
         const next = nextOccurrence(v.calendar, anchorFromInput(v.expiryDate)!, v.localTime, new Date(), y);
         if (!next) return null;
         utc = next.utc;
@@ -208,7 +217,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     } catch {
       return null;
     }
-  }, [v.expiryDate, v.calendar, v.localTime, v.repeatYearly, lang]);
+  }, [v.expiryDate, v.calendar, v.localTime, v.repeatYearly, v.repeatMonths, lang]);
   const occasion = isOccasion(v.category);
 
   const switchCalendar = (cal: "AD" | "BS") => {
@@ -233,10 +242,11 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     try {
       const r = await api<{ preview: SchedulePreview }>("/api/renewals/preview", {
         method: "POST",
-        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets, channels: v.channels, repeatYearly: v.repeatYearly, renewalId: renewalId ?? null },
+        json: { label: v.label, category: v.category, calendar: v.calendar, expiryDate: v.expiryDate, localTime: v.localTime, offsets: v.offsets, channels: v.channels, repeatYearly: v.repeatYearly, repeatMonths: v.repeatMonths ?? null, renewalId: renewalId ?? null },
       });
       setPreview(r.preview);
       setBsConfirmed(false);
+      setUseCredits(false);
       if (!r.preview.sufficient) {
         setTopup({ needed: r.preview.reservedOnConfirmCredits, available: r.preview.wallet.available, shortfall: r.preview.shortfallCredits });
       }
@@ -253,13 +263,20 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     setBusy(true);
     setError(null);
     try {
-      const body = { ...v, notes: v.notes || null, familyMemberLabel: v.familyMemberLabel || null, idempotencyKey };
+      const body = { ...v, repeatMonths: v.repeatMonths ?? null, notes: v.notes || null, familyMemberLabel: v.familyMemberLabel || null, idempotencyKey, useCredits };
       const r = renewalId
         ? await api<{ reminder: { id: string } }>(`/api/renewals/${renewalId}`, { method: "PATCH", json: body })
         : await api<{ reminder: { id: string } }>("/api/renewals", { method: "POST", json: body });
       router.push(`/renewals/${r.reminder.id}`);
       router.refresh();
     } catch (e) {
+      if (e instanceof ApiError && e.code === "credits_permission_required") {
+        // Included messages ran out since the preview: ask for permission now.
+        setPreview((pv) => (pv ? { ...pv, permissionCredits: Number(e.detail?.credits ?? 1) } : pv));
+        setError(e.message);
+        setBusy(false);
+        return;
+      }
       if (e instanceof ApiError && (e.code === "insufficient_credits" || e.code === "account_locked")) {
         const d = e.detail ?? {};
         setTopup({
@@ -358,10 +375,10 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
               {v.calendar === "AD" ? (
                 <input id="expiry" type="date" value={v.expiryDate} onChange={(e) => set("expiryDate", e.target.value)} required />
               ) : (
-                <BsDateInput value={v.expiryDate} onChange={(s) => set("expiryDate", s)} lang={lang} pastYears={v.repeatYearly} />
+                <BsDateInput value={v.expiryDate} onChange={(s) => set("expiryDate", s)} lang={lang} pastYears={v.repeatYearly || Boolean(v.repeatMonths)} />
               )}
-              {conversion && v.repeatYearly && <span className="hint"><Icon name="repeat" size={12} /> {t("grp.nextOn")}: <strong>{conversion.same}</strong> ({conversion.other})</span>}
-              {conversion && !v.repeatYearly && <span className="hint"><Icon name="calendar" size={12} /> {t("rem.convertedDate")}: <strong>{conversion.other}</strong></span>}
+              {conversion && (v.repeatYearly || Boolean(v.repeatMonths)) && <span className="hint"><Icon name="repeat" size={12} /> {t("grp.nextOn")}: <strong>{conversion.same}</strong> ({conversion.other})</span>}
+              {conversion && !v.repeatYearly && !v.repeatMonths && <span className="hint"><Icon name="calendar" size={12} /> {t("rem.convertedDate")}: <strong>{conversion.other}</strong></span>}
               {conversion && conversion.utc.getTime() <= Date.now() && <span className="field-error" role="alert">{t("warn.expiry_in_past")}</span>}
             </div>
             <div className="field">
@@ -370,10 +387,29 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
               <span className="hint">{t("rem.timeHint")}</span>
             </div>
           </div>
-          <label className="row small" style={{ marginBottom: 12 }}>
-            <input type="checkbox" checked={v.repeatYearly} onChange={(e) => set("repeatYearly", e.target.checked)} />
-            <span><strong>{t("grp.repeatYearly")}</strong> · <span className="muted">{t("grp.repeatHint")}</span></span>
-          </label>
+          <div className="field">
+            <label htmlFor="repeat">{t("rem.repeat")}</label>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <select id="repeat" style={{ maxWidth: 260 }} value={v.repeatYearly ? "12" : v.repeatMonths ? ([1, 3, 6].includes(v.repeatMonths) ? String(v.repeatMonths) : "custom") : "0"}
+                onChange={(e) => {
+                  const x = e.target.value;
+                  setV((old) => ({ ...old, repeatYearly: x === "12", repeatMonths: x === "0" || x === "12" ? null : x === "custom" ? 2 : Number(x) }));
+                  setPreview(null);
+                }}>
+                <option value="0">{t("rem.repeat.none")}</option>
+                <option value="1">{t("rem.repeat.1")}</option>
+                <option value="3">{t("rem.repeat.3")}</option>
+                <option value="6">{t("rem.repeat.6")}</option>
+                <option value="12">{t("rem.repeat.12")}</option>
+                <option value="custom">{t("rem.repeat.custom")}</option>
+              </select>
+              {v.repeatMonths && ![1, 3, 6].includes(v.repeatMonths) && (
+                <input type="number" aria-label={t("rem.repeat.custom")} min={2} max={11} value={v.repeatMonths} style={{ width: 90 }}
+                  onChange={(e) => set("repeatMonths", Math.min(11, Math.max(2, Math.floor(Number(e.target.value) || 2))))} />
+              )}
+            </div>
+            <span className="hint">{v.repeatYearly || v.repeatMonths ? t("grp.repeatHint") : ""}</span>
+          </div>
           {groups.length > 0 && (
             <div className="field">
               <label htmlFor="group">{t("grp.group")}</label>
@@ -446,19 +482,25 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           <fieldset className="mt">
             <legend className="label">{t("rem.deliveryChannel")}</legend>
             <div className="choice-row" role="radiogroup">
-              {([["sms"], ["whatsapp"], ["sms", "whatsapp"]] as Array<Array<"sms" | "whatsapp">>).map((opt) => {
+              {([["sms"], ["whatsapp"], ["sms", "whatsapp"], ...(emailAvailable ? [["email"]] : [])] as Array<Array<"sms" | "whatsapp" | "email">>).map((opt) => {
                 const key = opt.join("+");
                 const needsWa = opt.includes("whatsapp");
                 const waOff = needsWa && (!whatsapp.available || occasion);
-                const selected = v.channels.length === opt.length && opt.every((c) => v.channels.includes(c));
+                const base = v.channels.filter((c) => c !== "email");
+                const emailOnly = v.channels.length === 1 && v.channels[0] === "email";
+                const selected = key === "email" ? emailOnly : !emailOnly && base.length === opt.length && opt.every((c) => (base as string[]).includes(c));
+                const pick = () => set("channels", key === "email" ? ["email"] : [...opt, ...(v.channels.includes("email") && !emailOnly ? (["email"] as const) : [])]);
                 return (
                   <label key={key} className={`choice ${selected ? "selected" : ""} ${waOff ? "disabled" : ""}`}>
-                    <input type="radio" name="channels" checked={selected} disabled={waOff} onChange={() => set("channels", opt)} />
-                    <span>{key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : t("channel.both")}</span>
+                    <input type="radio" name="channels" checked={selected} disabled={waOff} onChange={pick} />
+                    <span>{key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : key === "email" ? t("channel.emailOnly") : t("channel.both")}</span>
                   </label>
                 );
               })}
             </div>
+            {emailAvailable && !(v.channels.length === 1 && v.channels[0] === "email") && (
+              <label className="row small mt"><input type="checkbox" checked={v.channels.includes("email")} onChange={(e) => set("channels", e.target.checked ? [...v.channels, "email"] : v.channels.filter((c) => c !== "email"))} /> {t("channel.alsoEmail")}</label>
+            )}
             {!whatsapp.available && <p className="hint mb-0">{t("channel.waComingSoon")}</p>}
             {whatsapp.available && occasion && <p className="hint mb-0">{t("warn.whatsapp_not_for_occasions")}</p>}
             {v.channels.includes("whatsapp") && !whatsapp.optedIn && (
@@ -483,7 +525,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             <strong>{v.label}</strong> · {occasion ? t("grp.date") : t("rem.expires")}: <strong>{formatDate(preview.expiry.utc, prefs)}</strong>{" "}
             <span className="muted">({formatDate(preview.expiry.utc, { ...prefs, date: prefs.date === "BS" ? "AD" : "BS" })}) · {preview.expiry.local.slice(11)} NPT</span>
           </p>
-          {v.repeatYearly && <div className="alert info"><Icon name="repeat" /> <span>{t("grp.repeatReview")}</span></div>}
+          {(v.repeatYearly || Boolean(v.repeatMonths)) && <div className="alert info"><Icon name="repeat" /> <span>{v.repeatMonths ? t("rem.repeat.everyN", { n: localizeNumber(v.repeatMonths, lang) }) : t("grp.repeatReview")}</span></div>}
           {preview.warnings.map((w) => (
             <div key={w} className={`alert ${w === "insufficient_credits" || w === "bs_date_needs_confirmation" ? "warn" : "info"}`}><Icon name="info" /> <span>{t(`warn.${w}` as MessageKey)}</span></div>
           ))}
@@ -494,8 +536,11 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
                   <span><ChannelBadge channel={l.channel} /> <strong>{formatDate(l.due.utc, prefs)}</strong> <span className="small muted">{l.due.local.slice(11)} · {offsetLabel(l.offsetMinutes, lang)}</span></span>
                   <span className="small nowrap">{localizeNumber(l.credits, lang)} {t("common.credits")}</span>
                 </div>
-                <pre className={`sms ${l.channel === "whatsapp" ? "sms-wa" : ""}`}>{l.smsText}</pre>
-                {l.channel === "whatsapp"
+                <pre className={`sms ${l.channel === "whatsapp" ? "sms-wa" : l.channel === "email" ? "sms-email" : ""}`}>{l.smsText}</pre>
+                {l.included && <span className="badge ok">{t("pro.included")}</span>}
+                {l.channel === "email"
+                  ? <span className="small muted">Email</span>
+                  : l.channel === "whatsapp"
                   ? <span className="small muted">{t("rem.waTemplate")}: <span className="mono">{l.whatsappTemplate?.name}</span> ({l.whatsappTemplate?.language})</span>
                   : <span className="small muted">{l.encoding} · {l.smsText.length}/160 · {l.segments} SMS</span>}
               </li>
@@ -505,7 +550,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             {preview.channels.map((ch) => {
               const c = preview.byChannel[ch];
               return c ? (
-                <div key={ch} className="row between"><span><ChannelBadge channel={ch} /> {localizeNumber(c.messages, lang)} × {localizeNumber(c.creditsPerUnit, lang)} {t("common.credits")} {t("rem.perMessage")}</span><strong>{localizeNumber(c.credits, lang)}</strong></div>
+                <div key={ch} className="row between"><span><ChannelBadge channel={ch} /> {localizeNumber(c.messages - (c.included ?? 0), lang)} × {localizeNumber(c.creditsPerUnit, lang)} {t("common.credits")} {t("rem.perMessage")}{c.included ? <> · <span className="badge ok">{t("pro.includedN", { n: localizeNumber(c.included, lang) })}</span></> : null}</span><strong>{localizeNumber(c.credits, lang)}</strong></div>
               ) : null;
             })}
             {preview.channels.length > 1 && <div className="row between total"><span>{t("rem.combinedCost")}</span><strong>{localizeNumber(preview.totalCredits, lang)} {t("common.credits")}</strong></div>}
@@ -516,6 +561,10 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             <div className="stat"><div className="label">{t("rem.available")}</div><div className="value">{localizeNumber(preview.wallet.available, lang)}</div></div>
           </div>
           <p className="hint mt">{t("rem.reserveNote")}</p>
+          {preview.permissionCredits > 0 && (
+            <label className="row small alert pro"><input type="checkbox" checked={useCredits} onChange={(e) => setUseCredits(e.target.checked)} /> <span>{t("rem.useCredits", { credits: localizeNumber(preview.permissionCredits, lang) })}</span></label>
+          )}
+          {preview.proEndsAt && preview.warnings.includes("after_pro_ends") && <p className="hint">{t("rem.afterProEnds", { date: formatDate(preview.proEndsAt, prefs) })}</p>}
           {v.calendar === "BS" && (
             <label className="row small alert warn"><input type="checkbox" checked={bsConfirmed} onChange={(e) => setBsConfirmed(e.target.checked)} /> <span>{t("rem.bsConfirm")} <strong>{formatDate(preview.expiry.utc, { lang, date: "BS" })} = {formatDate(preview.expiry.utc, { lang, date: "AD" })}</strong></span></label>
           )}
@@ -527,7 +576,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
                 <Icon name="wallet" size={18} /> {t("topup.needTitle")}
               </button>
             )}
-            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0 || !preview.sufficient || (v.calendar === "BS" && !bsConfirmed)} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
+            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0 || !preview.sufficient || (v.calendar === "BS" && !bsConfirmed) || (preview.permissionCredits > 0 && !useCredits)} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
           </div>
         </section>
       )}

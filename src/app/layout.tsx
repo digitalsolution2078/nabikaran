@@ -7,6 +7,8 @@ import { getRequestContext } from "@/lib/i18n/server";
 import { readWallet } from "@/lib/core/wallet";
 import { formatPhoneLocal } from "@/lib/phone";
 import { isAdminRole } from "@/lib/auth/rbac";
+import { getPlanState } from "@/lib/services/plans";
+import { getSetting } from "@/lib/services/settings";
 
 export const metadata: Metadata = {
   title: { default: "Nabikaran — SMS renewal reminders for Nepal", template: "%s · Nabikaran" },
@@ -25,9 +27,17 @@ export const viewport: Viewport = { themeColor: "#55239a", width: "device-width"
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getRequestContext();
-  const wallet = ctx.user ? await readWallet(ctx.user.id).catch(() => null) : null;
+  const [wallet, plan, offer] = ctx.user
+    ? await Promise.all([readWallet(ctx.user.id).catch(() => null), getPlanState(ctx.user.id).catch(() => null), getSetting("pro").catch(() => null)])
+    : [null, null, null];
   const shellUser = ctx.user
-    ? { name: ctx.user.displayName, phoneLocal: formatPhoneLocal(ctx.user.phoneE164), isAdmin: isAdminRole(ctx.user.role), availableCredits: wallet?.available ?? 0 }
+    ? {
+        name: ctx.user.displayName, phoneLocal: formatPhoneLocal(ctx.user.phoneE164), isAdmin: isAdminRole(ctx.user.role), availableCredits: wallet?.available ?? 0,
+        pro: plan?.tier === "pro", proOffer: Boolean(offer?.enabled),
+        plan: plan?.tier === "pro"
+          ? { kind: plan.kind, endsAt: plan.endsAt, left: plan.allowances.length ? Object.fromEntries(plan.allowances.map((a) => [a.channel, a.left])) as Record<"sms" | "whatsapp" | "email", number> : null }
+          : null,
+      }
     : null;
   return (
     <html lang={ctx.prefs.lang}>

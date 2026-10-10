@@ -5,6 +5,8 @@ import { Icon } from "@/components/Icon";
 import { getSetting } from "@/lib/services/settings";
 import { cookies } from "next/headers";
 import { REFERRAL_COOKIE, normalizeCode, referrerByCode } from "@/lib/services/referrals";
+import { EmailLogin } from "@/components/EmailLogin";
+import { getEmailProvider } from "@/lib/providers/email";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sign in" };
@@ -14,7 +16,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const safeNext = next && /^\/(?!\/)/.test(next) ? next : null;
   const { user, t } = await getRequestContext();
   if (user) redirect(safeNext ?? "/dashboard");
-  const [signin, pinCfg, refCfg, jar] = await Promise.all([getSetting("signin"), getSetting("pin"), getSetting("referral"), cookies()]);
+  const [signin, pinCfg, refCfg, jar, proCfg, emailProvider] = await Promise.all([getSetting("signin"), getSetting("pin"), getSetting("referral"), cookies(), getSetting("pro"), getEmailProvider().catch(() => null)]);
   const refCode = normalizeCode(ref ?? jar.get(REFERRAL_COOKIE)?.value);
   const inviter = refCode && refCfg.enabled ? await referrerByCode(refCode).catch(() => null) : null;
   return (
@@ -28,6 +30,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <div className="alert ok"><span>{t("ref.banner", { name: inviter.name?.split(" ")[0] ?? t("ref.aFriend"), bonus: String(refCfg.referee_credits), min: String(refCfg.min_topup_npr) })}</span></div>
           )}
           <OtpForm next={safeNext} fee={signin.fee_credits} pinEnabled={pinCfg.enabled} refCode={inviter ? refCode : null} />
+          {proCfg.enabled && emailProvider && <EmailLogin next={safeNext} />}
         </div>
         <p className="small muted mt" style={{ textAlign: "center" }}>{t("landing.a3")}</p>
       </div>

@@ -5,16 +5,33 @@ import { Icon, type IconName } from "./Icon";
 import { LiveClock } from "./LiveClock";
 import { usePrefs } from "./Prefs";
 import type { MessageKey } from "@/lib/i18n/dict";
-import { localizeNumber } from "@/lib/i18n/format";
+import { formatDate, localizeNumber } from "@/lib/i18n/format";
 
 export interface ShellUser {
   name: string | null;
   phoneLocal: string;
   isAdmin: boolean;
   availableCredits: number;
+  /** Pro (trial, paid or granted) is active. */
+  pro?: boolean;
+  /** Pro is on sale (shows the single "Pro" entry point to Basic accounts). */
+  proOffer?: boolean;
+  /** Pro membership details for the sidebar card. */
+  plan?: { kind: string | null; endsAt: string | null; left: Record<"sms" | "whatsapp" | "email", number> | null } | null;
 }
 
-const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding"];
+const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding", "/pro", "/subscriptions", "/insights", "/history"];
+
+const PRO_NAV: { href: string; icon: IconName; key: MessageKey }[] = [
+  { href: "/subscriptions", icon: "repeat", key: "nav.subscriptions" },
+  { href: "/insights", icon: "chart", key: "nav.insights" },
+  { href: "/history", icon: "clock", key: "nav.history" },
+];
+
+/** Small "PRO" mark used in the sidebar, header and Pro pages. */
+export function ProBadge({ small = false }: { small?: boolean }) {
+  return <span className={`pro-badge${small ? " sm" : ""}`}>PRO</span>;
+}
 
 const NAV: { href: string; icon: IconName; key: MessageKey }[] = [
   { href: "/dashboard", icon: "home", key: "nav.dashboard" },
@@ -52,15 +69,17 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
     router.refresh();
   };
   return (
-    <div className="app">
+    <div className={`app${user.pro ? " is-pro" : ""}`}>
       <aside className="sidebar" aria-label="Main navigation">
         <Logo href="/dashboard" />
-        {NAV.map((n) => (
+        {[...NAV.slice(0, 2), ...(user.pro ? PRO_NAV : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
           <Link key={n.href} href={n.href} className={`side-link ${isActive(path, n.href) && !path.startsWith("/renewals/new") ? "active" : ""}`} aria-current={isActive(path, n.href) ? "page" : undefined}>
             <Icon name={n.icon} /> {t(n.key)}
           </Link>
         ))}
-        <Link href="/renewals/new" className="btn btn-primary" style={{ margin: "10px 4px" }}><Icon name="plus" /> {t("dash.addReminder")}</Link>
+        <Link href="/renewals/new" className="btn btn-primary" style={{ margin: "10px 4px 0" }}><Icon name="plus" /> {t("dash.addReminder")}</Link>
+        {user.pro && <Link href="/subscriptions#add" className="btn btn-secondary btn-sm" style={{ margin: "6px 4px 10px" }}><Icon name="repeat" size={14} /> {t("sub.addSub")}</Link>}
+        {!user.pro && <span style={{ height: 10 }} />}
         {user.isAdmin && (
           <>
             <div className="side-section">Admin</div>
@@ -68,8 +87,17 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
           </>
         )}
         <div className="spacer" />
-        <div className="side-card">
-          <div className="muted small">{t("dash.available")}</div>
+        <div className={`side-card${user.pro ? " pro-card" : ""}`}>
+          <Link href={user.pro || user.proOffer ? "/pro" : "/wallet"} className="plan-line">
+            {user.pro ? <ProBadge /> : <span className="basic-label">{t("plan.basic")}</span>}
+            {user.pro && user.plan?.endsAt && <span className="small muted">{t("plan.until", { date: formatDate(user.plan.endsAt, prefs, { short: true }) })}</span>}
+          </Link>
+          {user.plan?.left && (
+            <div className="small allow-line" title={t("plan.includedLeft")}>
+              <span>SMS {localizeNumber(user.plan.left.sms, prefs.lang)}</span> · <span>WA {localizeNumber(user.plan.left.whatsapp, prefs.lang)}</span> · <span>Email {localizeNumber(user.plan.left.email, prefs.lang)}</span>
+            </div>
+          )}
+          <div className="muted small mt-xs">{user.pro ? t("plan.credits") : t("dash.available")}</div>
           <div style={{ fontFamily: "var(--font-head)", fontSize: 22, fontWeight: 700 }}>{localizeNumber(user.availableCredits, prefs.lang)}</div>
           <Link href="/wallet" className="small">{t("dash.topUp")} →</Link>
         </div>
@@ -78,7 +106,7 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
       <div className="app-main">
         <header className="topbar">
           <div className="inner">
-            <span className="mobile-logo"><Logo href="/dashboard" /></span>
+            <span className="mobile-logo"><Logo href="/dashboard" />{user.pro && <Link href="/pro" aria-label="Nabikaran Pro"><ProBadge small /></Link>}</span>
             <LiveClock initialIso={clockIso} />
             <div className="right">
               <button className="btn btn-ghost btn-sm" onClick={() => setPrefs({ ...prefs, lang: prefs.lang === "ne" ? "en" : "ne" })} aria-label="Switch language">

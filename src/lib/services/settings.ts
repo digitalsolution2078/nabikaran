@@ -65,23 +65,48 @@ export const pinSettingsSchema = z.object({
   max_attempts: z.number().int().min(3).max(10),
 });
 
+/** Pro plan offer (admin-editable). Allowances are messages per plan year. */
+export const proSettingsSchema = z.object({
+  enabled: z.boolean(),
+  price_npr: z.number().int().min(1).max(100000),
+  duration_days: z.number().int().min(30).max(730),
+  trial_enabled: z.boolean(),
+  trial_days: z.number().int().min(1).max(30),
+  allowance_sms: z.number().int().min(0).max(10000),
+  allowance_whatsapp: z.number().int().min(0).max(10000),
+  allowance_email: z.number().int().min(0).max(100000),
+});
+
+/** Email sending (Resend). The API key is a secret and lives in app_secrets, not here. */
+export const emailSettingsSchema = z.object({
+  enabled: z.boolean(),
+  from_name: z.string().trim().min(1).max(60),
+  from_email: z.union([z.literal(""), z.string().trim().email().max(120)]),
+  reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
+});
+
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
 export type ManualQrSettings = z.infer<typeof manualQrSettingsSchema>;
 export type SigninSettings = z.infer<typeof signinSettingsSchema>;
 export type WhatsappSettings = z.infer<typeof whatsappSettingsSchema>;
 export type ReferralSettings = z.infer<typeof referralSettingsSchema>;
 export type PinSettings = z.infer<typeof pinSettingsSchema>;
+export type ProSettings = z.infer<typeof proSettingsSchema>;
+export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
   whatsapp: { enabled: false, phone_number_id: "", business_account_id: "", template_namespace: "", default_language: "en" },
   referral: { enabled: true, referrer_credits: 20, referee_credits: 10, min_topup_npr: 50, max_rewards_per_referrer: 25, message: "" },
   pin: { enabled: true, max_attempts: 5 },
+  // Off until an admin turns it on (after setting up email in Admin → Pro & email).
+  pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 400 },
+  email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

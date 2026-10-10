@@ -77,3 +77,39 @@ export function nextOccurrence(calendar: Calendar, anchor: Anchor, localTime: st
   }
   return null;
 }
+
+/** Repeat every 1, 3 or 6 months (subscriptions). Yearly uses `nextOccurrence`. */
+export const REPEAT_MONTHS = [1, 3, 6] as const;
+export type RepeatMonths = (typeof REPEAT_MONTHS)[number];
+
+/** Add `months` to a date in its calendar, keeping the anchor day (clamped to the month length). */
+export function addMonths(calendar: Calendar, from: LocalDate, months: number, anchorDay: number): LocalDate | null {
+  const idx = from.year * 12 + (from.month - 1) + months;
+  const year = Math.floor(idx / 12);
+  const month = (idx % 12) + 1;
+  if (calendar === "BS" && year > BS_MAX_YEAR) return null;
+  const dim = daysInMonth(calendar, year, month);
+  if (!dim) return null;
+  return { year, month, day: Math.min(anchorDay, dim) };
+}
+
+/**
+ * The first date on or after `start` (stepping every `months`) that is strictly
+ * after `after`. `start` is YYYY-MM-DD in the calendar; `anchorDay` defaults to
+ * its day. Null if the date is invalid or runs past the supported BS range.
+ */
+export function nextEveryMonths(calendar: Calendar, start: string, localTime: string, months: number, after: Date, anchorDay?: number): Occurrence | null {
+  const m = LOOSE_DATE.exec(start.trim());
+  if (!m) return null;
+  let d: LocalDate | null = { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) };
+  const day = anchorDay ?? d.day;
+  const dim = daysInMonth(calendar, d.year, d.month);
+  if (!dim || d.month < 1 || d.month > 12 || d.day < 1 || d.day > dim) return null;
+  for (let i = 0; i < 1200 && d; i++) {
+    const ad = calendar === "BS" ? bsToAd(d) : d;
+    const utc = kathmanduToUtc(ad, localTime);
+    if (utc.getTime() > after.getTime()) return { raw: `${d.year}-${pad2(d.month)}-${pad2(d.day)}`, utc };
+    d = addMonths(calendar, d, months, day);
+  }
+  return null;
+}
