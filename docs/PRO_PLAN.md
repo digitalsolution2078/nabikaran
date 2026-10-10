@@ -1,6 +1,19 @@
 # Nabikaran Pro: research and build plan
 
-Status: **proposal**. Nothing in this document is built yet. Free (Basic) stays as it is today.
+Status: **built** (migration `0011_pro`). Operations: `docs/OPERATIONS.md` §16.
+
+Decisions taken:
+
+- Allowances are **message counts**: 100 SMS parts, 100 WhatsApp messages and 500 emails per plan year.
+- The free trial lasts **7 days**. It includes all Pro features but **no** included messages.
+- Purchases are **final, with no refunds**.
+- Email is sent through **Resend**. The API key is pasted in Admin → Pro & email.
+- When included messages run out, messages use **wallet credits**. Email costs 1 credit each.
+- Price, length and allowances are admin-editable. Pro is off until an admin switches it on.
+
+Not built yet (later): Pro-only MCP tools (`list_subscriptions`), the `/pricing` marketing page, price-change ("price went up") alerts, and email bounce webhooks.
+
+The original proposal follows.
 
 ## 1. The offer
 

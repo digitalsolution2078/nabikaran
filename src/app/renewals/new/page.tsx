@@ -7,6 +7,7 @@ import { getLockState } from "@/lib/core/account-lock";
 import { getSetting } from "@/lib/services/settings";
 import { whatsappAvailable } from "@/lib/whatsapp/availability";
 import { getDb } from "@/lib/db";
+import { emailReminderAvailable } from "@/lib/services/email-auth";
 import { listGroups } from "@/lib/services/groups";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export default async function NewRenewal({ searchParams }: { searchParams: Promi
       {lock.locked ? (
         <LockNotice available={lock.available} minBalance={lock.minBalance} lang={prefs.lang} t={t} />
       ) : (
-        <RenewalForm templates={templates} initialTemplate={template ?? null} topupMin={limits.min_npr} whatsapp={whatsapp} groups={groups} initialGroupId={group ?? null} />
+        <RenewalForm templates={templates} initialTemplate={template ?? null} topupMin={limits.min_npr} whatsapp={whatsapp} emailAvailable={await emailReminderAvailable(user.id)} groups={groups} initialGroupId={group ?? null} />
       )}
     </div>
   );

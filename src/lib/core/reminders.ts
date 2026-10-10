@@ -15,8 +15,11 @@ import { withIdempotency } from "./idempotency";
 import { instantDTO, type ChannelCost, type ReminderDTO, type ReminderJobDTO, type SchedulePreview, type SchedulePreviewLine, type Warning } from "./dto";
 
 import { CATEGORIES, categorySmsName, isOccasion } from "../categories";
-import { anchorFromInput, anchorToString, nextOccurrence, parseAnchor, type Anchor } from "../recurrence";
+import { anchorFromInput, anchorToString, nextEveryMonths, nextOccurrence, parseAnchor, type Anchor } from "../recurrence";
+import { emailConfigured } from "./email-config";
 export { CATEGORIES };
+
+export const SUB_CURRENCIES = ["NPR", "USD", "INR", "EUR", "GBP", "AUD"] as const;
 
 export const reminderInputSchema = z.object({
   category: z.enum(CATEGORIES),
@@ -30,13 +33,22 @@ export const reminderInputSchema = z.object({
   templateSlug: z.string().max(60).optional().nullable(),
   offsets: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).max(20).default([30 * 1440, 7 * 1440, 1440, 0]),
   /** Delivery channels: SMS only, WhatsApp only, or both. */
-  channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).default(["sms"]).transform((c) => [...new Set(c)] as Channel[]),
+  channels: z.array(z.enum(["sms", "whatsapp", "email"])).min(1).max(3).default(["sms"]).transform((c) => [...new Set(c)] as Channel[]),
   /** Required (true) the first time a user picks WhatsApp: consent to business-initiated WhatsApp messages. */
   whatsappConsent: z.boolean().optional(),
   /** Optional group (e.g. "Birthdays"). Omitted on edit = keep; null = remove from group. */
   groupId: z.string().uuid().nullable().optional(),
   /** Repeat every year on the same day (birthdays, anniversaries, yearly renewals). Omitted on edit = keep. */
   repeatYearly: z.boolean().optional(),
+  /** Pro: repeat every 1, 3 or 6 months (subscriptions). Omitted on edit = keep; null = stop. */
+  repeatMonths: z.union([z.literal(1), z.literal(3), z.literal(6)]).nullable().optional(),
+  /** Pro: subscription details. Omitted on edit = keep; null = remove. */
+  subscription: z.object({
+    amount: z.number().min(0).max(100_000_000).nullable(),
+    currency: z.enum(SUB_CURRENCIES).default("NPR"),
+    paymentMethod: z.string().trim().max(40).nullable().default(null),
+    autoRenew: z.boolean().nullable().default(null),
+  }).nullable().optional(),
 });
 /** Channels default to SMS only when omitted (web forms, MCP, older callers). */
 export type ReminderInput = Omit<z.infer<typeof reminderInputSchema>, "channels"> & { channels?: Channel[] };
@@ -62,6 +74,11 @@ export interface RenewalRow {
   group_id?: string | null;
   repeat_yearly?: boolean;
   repeat_anchor?: string | null;
+  repeat_months?: number | null;
+  sub_amount?: string | number | null;
+  sub_currency?: string | null;
+  sub_payment_method?: string | null;
+  sub_auto_renew?: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -105,7 +122,15 @@ export interface ResolvedSchedule {
  * Like resolveExpiry, but a yearly reminder whose date has passed (e.g. a birth
  * date) moves to its next occurrence. A future date is kept as entered.
  */
-export function resolveSchedule(input: Pick<ReminderInput, "calendar" | "expiryDate" | "localTime">, repeatYearly: boolean, now: Date = new Date()): ResolvedSchedule {
+export function resolveSchedule(input: Pick<ReminderInput, "calendar" | "expiryDate" | "localTime">, repeatYearly: boolean, now: Date = new Date(), repeatMonths: number | null = null): ResolvedSchedule {
+  if (repeatMonths && !repeatYearly) {
+    // Every N months: a past first date (e.g. last month's charge) moves to the next one.
+    parseLocalTime(input.localTime);
+    const anchor = anchorFromInput(input.expiryDate);
+    const next = anchor ? nextEveryMonths(input.calendar, input.expiryDate, input.localTime, repeatMonths, now) : null;
+    if (!anchor || !next) throw new HttpError(400, "Invalid date (YYYY-MM-DD)", input.calendar === "BS" ? "invalid_bs_date" : "invalid_date");
+    return { expiryAtUtc: next.utc, raw: next.raw, anchor };
+  }
   if (!repeatYearly) return { expiryAtUtc: resolveExpiry(input), raw: input.expiryDate.trim(), anchor: null };
   parseLocalTime(input.localTime);
   const anchor = anchorFromInput(input.expiryDate);
@@ -133,7 +158,7 @@ export async function loadWaTemplates(db: Db): Promise<WaTemplateRow[]> {
 }
 
 export function normalizeChannels(c: string[] | null | undefined): Channel[] {
-  const v = (c ?? ["sms"]).filter((x): x is Channel => x === "sms" || x === "whatsapp");
+  const v = (c ?? ["sms"]).filter((x): x is Channel => x === "sms" || x === "whatsapp" || x === "email");
   return v.length ? [...new Set(v)] : ["sms"];
 }
 
@@ -154,11 +179,15 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
     templateSlug: r.template_slug ?? null,
     groupId: r.group_id ?? null,
     repeatYearly: Boolean(r.repeat_yearly),
+    repeatMonths: r.repeat_months ?? null,
+    subscription: r.sub_amount !== null && r.sub_amount !== undefined || r.sub_payment_method || r.repeat_months
+      ? { amount: r.sub_amount === null || r.sub_amount === undefined ? null : Number(r.sub_amount), currency: r.sub_currency ?? "NPR", paymentMethod: r.sub_payment_method ?? null, autoRenew: r.sub_auto_renew ?? null }
+      : null,
     jobs: jobs
       .filter((j) => j.cycle_no === r.cycle_no)
       .map<ReminderJobDTO>((j) => ({
         id: j.id,
-        channel: (j.channel === "whatsapp" ? "whatsapp" : "sms") as ReminderJobDTO["channel"],
+        channel: (j.channel === "whatsapp" || j.channel === "email" ? j.channel : "sms") as ReminderJobDTO["channel"],
         offsetMinutes: j.offset_minutes ?? 0,
         due: instantDTO(new Date(j.due_at_utc)),
         status: j.status as ReminderJobDTO["status"],
@@ -172,13 +201,51 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
 }
 
 /**
+ * Included messages a paid/grant Pro plan still has (plus, when editing, the
+ * ones this reminder holds now and would give back). Null without such a plan.
+ */
+async function includedLeft(db: Db, userId: string, renewalId: string | null, now: Date): Promise<{ endsAt: Date; left: Record<Channel, number> } | null> {
+  const { rows } = await db.query<{ id: string; ends_at: string }>(
+    `select id, ends_at from user_plans where user_id = $1 and status = 'active' and kind in ('paid','grant') and starts_at <= $2 and ends_at > $2
+      order by ends_at limit 1`,
+    [userId, now.toISOString()],
+  );
+  if (!rows[0]) return null;
+  const { rows: a } = await db.query<{ channel: Channel; left: number }>(
+    "select channel, (granted - reserved - used)::int as left from plan_allowances where user_plan_id = $1",
+    [rows[0].id],
+  );
+  const left: Record<Channel, number> = { sms: 0, whatsapp: 0, email: 0 };
+  for (const r of a) left[r.channel] = Math.max(0, r.left);
+  if (renewalId) {
+    const { rows: held } = await db.query<{ channel: Channel; n: number }>(
+      `select j.channel, sum(r.allowance_units)::int as n from credit_reservations r join reminder_jobs j on j.id = r.reminder_job_id
+        where j.renewal_id = $1 and r.status = 'active' and r.allowance_plan_id = $2 group by j.channel`,
+      [renewalId, rows[0].id],
+    );
+    for (const h of held) left[h.channel] += h.n;
+  }
+  return { endsAt: new Date(rows[0].ends_at), left };
+}
+
+/** Email reminders need Pro, a verified email and email set up by the admin. */
+async function emailReady(db: Db, userId: string): Promise<boolean> {
+  const { rows } = await db.query<{ ok: boolean }>(
+    `select (u.email_verified_at is not null and exists (select 1 from user_plans p where p.user_id = u.id and p.status = 'active' and p.starts_at <= now() and p.ends_at > now())) as ok
+       from users u where u.id = $1`,
+    [userId],
+  );
+  return Boolean(rows[0]?.ok) && (await emailConfigured(db));
+}
+
+/**
  * Cost preview (FR-05). Side-effect free. Returns machine-readable warnings so
  * both the web form and an AI client can decide whether to ask the user before
  * confirming.
  */
 export async function previewSchedule(
   p: Principal,
-  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string; renewalId?: string | null; channels?: Channel[]; repeatYearly?: boolean },
+  input: Pick<ReminderInput, "label" | "calendar" | "expiryDate" | "localTime" | "offsets"> & { category?: string; renewalId?: string | null; channels?: Channel[]; repeatYearly?: boolean; repeatMonths?: number | null },
   db: Db = getDb(),
   now: Date = new Date(),
 ): Promise<SchedulePreview> {
@@ -195,12 +262,16 @@ export async function previewSchedule(
     );
     releasable = Number(rows[0].n);
   }
-  const { expiryAtUtc } = resolveSchedule(input, Boolean(input.repeatYearly), now);
+  const { expiryAtUtc } = resolveSchedule(input, Boolean(input.repeatYearly), now, input.repeatMonths ?? null);
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const wantsWa = channels.includes("whatsapp");
-  const [smsPricing, waPricing, templates, waTemplates, wallet, waOk, consent] = await Promise.all([
+  const wantsEmail = channels.includes("email");
+  const [smsPricing, waPricing, emailPricing, allowance, emailOk, templates, waTemplates, wallet, waOk, consent] = await Promise.all([
     getActivePricing(db, "sms"),
     getActivePricing(db, "whatsapp"),
+    wantsEmail ? getActivePricing(db, "email") : Promise.resolve({ id: 0, creditsPerUnit: 1 }),
+    includedLeft(db, p.userId, input.renewalId ?? null, now),
+    wantsEmail ? emailReady(db, p.userId) : Promise.resolve(true),
     loadTemplates(db),
     wantsWa ? loadWaTemplates(db) : Promise.resolve([] as WaTemplateRow[]),
     readWallet(p.userId, db),
@@ -225,6 +296,20 @@ export async function previewSchedule(
           smsLabel: r.smsLabel,
           labelAdjusted: r.labelAdjusted,
         });
+      } else if (ch === "email") {
+        const r = renderReminder({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale, category: input.category }, templates);
+        lines.push({
+          channel: "email",
+          offsetMinutes: c.offsetMinutes,
+          due: instantDTO(c.dueAtUtc),
+          horizon: c.horizon,
+          smsText: r.body,
+          segments: 1,
+          encoding: "Email",
+          credits: emailPricing.creditsPerUnit,
+          smsLabel: input.label,
+          labelAdjusted: false,
+        });
       } else {
         const w = renderWhatsApp({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale }, waTemplates);
         lines.push({
@@ -243,11 +328,23 @@ export async function previewSchedule(
       }
     }
   }
+  // Pro: messages due before the plan ends use included messages first (no credits).
+  if (allowance) {
+    const left = { ...allowance.left };
+    for (const l of [...lines].sort((a, b) => a.due.utc.localeCompare(b.due.utc))) {
+      const units = l.channel === "sms" ? l.segments : 1;
+      if (new Date(l.due.utc).getTime() < allowance.endsAt.getTime() && left[l.channel] >= units) {
+        left[l.channel] -= units;
+        l.included = true;
+        l.credits = 0;
+      }
+    }
+  }
   const byChannel: Partial<Record<Channel, ChannelCost>> = {};
   for (const ch of channels) {
     const ls = lines.filter((l) => l.channel === ch);
-    const pr = ch === "sms" ? smsPricing : waPricing;
-    byChannel[ch] = { messages: ls.length, credits: ls.reduce((n, l) => n + l.credits, 0), creditsPerUnit: pr.creditsPerUnit, pricingVersion: pr.id };
+    const pr = ch === "sms" ? smsPricing : ch === "email" ? emailPricing : waPricing;
+    byChannel[ch] = { messages: ls.length, included: ls.filter((l) => l.included).length, credits: ls.reduce((n, l) => n + l.credits, 0), creditsPerUnit: pr.creditsPerUnit, pricingVersion: pr.id };
   }
   const totalCredits = lines.reduce((n, l) => n + l.credits, 0);
   const reservedOnConfirmCredits = totalCredits; // every message is reserved when the reminder is saved
@@ -262,6 +359,7 @@ export async function previewSchedule(
   if (wantsWa && !waOk) warnings.push("whatsapp_unavailable");
   if (wantsWa && isOccasion(input.category)) warnings.push("whatsapp_not_for_occasions");
   if (wantsWa && consent && !consent.rows[0]?.at) warnings.push("whatsapp_consent_required");
+  if (wantsEmail && !emailOk) warnings.push("email_unavailable");
   // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
   const shortfallCredits = Math.max(0, reservedOnConfirmCredits - (wallet.available + releasable));
   if (shortfallCredits > 0) warnings.push("insufficient_credits");
@@ -285,6 +383,9 @@ export async function previewSchedule(
 /** Channel gate for create/update: WhatsApp must be enabled and the user must have opted in. */
 async function prepareChannels(tx: Db, p: Principal, input: ReminderInput): Promise<Channel[]> {
   const channels = normalizeChannels(input.channels);
+  if (channels.includes("email") && !(await emailReady(tx, p.userId))) {
+    throw new HttpError(400, "Email reminders need Nabikaran Pro and a verified email (Settings → Email).", "email_unavailable");
+  }
   if (!channels.includes("whatsapp")) return channels;
   if (isOccasion(input.category)) throw new HttpError(400, "Birthday, anniversary and event reminders are sent by SMS only.", "whatsapp_not_for_occasions");
   if (!(await whatsappAvailable(tx))) throw new HttpError(400, "WhatsApp reminders are not available yet. Choose SMS.", "whatsapp_unavailable");
@@ -311,9 +412,10 @@ export interface MaterializeSummary {
  */
 async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, candidates: Candidate[], opts: { allowAwaiting?: boolean; keepOffsets?: number[] } = {}): Promise<MaterializeSummary> {
   const channels = normalizeChannels(renewal.channels);
-  const [smsPricing, waPricing, templates, waTemplates] = await Promise.all([
+  const [smsPricing, waPricing, emailPricing, templates, waTemplates] = await Promise.all([
     getActivePricing(tx, "sms"),
     getActivePricing(tx, "whatsapp"),
+    channels.includes("email") ? getActivePricing(tx, "email") : Promise.resolve({ id: 0, creditsPerUnit: 1 }),
     loadTemplates(tx),
     channels.includes("whatsapp") ? loadWaTemplates(tx) : Promise.resolve([] as WaTemplateRow[]),
   ]);
@@ -337,6 +439,9 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
         segments = rendered.estimate.segments;
         credits = segments * smsPricing.creditsPerUnit;
         version = smsPricing.id;
+      } else if (ch === "email") {
+        credits = emailPricing.creditsPerUnit;
+        version = emailPricing.id;
       } else {
         renderWhatsApp({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, waTemplates);
       }
@@ -421,24 +526,38 @@ async function loadDto(tx: Db, renewalId: string): Promise<ReminderDTO> {
   return toReminderDTO(rows[0], jobs);
 }
 
+/** Subscription details and every-N-months repeat are Pro features. */
+async function assertProFields(tx: Db, userId: string, input: ReminderInput): Promise<void> {
+  if (!input.subscription && !input.repeatMonths) return;
+  const { rows } = await tx.query("select 1 from user_plans where user_id = $1 and status = 'active' and starts_at <= now() and ends_at > now() limit 1", [userId]);
+  if (!rows[0]) throw new HttpError(403, "Subscriptions are a Nabikaran Pro feature.", "pro_required");
+}
+
+const subColumns = (sub: ReminderInput["subscription"]) =>
+  sub ? [sub.amount, sub.currency, sub.paymentMethod || null, sub.autoRenew] : [null, null, null, null];
+
 /** Transaction-scoped create (no idempotency wrapper). Used by createReminder and by prepared-action confirmation. */
 export async function createReminderIn(tx: Db, p: Principal, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
   requireScope(p, "reminders:write");
   await assertNotLocked(p.userId, tx);
-  const repeatYearly = Boolean(input.repeatYearly);
-  const sched = resolveSchedule(input, repeatYearly, now);
+  await assertProFields(tx, p.userId, input);
+  const repeatMonths = input.repeatMonths ?? null;
+  const repeatYearly = Boolean(input.repeatYearly) && !repeatMonths;
+  const sched = resolveSchedule(input, repeatYearly, now, repeatMonths);
   const expiryAtUtc = sched.expiryAtUtc;
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const channels = await prepareChannels(tx, p, input);
   await assertOwnGroup(tx, p.userId, input.groupId);
   const { rows } = await tx.query<RenewalRow>(
-    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug, channels, group_id, repeat_yearly, repeat_anchor)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11,$12,$13,$14) returning *`,
+    `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug, channels, group_id, repeat_yearly, repeat_anchor,
+       repeat_months, sub_amount, sub_currency, sub_payment_method, sub_auto_renew)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11,$12,$13,$14,$15,$16,$17,$18,$19) returning *`,
     [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null, channels,
-      input.groupId ?? null, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null],
+      input.groupId ?? null, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null, repeatMonths, ...subColumns(input.subscription)],
   );
   const renewal = rows[0];
-  const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeatYearly ? input.offsets : [] });
+  const repeats = repeatYearly || Boolean(repeatMonths);
+  const summary = await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeats ? input.offsets : [] });
   await audit(tx, p, "reminder.create", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
   return { reminder: await loadDto(tx, renewal.id), summary };
 }
@@ -452,7 +571,7 @@ export async function createReminder(
   now = new Date(),
 ): Promise<MutationResult> {
   requireScope(p, "reminders:write");
-  resolveSchedule(input, Boolean(input.repeatYearly), now);
+  resolveSchedule(input, Boolean(input.repeatYearly) && !input.repeatMonths, now, input.repeatMonths ?? null);
   return db.tx(async (tx) => {
     const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "create_reminder", () =>
       createReminderIn(tx, p, input, now, { idempotencyKey: opts.idempotencyKey ?? null }),
@@ -470,10 +589,14 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
     [renewalId, p.userId],
   );
   if (!existing[0]) throw new HttpError(404, "Reminder not found", "not_found");
-  // Omitted group / yearly flags keep their current values (assistants and older callers do not send them).
-  const repeatYearly = input.repeatYearly ?? Boolean(existing[0].repeat_yearly);
+  // Omitted group / repeat / subscription fields keep their current values (assistants and older callers do not send them).
+  await assertProFields(tx, p.userId, input);
+  const repeatMonths = input.repeatMonths === undefined ? existing[0].repeat_months ?? null : input.repeatMonths;
+  const repeatYearly = (input.repeatYearly ?? Boolean(existing[0].repeat_yearly)) && !repeatMonths;
   const groupId = input.groupId === undefined ? existing[0].group_id ?? null : input.groupId;
-  const sched = resolveSchedule(input, repeatYearly, now);
+  const keepSub = input.subscription === undefined;
+  const sub = keepSub ? [existing[0].sub_amount ?? null, existing[0].sub_currency ?? null, existing[0].sub_payment_method ?? null, existing[0].sub_auto_renew ?? null] : subColumns(input.subscription);
+  const sched = resolveSchedule(input, repeatYearly, now, repeatMonths);
   const expiryAtUtc = sched.expiryAtUtc;
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
   const channels = await prepareChannels(tx, p, input);
@@ -482,14 +605,15 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
   const { rows } = await tx.query<RenewalRow>(
     `update renewal_items set category=$3, label=$4, expiry_at_utc=$5, local_time=$6, date_input_calendar=$7, date_input_raw=$8, notes=$9,
        family_member_label=$10, channels=$11, template_slug = coalesce((select slug from document_templates where slug = $12), template_slug),
-       group_id=$13, repeat_yearly=$14, repeat_anchor=$15,
+       group_id=$13, repeat_yearly=$14, repeat_anchor=$15, repeat_months=$16, sub_amount=$17, sub_currency=$18, sub_payment_method=$19, sub_auto_renew=$20,
        status='active', cycle_no = cycle_no + 1, updated_at = now()
      where id = $1 and owner_user_id = $2 returning *`,
     [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, channels, input.templateSlug ?? null,
-      groupId, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null],
+      groupId, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null, repeatMonths, ...sub],
   );
   const renewal = rows[0];
-  const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeatYearly ? input.offsets : [] })), cancelled };
+  const repeats = repeatYearly || Boolean(repeatMonths);
+  const summary = { ...(await materializeJobs(tx, renewal, p.locale, plan.candidates, { keepOffsets: repeats ? input.offsets : [] })), cancelled };
   await audit(tx, p, "reminder.update", { type: "renewal", id: renewal.id }, { ...summary, ...detail });
   return { reminder: await loadDto(tx, renewal.id), summary };
 }
@@ -504,7 +628,7 @@ export async function updateReminder(
   now = new Date(),
 ): Promise<MutationResult> {
   requireScope(p, "reminders:write");
-  if (input.repeatYearly !== undefined) resolveSchedule(input, input.repeatYearly, now);
+  if (input.repeatYearly !== undefined && !input.repeatMonths) resolveSchedule(input, input.repeatYearly, now, input.repeatMonths ?? null);
   return db.tx(async (tx) => {
     const { result, replayed } = await withIdempotency(tx, p.userId, opts.idempotencyKey, "update_reminder", () =>
       updateReminderIn(tx, p, renewalId, input, now, { idempotencyKey: opts.idempotencyKey ?? null }),
@@ -647,7 +771,7 @@ export async function rolloverYearly(db: Db = getDb(), now: Date = new Date(), l
   const out: RolloverSummary = { rolled: 0, awaitingCredits: 0 };
   const { rows: due } = await db.query<{ id: string }>(
     `select i.id from renewal_items i
-      where i.repeat_yearly and i.status = 'active' and i.expiry_at_utc < $1
+      where (i.repeat_yearly or i.repeat_months is not null) and i.status = 'active' and i.expiry_at_utc < $1
         and not exists (select 1 from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status in ('scheduled','sending','unknown'))
       order by i.expiry_at_utc limit $2`,
     [new Date(now.getTime() - 6 * 3600_000).toISOString(), limit],
@@ -656,15 +780,20 @@ export async function rolloverYearly(db: Db = getDb(), now: Date = new Date(), l
     await db.tx(async (tx) => {
       const { rows } = await tx.query<RenewalRow & { locale: string }>(
         `select i.*, u.locale from renewal_items i join users u on u.id = i.owner_user_id
-          where i.id = $1 and i.repeat_yearly and i.status = 'active' for update of i skip locked`,
+          where i.id = $1 and (i.repeat_yearly or i.repeat_months is not null) and i.status = 'active' for update of i skip locked`,
         [d.id],
       );
       const r = rows[0];
       if (!r) return;
       const anchor = parseAnchor(r.repeat_anchor) ?? anchorFromInput(r.date_input_raw ?? "");
-      const next = anchor ? nextOccurrence(r.date_input_calendar, anchor, r.local_time, new Date(Math.max(now.getTime(), new Date(r.expiry_at_utc).getTime())), 0) : null;
+      const after = new Date(Math.max(now.getTime(), new Date(r.expiry_at_utc).getTime()));
+      const next = !anchor
+        ? null
+        : r.repeat_months
+          ? nextEveryMonths(r.date_input_calendar, r.date_input_raw ?? "", r.local_time, r.repeat_months, after, anchor.day)
+          : nextOccurrence(r.date_input_calendar, anchor, r.local_time, after, 0);
       if (!next) {
-        await tx.query("update renewal_items set repeat_yearly = false, updated_at = now() where id = $1", [r.id]);
+        await tx.query("update renewal_items set repeat_yearly = false, repeat_months = null, updated_at = now() where id = $1", [r.id]);
         await tx.query("insert into audit_events (actor_via, action, target_type, target_id, json_detail_redacted) values ('worker','reminder.rollover_stopped','renewal',$1,'{}')", [r.id]);
         return;
       }

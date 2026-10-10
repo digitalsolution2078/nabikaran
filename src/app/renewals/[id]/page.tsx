@@ -1,3 +1,4 @@
+import type { MessageKey } from "@/lib/i18n/dict";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
@@ -33,7 +34,7 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
       <Link href="/renewals" className="small">← {t("rem.title")}</Link>
       <div className="card">
         <div className="row between">
-          <span className="row"><span className="avatar-icon"><Icon name={iconForCategory(r.category)} /></span><span><h1 className="mb-0">{r.label}</h1><span className="small muted">{categoryName(r.category, prefs.lang)}{r.familyMemberLabel ? ` · ${r.familyMemberLabel}` : ""}{groupName ? ` · ${groupName}` : ""}{r.repeatYearly ? ` · ↻ ${t("grp.repeatYearly")}` : ` · ${t("rem.cycle")} ${n(r.cycleNo)}`}</span></span></span>
+          <span className="row"><span className="avatar-icon"><Icon name={iconForCategory(r.category)} /></span><span><h1 className="mb-0">{r.label}</h1><span className="small muted">{categoryName(r.category, prefs.lang)}{r.familyMemberLabel ? ` · ${r.familyMemberLabel}` : ""}{groupName ? ` · ${groupName}` : ""}{r.repeatYearly ? ` · ↻ ${t("grp.repeatYearly")}` : r.repeatMonths ? ` · ↻ ${t(`sub.cycle.${r.repeatMonths}` as MessageKey)}` : ` · ${t("rem.cycle")} ${n(r.cycleNo)}`}{r.subscription?.amount != null ? ` · ${r.subscription.currency} ${r.subscription.amount}` : ""}{r.subscription?.paymentMethod ? ` · ${r.subscription.paymentMethod}` : ""}</span></span></span>
           <StatusBadge status={lifecycle} />
         </div>
         <div className="stat-grid mt">

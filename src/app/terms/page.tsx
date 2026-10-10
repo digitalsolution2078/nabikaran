@@ -39,6 +39,7 @@ export default function Terms() {
       <ul>
         <li>Khalti payments are credited automatically after Khalti confirms them. QR payments are credited after the payment is confirmed by Fonepay or verified by our staff against the bank statement; a screenshot alone is not proof of payment.</li>
         <li>Prepaid credits are <strong>not refundable</strong>, except for a duplicate or erroneous payment reported within 30 days with its payment reference, which we refund to the original payment method after verification.</li>
+        <li><strong>Nabikaran Pro</strong> is bought with wallet credits for a fixed period (shown before you buy). A Pro purchase is <strong>final and not refundable</strong>, in whole or in part, including unused included messages, which expire when the plan period ends. The free trial gives Pro features only (no included messages), once per account. Pro ends automatically at the end of the period; nothing renews or is charged without you buying again. When Pro ends, your data and reminders stay, and messages use wallet credits as usual.</li>
         <li>A reversed or charged-back payment removes the credits it added. If those credits were already used, the shortfall is handled as a financial exception and may be recovered from you.</li>
       </ul>
 

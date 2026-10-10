@@ -39,7 +39,7 @@ export interface RenewalFormValues {
   familyMemberLabel: string;
   offsets: number[];
   templateSlug: string | null;
-  channels: Array<"sms" | "whatsapp">;
+  channels: Array<"sms" | "whatsapp" | "email">;
   whatsappConsent?: boolean;
   groupId: string | null;
   repeatYearly: boolean;
@@ -75,7 +75,7 @@ interface Shortfall {
   locked?: boolean;
 }
 
-export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false }, groups = [], initialGroupId = null }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean }; groups?: GroupOption[]; initialGroupId?: string | null }) {
+export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false }, groups = [], initialGroupId = null, emailAvailable = false }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean }; groups?: GroupOption[]; initialGroupId?: string | null; emailAvailable?: boolean }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const lang = prefs.lang;
@@ -158,7 +158,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       label: old.label && (renewalId || !chosenTplLabel(old)) ? old.label : occ ? "" : tpl.sms_label,
       offsets: tpl.default_offsets,
       templateSlug: tpl.slug,
-      channels: occ ? ["sms"] : renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"],
+      channels: occ ? ["sms", ...old.channels.filter((c) => c === "email")] : renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"],
       repeatYearly: renewalId ? old.repeatYearly : occ ? tpl.category !== "event" : false,
       localTime: !renewalId && occ ? "08:00" : old.localTime,
     }));
@@ -446,19 +446,25 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           <fieldset className="mt">
             <legend className="label">{t("rem.deliveryChannel")}</legend>
             <div className="choice-row" role="radiogroup">
-              {([["sms"], ["whatsapp"], ["sms", "whatsapp"]] as Array<Array<"sms" | "whatsapp">>).map((opt) => {
+              {([["sms"], ["whatsapp"], ["sms", "whatsapp"], ...(emailAvailable ? [["email"]] : [])] as Array<Array<"sms" | "whatsapp" | "email">>).map((opt) => {
                 const key = opt.join("+");
                 const needsWa = opt.includes("whatsapp");
                 const waOff = needsWa && (!whatsapp.available || occasion);
-                const selected = v.channels.length === opt.length && opt.every((c) => v.channels.includes(c));
+                const base = v.channels.filter((c) => c !== "email");
+                const emailOnly = v.channels.length === 1 && v.channels[0] === "email";
+                const selected = key === "email" ? emailOnly : !emailOnly && base.length === opt.length && opt.every((c) => (base as string[]).includes(c));
+                const pick = () => set("channels", key === "email" ? ["email"] : [...opt, ...(v.channels.includes("email") && !emailOnly ? (["email"] as const) : [])]);
                 return (
                   <label key={key} className={`choice ${selected ? "selected" : ""} ${waOff ? "disabled" : ""}`}>
-                    <input type="radio" name="channels" checked={selected} disabled={waOff} onChange={() => set("channels", opt)} />
-                    <span>{key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : t("channel.both")}</span>
+                    <input type="radio" name="channels" checked={selected} disabled={waOff} onChange={pick} />
+                    <span>{key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : key === "email" ? t("channel.emailOnly") : t("channel.both")}</span>
                   </label>
                 );
               })}
             </div>
+            {emailAvailable && !(v.channels.length === 1 && v.channels[0] === "email") && (
+              <label className="row small mt"><input type="checkbox" checked={v.channels.includes("email")} onChange={(e) => set("channels", e.target.checked ? [...v.channels, "email"] : v.channels.filter((c) => c !== "email"))} /> {t("channel.alsoEmail")}</label>
+            )}
             {!whatsapp.available && <p className="hint mb-0">{t("channel.waComingSoon")}</p>}
             {whatsapp.available && occasion && <p className="hint mb-0">{t("warn.whatsapp_not_for_occasions")}</p>}
             {v.channels.includes("whatsapp") && !whatsapp.optedIn && (
@@ -494,8 +500,11 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
                   <span><ChannelBadge channel={l.channel} /> <strong>{formatDate(l.due.utc, prefs)}</strong> <span className="small muted">{l.due.local.slice(11)} · {offsetLabel(l.offsetMinutes, lang)}</span></span>
                   <span className="small nowrap">{localizeNumber(l.credits, lang)} {t("common.credits")}</span>
                 </div>
-                <pre className={`sms ${l.channel === "whatsapp" ? "sms-wa" : ""}`}>{l.smsText}</pre>
-                {l.channel === "whatsapp"
+                <pre className={`sms ${l.channel === "whatsapp" ? "sms-wa" : l.channel === "email" ? "sms-email" : ""}`}>{l.smsText}</pre>
+                {l.included && <span className="badge ok">{t("pro.included")}</span>}
+                {l.channel === "email"
+                  ? <span className="small muted">Email</span>
+                  : l.channel === "whatsapp"
                   ? <span className="small muted">{t("rem.waTemplate")}: <span className="mono">{l.whatsappTemplate?.name}</span> ({l.whatsappTemplate?.language})</span>
                   : <span className="small muted">{l.encoding} · {l.smsText.length}/160 · {l.segments} SMS</span>}
               </li>
@@ -505,7 +514,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             {preview.channels.map((ch) => {
               const c = preview.byChannel[ch];
               return c ? (
-                <div key={ch} className="row between"><span><ChannelBadge channel={ch} /> {localizeNumber(c.messages, lang)} × {localizeNumber(c.creditsPerUnit, lang)} {t("common.credits")} {t("rem.perMessage")}</span><strong>{localizeNumber(c.credits, lang)}</strong></div>
+                <div key={ch} className="row between"><span><ChannelBadge channel={ch} /> {localizeNumber(c.messages - (c.included ?? 0), lang)} × {localizeNumber(c.creditsPerUnit, lang)} {t("common.credits")} {t("rem.perMessage")}{c.included ? <> · <span className="badge ok">{t("pro.includedN", { n: localizeNumber(c.included, lang) })}</span></> : null}</span><strong>{localizeNumber(c.credits, lang)}</strong></div>
               ) : null;
             })}
             {preview.channels.length > 1 && <div className="row between total"><span>{t("rem.combinedCost")}</span><strong>{localizeNumber(preview.totalCredits, lang)} {t("common.credits")}</strong></div>}

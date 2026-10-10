@@ -15,6 +15,7 @@ import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../sch
 
 import { redactPhone } from "../phone";
 import { pushReminders, type ReminderPush } from "./push";
+import { getEmailProvider, textToHtml } from "../providers/email";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -70,6 +71,8 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
     ? await Promise.all([getActivePricing(db, "whatsapp"), loadWaTemplates(db), getSetting("whatsapp", db), whatsappAvailable(db)])
     : [pricing, [], null, false];
   const waProvider = hasWa ? getWhatsAppProvider() : null;
+  const hasEmail = jobs.some((j) => j.channel === "email");
+  const [emailProvider, emailPricing] = hasEmail ? await Promise.all([getEmailProvider(db), getActivePricing(db, "email")]) : [null, pricing];
 
   const pushes: ReminderPush[] = [];
   for (const job of jobs) {
@@ -79,10 +82,11 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       const { rows } = await tx.query<{
         job_status: string; due_at_utc: string; renewal_status: string; label: string; category: string; expiry_at_utc: string; cycle_no: number; job_cycle: number;
         phone_e164: string; phone_verified_at: string | null; locale: string; user_status: string; reservation_status: string | null; held: string | null;
+        email: string | null; email_verified_at: string | null;
         prior: number;
       }>(
         `select j.status as job_status, j.due_at_utc, i.status as renewal_status, i.label, i.category, i.expiry_at_utc, i.cycle_no, j.cycle_no as job_cycle,
-                u.phone_e164, u.phone_verified_at, u.locale, u.status as user_status, r.status as reservation_status, r.held_credits::text as held,
+                u.phone_e164, u.phone_verified_at, u.locale, u.status as user_status, u.email, u.email_verified_at, r.status as reservation_status, r.held_credits::text as held,
                 (select count(*) from sms_attempts a where a.job_id = j.id and a.api_state in ('pending','accepted'))::int as prior
            from reminder_jobs j
            join renewal_items i on i.id = j.renewal_id
@@ -106,21 +110,27 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       const isWa = job.channel === "whatsapp";
       // WhatsApp switched off (or provider missing) after scheduling: return the credits.
       if (isWa && (!waOk || !waProvider)) return fail("failed", "WhatsApp is not available; credits returned");
+      const isEmail = job.channel === "email";
+      if (isEmail && !emailProvider) return fail("failed", "Email is not set up; credits returned");
+      if (isEmail && (!s.email || !s.email_verified_at)) return fail("failed", "No verified email on the account; credits returned");
 
       const attemptNo = job.attempts + 1;
-      const idempotencyKey = `${isWa ? "wa" : "sms"}:${job.id}:${attemptNo}`;
+      const idempotencyKey = `${isWa ? "wa" : isEmail ? "email" : "sms"}:${job.id}:${attemptNo}`;
       await tx.query(
         "insert into sms_attempts (job_id, attempt_no, provider, idempotency_key, api_state, channel) values ($1,$2,$3,$4,'pending',$5)",
-        [job.id, attemptNo, isWa ? waProvider!.name : provider.name, idempotencyKey, isWa ? "whatsapp" : "sms"],
+        [job.id, attemptNo, isWa ? waProvider!.name : isEmail ? emailProvider!.name : provider.name, idempotencyKey, job.channel ?? "sms"],
       );
       await tx.query("update reminder_jobs set attempts = $2, updated_at = now() where id = $1", [job.id, attemptNo]);
       const base = { label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale, category: s.category };
       if (isWa) {
         const w = renderWhatsApp(base, waTemplates);
-        return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: w.preview, estimatedSegments: 1, wa: w };
+        return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: w.preview, estimatedSegments: 1, wa: w, email: null };
       }
       const rendered = renderReminder(base, templates);
-      return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: rendered.body, estimatedSegments: rendered.estimate.segments, wa: null };
+      if (isEmail) {
+        return { ok: true as const, attemptNo, idempotencyKey, to: s.email!, text: rendered.body, estimatedSegments: 1, wa: null, email: { subject: `Reminder: ${s.label}`.slice(0, 120) } };
+      }
+      return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: rendered.body, estimatedSegments: rendered.estimate.segments, wa: null, email: null };
     });
 
     if (!pre.ok) {
@@ -131,7 +141,16 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
     pushes.push({ userId: job.user_id, renewalId: job.renewal_id, occurrenceKey: `${job.renewal_id}:${job.cycle_no}:${new Date(job.due_at_utc).toISOString()}`, body: pre.text });
 
     // Exactly one provider call per attempt.
-    const outcome = pre.wa
+    const outcome = pre.email
+      ? await emailProvider!.send({
+          to: pre.to,
+          subject: pre.email.subject,
+          text: pre.text,
+          html: textToHtml(pre.text, { href: `${env.appUrl.replace(/\/$/, "")}/renewals/${job.renewal_id}`, label: "Open in Nabikaran" }),
+          // Same key on every retry of this message: Resend never sends it twice.
+          idempotencyKey: `email-${job.id}`,
+        })
+      : pre.wa
       ? await waProvider!.send({
           to: pre.to,
           phoneNumberId: waSettings?.phone_number_id ?? "",
@@ -141,7 +160,7 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
           idempotencyKey: pre.idempotencyKey,
         })
       : await provider.send({ to: pre.to, text: pre.text, idempotencyKey: pre.idempotencyKey });
-    const channelPrice = pre.wa ? waPricing.creditsPerUnit : pricing.creditsPerUnit;
+    const channelPrice = pre.wa ? waPricing.creditsPerUnit : pre.email ? emailPricing.creditsPerUnit : pricing.creditsPerUnit;
     const event = (q: Db, what: string, detail: Record<string, unknown>) =>
       pre.wa
         ? q.query("insert into audit_events (actor_via, action, target_type, target_id, json_detail_redacted) values ('worker',$1,'reminder_job',$2,$3)", [`whatsapp.message.${what}`, job.id, JSON.stringify(detail)])

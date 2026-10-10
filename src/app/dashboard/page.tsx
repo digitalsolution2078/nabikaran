@@ -7,6 +7,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ChannelBadge } from "@/components/ChannelBadge";
 import { Icon, iconForCategory } from "@/components/Icon";
 import { InstallApp } from "@/components/InstallApp";
+import { isPro } from "@/lib/services/plans";
+import { getSetting } from "@/lib/services/settings";
 import { formatDate, formatDateTime, daysUntil, localizeNumber, offsetLabel } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/dict";
 
@@ -21,7 +23,9 @@ export const metadata = { title: "Dashboard" };
 export default async function Dashboard() {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login");
-  const [summaryR, lockR] = await Promise.allSettled([getCustomerSummary(user.id), getLockState(user.id)]);
+  const [summaryR, lockR, proR, offerR] = await Promise.allSettled([getCustomerSummary(user.id), getLockState(user.id), isPro(user.id), getSetting("pro")]);
+  const showUpgrade = proR.status === "fulfilled" && !proR.value && offerR.status === "fulfilled" && offerR.value.enabled;
+  const offer = offerR.status === "fulfilled" ? offerR.value : null;
   if (summaryR.status === "rejected") console.error(`[dashboard] summary failed for user ${user.id}:`, summaryR.reason);
   if (lockR.status === "rejected") console.error(`[dashboard] lock state failed for user ${user.id}:`, lockR.reason);
   const s = summaryR.status === "fulfilled" ? summaryR.value : null;
@@ -55,6 +59,12 @@ export default async function Dashboard() {
         <div className="alert warn"><Icon name="alert" /> <span>{t("dash.awaitingCredits")} <Link href="/wallet">{t("lock.cta")} →</Link></span></div>
       )}
       <InstallApp variant="banner" />
+      {showUpgrade && offer && (
+        <section className="card upgrade-card row between" style={{ flexWrap: "wrap", gap: 10 }}>
+          <span className="grow" style={{ minWidth: 220 }}><strong><Icon name="star" size={16} /> {t("pro.upgradeTitle")}</strong><br /><span className="small muted">{t("pro.upgradeText", { sms: localizeNumber(offer.allowance_sms, prefs.lang) })}</span></span>
+          <Link href="/pro" className="btn btn-primary btn-sm">{t("pro.seePro")}</Link>
+        </section>
+      )}
 
       {!s ? (
         <div className="alert bad" role="alert"><Icon name="alert" /> <span>{t("dash.sectionError")}</span></div>

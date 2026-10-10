@@ -9,6 +9,7 @@ export const CUSTOMER_EXPORT_COLUMNS = [
   "user_id", "phone", "name", "role", "status", "language", "sms_language", "joined_at", "phone_verified_at", "last_sign_in_at",
   "available_credits", "reserved_credits", "paid_topups_npr", "credits_spent", "active_reminders", "total_reminders", "groups",
   "whatsapp_opt_in", "pin_enabled", "referral_code", "referred_by_phone", "referrals_rewarded",
+  "email", "email_verified", "plan", "plan_ends_at",
 ] as const;
 
 export function csvCell(v: unknown): string {
@@ -40,7 +41,10 @@ export async function exportCustomersCsv(opts: ExportOptions = {}, db: Db = getD
             (select count(*) from reminder_groups g where g.owner_user_id = u.id) as groups,
             (u.whatsapp_opt_in_at is not null) as whatsapp_opt_in, (u.pin_hash is not null) as pin_enabled,
             u.referral_code, r.phone_e164 as referred_by_phone,
-            (select count(*) from referral_rewards rr where rr.referrer_id = u.id and rr.status = 'rewarded') as referrals_rewarded
+            (select count(*) from referral_rewards rr where rr.referrer_id = u.id and rr.status = 'rewarded') as referrals_rewarded,
+            u.email, (u.email_verified_at is not null) as email_verified,
+            coalesce((select p.kind from user_plans p where p.user_id = u.id and p.status = 'active' and p.starts_at <= now() and p.ends_at > now() order by p.ends_at desc limit 1), 'basic') as plan,
+            (select max(p.ends_at) from user_plans p where p.user_id = u.id and p.status = 'active' and p.ends_at > now()) as plan_ends_at
        from users u
        left join wallets w on w.user_id = u.id
        left join users r on r.id = u.referred_by

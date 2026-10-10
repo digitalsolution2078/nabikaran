@@ -12,9 +12,13 @@ export interface ShellUser {
   phoneLocal: string;
   isAdmin: boolean;
   availableCredits: number;
+  /** Pro (trial, paid or granted) is active. */
+  pro?: boolean;
+  /** Pro is on sale (shows the single "Pro" entry point to Basic accounts). */
+  proOffer?: boolean;
 }
 
-const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding"];
+const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding", "/pro", "/subscriptions"];
 
 const NAV: { href: string; icon: IconName; key: MessageKey }[] = [
   { href: "/dashboard", icon: "home", key: "nav.dashboard" },
@@ -55,7 +59,7 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
     <div className="app">
       <aside className="sidebar" aria-label="Main navigation">
         <Logo href="/dashboard" />
-        {NAV.map((n) => (
+        {[...NAV.slice(0, 2), ...(user.pro ? [{ href: "/subscriptions", icon: "repeat" as IconName, key: "nav.subscriptions" as MessageKey }] : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
           <Link key={n.href} href={n.href} className={`side-link ${isActive(path, n.href) && !path.startsWith("/renewals/new") ? "active" : ""}`} aria-current={isActive(path, n.href) ? "page" : undefined}>
             <Icon name={n.icon} /> {t(n.key)}
           </Link>

@@ -7,6 +7,8 @@ import { getRequestContext } from "@/lib/i18n/server";
 import { readWallet } from "@/lib/core/wallet";
 import { formatPhoneLocal } from "@/lib/phone";
 import { isAdminRole } from "@/lib/auth/rbac";
+import { isPro } from "@/lib/services/plans";
+import { getSetting } from "@/lib/services/settings";
 
 export const metadata: Metadata = {
   title: { default: "Nabikaran — SMS renewal reminders for Nepal", template: "%s · Nabikaran" },
@@ -25,9 +27,11 @@ export const viewport: Viewport = { themeColor: "#55239a", width: "device-width"
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getRequestContext();
-  const wallet = ctx.user ? await readWallet(ctx.user.id).catch(() => null) : null;
+  const [wallet, pro, offer] = ctx.user
+    ? await Promise.all([readWallet(ctx.user.id).catch(() => null), isPro(ctx.user.id).catch(() => false), getSetting("pro").catch(() => null)])
+    : [null, false, null];
   const shellUser = ctx.user
-    ? { name: ctx.user.displayName, phoneLocal: formatPhoneLocal(ctx.user.phoneE164), isAdmin: isAdminRole(ctx.user.role), availableCredits: wallet?.available ?? 0 }
+    ? { name: ctx.user.displayName, phoneLocal: formatPhoneLocal(ctx.user.phoneE164), isAdmin: isAdminRole(ctx.user.role), availableCredits: wallet?.available ?? 0, pro, proOffer: Boolean(offer?.enabled) }
     : null;
   return (
     <html lang={ctx.prefs.lang}>
