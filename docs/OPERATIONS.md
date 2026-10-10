@@ -320,3 +320,29 @@ Rules enforced on the server:
 - **"Cancel by" reminder:** it is a normal reminder linked to its subscription. It moves, pauses and stops with the subscription, and uses SMS or email (WhatsApp templates are renewal-only).
 
 Not built yet: screenshot-to-reminder (planned after cost and accuracy tests), family sharing, Google Calendar, escalation, price-change history.
+
+## 17. Integrations: provider keys in the admin panel
+
+**Admin → Integrations** (super admin) holds the keys and modes for these providers:
+
+- **Aakash SMS:** auth token.
+- **Khalti:** secret key, and live or test environment.
+- **Fonepay dynamic QR:** mode, merchant code, username, password and HMAC secret key.
+- **WhatsApp (Meta Cloud API):** access token, app secret and webhook verify token.
+- **Resend:** API key. The From address and test send stay in **Pro & email**.
+
+How keys are handled:
+
+- **Write-only.** A pasted key is never shown or returned again. The page shows only its last 4 characters and where it comes from: "Saved here", "From server .env" or "Not set".
+- **Encrypted at rest** in `app_secrets` with AES-256-GCM. The encryption key comes from `SECRETS_KEY` if set, otherwise `SESSION_SECRET`. If that server key changes, saved keys show "cannot be read: paste it again".
+- **Panel wins over `.env`.** A key or mode saved here is used instead of the server `.env` value. **Remove** a key, or choose "Use server .env", to go back to the server value. Existing `.env` setups keep working with no change.
+- **No restart.** Changes apply within seconds: providers rebuild and the values are refreshed every 30 seconds.
+- **Production guard.** "Mock" providers are rejected in production.
+- **Audit.** Every key change is logged as `secret.updated` / `secret.cleared` with the last 4 characters only, and every test as `integration.tested`.
+
+Checks on the page:
+
+- **Send test SMS to me** sends one real SMS to the admin's own number.
+- **Check key** for Khalti makes a harmless lookup; a wrong key answers 401.
+- **Check connection** for WhatsApp reads the phone number from Meta.
+- Fonepay has no harmless test call. Check it with a NPR 10 top-up.

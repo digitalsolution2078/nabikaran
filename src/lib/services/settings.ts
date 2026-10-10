@@ -85,6 +85,19 @@ export const emailSettingsSchema = z.object({
   reply_to: z.union([z.literal(""), z.string().trim().email().max(120)]),
 });
 
+/**
+ * Provider modes chosen in Admin → Integrations. "env" keeps the server
+ * environment value. Secrets (API keys) are not here: they are in app_secrets.
+ */
+export const integrationSettingsSchema = z.object({
+  sms_provider: z.enum(["env", "aakash", "mock"]),
+  payment_gateway: z.enum(["env", "khalti", "none", "mock"]),
+  khalti_env: z.enum(["env", "live", "test"]),
+  fonepay_mode: z.enum(["env", "off", "live", "mock"]),
+  fonepay_merchant_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only"),
+  whatsapp_provider: z.enum(["env", "off", "meta", "mock"]),
+});
+
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
 export type ManualQrSettings = z.infer<typeof manualQrSettingsSchema>;
 export type SigninSettings = z.infer<typeof signinSettingsSchema>;
@@ -93,11 +106,12 @@ export type ReferralSettings = z.infer<typeof referralSettingsSchema>;
 export type PinSettings = z.infer<typeof pinSettingsSchema>;
 export type ProSettings = z.infer<typeof proSettingsSchema>;
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
+export type IntegrationSettings = z.infer<typeof integrationSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
@@ -107,6 +121,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   // Off until an admin turns it on (after setting up email in Admin → Pro & email).
   pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 400 },
   email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
+  integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

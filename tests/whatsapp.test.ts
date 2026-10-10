@@ -1,8 +1,8 @@
+import { getIntegrationOverrides, setIntegrationOverrides } from "@/lib/integrations";
 import { createHmac } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDb, createUser, fund, wallet, principalFor, inDays } from "./helpers/db";
 import type { Db } from "@/lib/db";
-import { env } from "@/lib/env";
 import { MockSmsProvider } from "@/lib/providers/sms/mock";
 import { setSmsProviderForTests } from "@/lib/providers/sms";
 import { MockWhatsAppProvider } from "@/lib/providers/whatsapp/mock";
@@ -30,16 +30,16 @@ beforeAll(async () => {
   setSmsProviderForTests(sms);
   setWhatsAppProviderForTests(wa);
   setWhatsAppAvailableForTests(true);
-  env.whatsapp.appSecret = SECRET;
-  env.whatsapp.verifyToken = "verify-me";
+  setIntegrationOverrides({ ...getIntegrationOverrides(), whatsappAppSecret: SECRET });
+  setIntegrationOverrides({ ...getIntegrationOverrides(), whatsappVerifyToken: "verify-me" });
   await db.query("update app_settings set value = jsonb_set(jsonb_set(value, '{enabled}', 'true'), '{phone_number_id}', '\"1234567890\"') where key = 'whatsapp'");
 });
 afterAll(async () => {
   setSmsProviderForTests(undefined);
   setWhatsAppProviderForTests(undefined);
   setWhatsAppAvailableForTests(undefined);
-  env.whatsapp.appSecret = "";
-  env.whatsapp.verifyToken = "";
+  setIntegrationOverrides({ ...getIntegrationOverrides(), whatsappAppSecret: "" });
+  setIntegrationOverrides({ ...getIntegrationOverrides(), whatsappVerifyToken: "" });
   await close();
 });
 

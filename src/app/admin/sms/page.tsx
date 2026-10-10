@@ -39,7 +39,7 @@ export default async function AdminChannels() {
         <section className="card">
           <h2>SMS price</h2>
           <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{smsPrice.creditsPerUnit}</span> credits per SMS unit</p>
-          <p className="hint">Provider: {env.smsProvider} · token {env.aakash.authToken ? "configured (hidden)" : "not set"}. Set the customer charge from your actual Aakash rate plus margin; reminders stay within one GSM-7 unit.</p>
+          <p className="hint">Provider: {env.smsProvider} · token {env.aakash.authToken ? "configured (hidden)" : "not set — add it in Admin → Integrations"}. Set the customer charge from your actual Aakash rate plus margin; reminders stay within one GSM-7 unit.</p>
           {managePrice ? <PricingEditor current={smsPrice.creditsPerUnit} channel="sms" /> : <p className="small muted">Only a Super Admin can change pricing.</p>}
         </section>
         <section className="card">
@@ -64,10 +64,10 @@ export default async function AdminChannels() {
       <section className="card">
         <h2>WhatsApp (Meta Cloud API)</h2>
         <dl className="kv">
-          <dt>Server provider</dt><dd>{env.whatsapp.provider}{env.whatsapp.provider === "off" ? " — set WHATSAPP_PROVIDER=meta in .env.production" : ""}</dd>
-          <dt>Access token</dt><dd>{env.whatsapp.accessToken ? "configured (hidden)" : "not set (WHATSAPP_ACCESS_TOKEN)"}</dd>
-          <dt>App secret</dt><dd>{env.whatsapp.appSecret ? "configured (hidden)" : "not set (WHATSAPP_APP_SECRET) — webhooks will be rejected"}</dd>
-          <dt>Verify token</dt><dd>{env.whatsapp.verifyToken ? "configured (hidden)" : "not set (WHATSAPP_VERIFY_TOKEN)"}</dd>
+          <dt>Server provider</dt><dd>{env.whatsapp.provider}{env.whatsapp.provider === "off" ? " — set it in Admin → Integrations" : ""}</dd>
+          <dt>Access token</dt><dd>{env.whatsapp.accessToken ? "configured (hidden)" : "not set (Admin → Integrations)"}</dd>
+          <dt>App secret</dt><dd>{env.whatsapp.appSecret ? "configured (hidden)" : "not set (Admin → Integrations) — webhooks will be rejected"}</dd>
+          <dt>Verify token</dt><dd>{env.whatsapp.verifyToken ? "configured (hidden)" : "not set (Admin → Integrations)"}</dd>
           <dt>Webhook URL</dt><dd className="mono small" style={{ wordBreak: "break-all" }}>{webhookUrl}</dd>
           <dt>Webhook verified</dt><dd>{when(ops.whatsapp.webhookVerifiedAt)}</dd>
           <dt>Last webhook received</dt><dd>{when(ops.whatsapp.lastWebhookAt)}{ops.whatsapp.lastWebhookSignatureOk === false ? " — signature FAILED" : ""}</dd>

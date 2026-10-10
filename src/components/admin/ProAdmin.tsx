@@ -57,7 +57,7 @@ export function ProAdmin({ pro, email, keyStatus }: { pro: ProSettings; email: E
       {hint && <span className="hint">{hint}</span>}
     </div>
   );
-  const emailReady = e.enabled && ks.set && Boolean(e.from_email);
+  const emailReady = e.enabled && (ks.set || ks.source === "env") && Boolean(e.from_email);
 
   return (
     <>
@@ -78,7 +78,7 @@ export function ProAdmin({ pro, email, keyStatus }: { pro: ProSettings; email: E
               <span className="small muted">{ks.setAt ? `since ${ks.setAt.slice(0, 16).replace("T", " ")} UTC` : ""}</span>
               <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { if (window.confirm("Remove the Resend API key? Email stops working until a new key is saved.")) saveKey(null); }}>Remove</button>
             </div>
-          ) : <span className="badge warn">Not set</span>}
+          ) : ks.source === "env" ? <span className="badge info">From server .env · …{ks.last4}</span> : <span className="badge warn">Not set</span>}
           <div className="row mt" style={{ gap: 8 }}>
             <input type="password" autoComplete="off" spellCheck={false} placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxx" value={key} onChange={(ev) => setKey(ev.target.value)} aria-label="Resend API key" />
             <button type="button" className="btn btn-secondary" disabled={busy || key.trim().length < 10} onClick={() => saveKey(key.trim())}>{ks.set ? "Replace key" : "Save key"}</button>

@@ -1,3 +1,5 @@
+import { getIntegrationOverrides as o } from "./integrations";
+
 /**
  * Server-side configuration. Never import from client components.
  * Secrets stay in the environment / secrets vault; nothing here is NEXT_PUBLIC_.
@@ -9,6 +11,8 @@ function req(name: string, fallback?: string): string {
 }
 
 const isProd = process.env.NODE_ENV === "production";
+/** Admin-panel value if set, else the environment value. */
+const pick = (admin: string | undefined, fromEnv: string) => (admin && admin.length ? admin : fromEnv);
 
 export const env = {
   isProd,
@@ -30,17 +34,26 @@ export const env = {
     refreshTtlSeconds: 30 * 24 * 3600,
   },
 
-  smsProvider: process.env.SMS_PROVIDER ?? (isProd ? "aakash" : "mock"),
-  aakash: {
-    authToken: process.env.AAKASH_AUTH_TOKEN ?? "",
-    sendUrl: process.env.AAKASH_SEND_URL ?? "https://sms.aakashsms.com/sms/v3/send",
-    reportUrl: process.env.AAKASH_REPORT_URL ?? "https://sms.aakashsms.com/sms/v3/report",
+  // Provider settings: Admin → Integrations overrides the environment (see lib/integrations.ts).
+  get smsProvider(): string {
+    return pick(o().smsProvider, process.env.SMS_PROVIDER ?? (isProd ? "aakash" : "mock"));
+  },
+  get aakash() {
+    return {
+      authToken: pick(o().aakashAuthToken, process.env.AAKASH_AUTH_TOKEN ?? ""),
+      sendUrl: process.env.AAKASH_SEND_URL ?? "https://sms.aakashsms.com/sms/v3/send",
+      reportUrl: process.env.AAKASH_REPORT_URL ?? "https://sms.aakashsms.com/sms/v3/report",
+    };
   },
 
-  paymentGateway: process.env.PAYMENT_GATEWAY ?? (isProd ? "khalti" : "mock"),
-  khalti: {
-    secretKey: process.env.KHALTI_SECRET_KEY ?? "",
-    baseUrl: process.env.KHALTI_BASE_URL ?? (isProd ? "https://a.khalti.com" : "https://dev.khalti.com"),
+  get paymentGateway(): string {
+    return pick(o().paymentGateway, process.env.PAYMENT_GATEWAY ?? (isProd ? "khalti" : "mock"));
+  },
+  get khalti() {
+    return {
+      secretKey: pick(o().khaltiSecretKey, process.env.KHALTI_SECRET_KEY ?? ""),
+      baseUrl: pick(o().khaltiBaseUrl, process.env.KHALTI_BASE_URL ?? (isProd ? "https://a.khalti.com" : "https://dev.khalti.com")),
+    };
   },
 
   /**
@@ -48,26 +61,27 @@ export const env = {
    * Fonepay / the acquiring bank; "mock" is for development and tests; "off"
    * (default) keeps the static QR + admin verification flow.
    */
-  fonepay: {
-    mode: (process.env.FONEPAY_MODE ?? "off") as "off" | "live" | "mock",
-    apiBase: process.env.FONEPAY_API_BASE ?? "https://merchantapi.fonepay.com/api/merchant/merchantDetailsForThirdParty",
-    merchantCode: process.env.FONEPAY_MERCHANT_CODE ?? "",
-    username: process.env.FONEPAY_USERNAME ?? "",
-    password: process.env.FONEPAY_PASSWORD ?? "",
-    secretKey: process.env.FONEPAY_SECRET_KEY ?? "",
+  get fonepay() {
+    return {
+      mode: pick(o().fonepayMode, process.env.FONEPAY_MODE ?? "off") as "off" | "live" | "mock",
+      apiBase: process.env.FONEPAY_API_BASE ?? "https://merchantapi.fonepay.com/api/merchant/merchantDetailsForThirdParty",
+      merchantCode: pick(o().fonepayMerchantCode, process.env.FONEPAY_MERCHANT_CODE ?? ""),
+      username: pick(o().fonepayUsername, process.env.FONEPAY_USERNAME ?? ""),
+      password: pick(o().fonepayPassword, process.env.FONEPAY_PASSWORD ?? ""),
+      secretKey: pick(o().fonepaySecretKey, process.env.FONEPAY_SECRET_KEY ?? ""),
+    };
   },
 
-  /**
-   * WhatsApp (Meta Cloud API). Secrets stay here only — never in the database
-   * or UI. Non-secret IDs (phone number ID, WABA ID) are admin settings.
-   */
-  whatsapp: {
-    provider: (process.env.WHATSAPP_PROVIDER ?? "off") as "off" | "meta" | "mock",
-    accessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? "",
-    appSecret: process.env.WHATSAPP_APP_SECRET ?? "",
-    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "",
-    apiVersion: process.env.WHATSAPP_API_VERSION ?? "v21.0",
-    graphBase: process.env.WHATSAPP_GRAPH_BASE ?? "https://graph.facebook.com",
+  /** WhatsApp (Meta Cloud API). Non-secret IDs (phone number ID, WABA ID) are admin settings. */
+  get whatsapp() {
+    return {
+      provider: pick(o().whatsappProvider, process.env.WHATSAPP_PROVIDER ?? "off") as "off" | "meta" | "mock",
+      accessToken: pick(o().whatsappAccessToken, process.env.WHATSAPP_ACCESS_TOKEN ?? ""),
+      appSecret: pick(o().whatsappAppSecret, process.env.WHATSAPP_APP_SECRET ?? ""),
+      verifyToken: pick(o().whatsappVerifyToken, process.env.WHATSAPP_VERIFY_TOKEN ?? ""),
+      apiVersion: process.env.WHATSAPP_API_VERSION ?? "v21.0",
+      graphBase: process.env.WHATSAPP_GRAPH_BASE ?? "https://graph.facebook.com",
+    };
   },
 
   /** Shown on Privacy/Terms/receipts. Set to the registered operator of the service. */

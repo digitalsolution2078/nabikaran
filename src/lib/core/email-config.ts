@@ -7,10 +7,12 @@ import type { Db } from "../db";
  */
 export async function emailConfigured(db: Db): Promise<boolean> {
   if (process.env.EMAIL_PROVIDER === "mock") return true;
+  const envKey = Boolean(process.env.RESEND_API_KEY);
   const { rows } = await db.query<{ ok: boolean }>(
     `select coalesce((s.value->>'enabled')::boolean, false) and coalesce(s.value->>'from_email', '') <> ''
-            and exists (select 1 from app_secrets k where k.key = 'resend_api_key') as ok
+            and ($1::boolean or exists (select 1 from app_secrets k where k.key = 'resend_api_key')) as ok
        from (select (select value from app_settings where key = 'email') as value) s`,
+    [envKey],
   );
   return Boolean(rows[0]?.ok);
 }
