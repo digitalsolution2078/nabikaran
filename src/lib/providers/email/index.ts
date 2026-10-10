@@ -92,7 +92,8 @@ export async function getEmailProvider(db: Db = getDb()): Promise<EmailProvider 
     }
     return devMock;
   }
-  const [settings, key] = await Promise.all([getSetting("email", db), getSecret("resend_api_key", db)]);
+  const [settings, saved] = await Promise.all([getSetting("email", db), getSecret("resend_api_key", db)]);
+  const key = saved || process.env.RESEND_API_KEY || null;
   if (!settings.enabled || !key || !settings.from_email) return null;
   return new ResendEmailProvider(key, `${settings.from_name} <${settings.from_email}>`, settings.reply_to || null);
 }

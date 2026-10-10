@@ -1,7 +1,7 @@
+import { getIntegrationOverrides, setIntegrationOverrides } from "@/lib/integrations";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDb, createUser, fund, wallet, principalFor, inDays } from "./helpers/db";
 import type { Db } from "@/lib/db";
-import { env } from "@/lib/env";
 import { MockSmsProvider } from "@/lib/providers/sms/mock";
 import { setSmsProviderForTests } from "@/lib/providers/sms";
 import { otpMessage, requestOtp, verifyOtp } from "@/lib/auth/otp";
@@ -24,7 +24,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   setSmsProviderForTests(undefined);
-  env.fonepay.mode = "off";
+  setIntegrationOverrides({ ...getIntegrationOverrides(), fonepayMode: "off" });
   await close();
 });
 
@@ -161,7 +161,7 @@ describe("Fonepay dynamic QR", () => {
   });
 
   it("creates a dynamic QR, confirms automatically once paid, exactly once", async () => {
-    env.fonepay.mode = "mock";
+    setIntegrationOverrides({ ...getIntegrationOverrides(), fonepayMode: "mock" });
     const uid = await createUser(db, "+9779841000909");
     const { request } = await startManualTopup(uid, 150, db);
     expect(request.qrMode).toBe("dynamic");
@@ -190,7 +190,7 @@ describe("Fonepay dynamic QR", () => {
   });
 
   it("the background sweep confirms payments whose page was closed", async () => {
-    env.fonepay.mode = "mock";
+    setIntegrationOverrides({ ...getIntegrationOverrides(), fonepayMode: "mock" });
     const uid = await createUser(db, "+9779841000913");
     const { request } = await startManualTopup(uid, 60, db);
     mockMarkPaid(request.reference, "TRACE-SWEEP");
@@ -200,7 +200,7 @@ describe("Fonepay dynamic QR", () => {
   });
 
   it("a top-up after sign-in debt settles the debt first", async () => {
-    env.fonepay.mode = "mock";
+    setIntegrationOverrides({ ...getIntegrationOverrides(), fonepayMode: "mock" });
     const uid = (await signIn("9841000914")).userId;
     expect((await wallet(db, uid)).posted).toBe(-1);
     const { request } = await startManualTopup(uid, 50, db);
@@ -210,7 +210,7 @@ describe("Fonepay dynamic QR", () => {
   });
 
   it("falls back to the static QR when the gateway is off", async () => {
-    env.fonepay.mode = "off";
+    setIntegrationOverrides({ ...getIntegrationOverrides(), fonepayMode: "off" });
     const uid = await createUser(db, "+9779841000915");
     const { request } = await startManualTopup(uid, 40, db);
     expect(request.qrMode).toBe("static");

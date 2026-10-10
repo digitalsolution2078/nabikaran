@@ -329,7 +329,7 @@ describe("Pro subscription manager", () => {
 
 describe("admin secrets", () => {
   it("stores a key write-only and audits without the value", async () => {
-    expect(await secretStatus("resend_api_key", db)).toEqual({ set: false, last4: null, setAt: null });
+    expect(await secretStatus("resend_api_key", db)).toMatchObject({ set: false, last4: null, setAt: null, source: "none" });
     const st = await setSecret({ id: admin }, "resend_api_key", "re_live_abcdefgh1234", db);
     expect(st).toMatchObject({ set: true, last4: "1234" });
     expect(await getSecret("resend_api_key", db)).toBe("re_live_abcdefgh1234");

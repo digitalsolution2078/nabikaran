@@ -1,16 +1,22 @@
 import { env } from "../../env";
+import { integrationsVersion } from "../../integrations";
 import { MetaWhatsAppProvider } from "./meta";
 import { MockWhatsAppProvider } from "./mock";
 import type { WhatsAppProvider } from "./types";
 
 let instance: WhatsAppProvider | undefined;
+let forced: WhatsAppProvider | undefined;
+let builtAt = -1;
 
 export function setWhatsAppProviderForTests(p: WhatsAppProvider | undefined) {
-  instance = p;
+  forced = p;
 }
 
 export function getWhatsAppProvider(): WhatsAppProvider | null {
-  if (instance) return instance;
+  if (forced) return forced;
+  if (instance && builtAt === integrationsVersion()) return instance;
+  builtAt = integrationsVersion();
+  instance = undefined;
   if (env.whatsapp.provider === "meta" && env.whatsapp.accessToken) {
     instance = new MetaWhatsAppProvider(env.whatsapp);
   } else if (env.whatsapp.provider === "mock") {
