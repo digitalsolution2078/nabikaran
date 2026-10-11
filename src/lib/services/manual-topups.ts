@@ -6,6 +6,8 @@ import { retryAwaitingCredits } from "../core/wallet";
 import { rewardReferralIfQualified } from "./referrals";
 import { getSetting, validateTopupAmount } from "./settings";
 import { createDynamicQr, fonepayEnabled, getQrStatus } from "../providers/payments/fonepay";
+import { createPendingGiftCode, giftRules, validateGiftAmount } from "./credit-codes";
+import { sendPushToUser } from "./push";
 
 /**
  * Manual QR top-ups (docs/ADMIN_AND_PAYMENTS.md).
@@ -38,12 +40,17 @@ export interface ManualTopup {
   qrMode: "static" | "dynamic";
   /** Fonepay-generated EMVCo payload (dynamic mode only). */
   qrPayload: string | null;
+  /** 'gift': this payment buys a gift card instead of wallet credits. */
+  purpose: "wallet" | "gift";
+  source: "qr" | "counter";
+  paymentMethod: string | null;
 }
 
 interface Row {
   id: string; reference: string; amount_paisa: string | number; credits: string | number; status: ManualTopup["status"];
   payer_txn_ref: string | null; payer_note: string | null; has_receipt: boolean; submitted_at: string | null; decided_at: string | null;
   decision_notes: string | null; created_at: string; qr_mode: "static" | "dynamic"; qr_payload: string | null;
+  purpose?: "wallet" | "gift"; source?: "qr" | "counter"; payment_method?: string | null;
 }
 
 function toDto(r: Row): ManualTopup {
@@ -53,6 +60,7 @@ function toDto(r: Row): ManualTopup {
     payerTxnRef: r.payer_txn_ref, payerNote: r.payer_note, hasReceipt: r.has_receipt, submittedAt: iso(r.submitted_at),
     decidedAt: iso(r.decided_at), decisionNotes: r.decision_notes, createdAt: new Date(r.created_at).toISOString(),
     qrMode: r.qr_mode ?? "static", qrPayload: r.qr_payload ?? null,
+    purpose: r.purpose ?? "wallet", source: r.source ?? "qr", paymentMethod: r.payment_method ?? null,
   };
 }
 
@@ -67,6 +75,19 @@ export function newPaymentReference(): string {
 
 const MAX_OPEN_REQUESTS = 3;
 
+/** After a payment is confirmed: release held messages and referral rewards, or tell a gift buyer the code is ready. */
+export async function afterPaid(requestId: string, db: Db = getDb()): Promise<void> {
+  const { rows } = await db.query<{ user_id: string; purpose: string; credits: string }>("select user_id, purpose, credits::text from manual_topup_requests where id = $1", [requestId]);
+  const r = rows[0];
+  if (!r) return;
+  if (r.purpose === "gift") {
+    await sendPushToUser(r.user_id, { title: "Gift card ready", body: `Your Nabikaran gift card (${r.credits} credits) is paid. Open it to share the code.`, url: "/gift", tag: "gift" }, db).catch(() => 0);
+    return;
+  }
+  await retryAwaitingCredits(r.user_id, db);
+  await rewardReferralIfQualified(r.user_id, db).catch((e) => console.error("[referral] reward failed", e));
+}
+
 /** Identify the real file type from its first bytes; the browser-declared type is not trusted. */
 export function sniffType(b: Buffer): string | null {
   if (b.length >= 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
@@ -77,10 +98,18 @@ export function sniffType(b: Buffer): string | null {
 }
 
 /** Step 1: customer chose an amount and "Pay via QR". Returns the reference to show beside the QR. */
-export async function startManualTopup(userId: string, amountNpr: number, db: Db = getDb()) {
+export async function startManualTopup(userId: string, amountNpr: number, db: Db = getDb(), gift?: { toName?: string | null; message?: string | null }) {
   const qr = await getSetting("manual_qr", db);
   if (!qr.enabled) throw new HttpError(400, "QR top-up is currently unavailable", "qr_disabled");
-  const { amountPaisa, credits } = await validateTopupAmount(amountNpr, db);
+  let amountPaisa: number;
+  let credits: number;
+  if (gift) {
+    validateGiftAmount(amountNpr, await giftRules(db));
+    amountPaisa = amountNpr * 100;
+    credits = amountNpr;
+  } else {
+    ({ amountPaisa, credits } = await validateTopupAmount(amountNpr, db));
+  }
   const { rows: open } = await db.query<{ n: string }>(
     "select count(*)::text as n from manual_topup_requests where user_id = $1 and status in ('awaiting_payment','pending')",
     [userId],
@@ -88,15 +117,18 @@ export async function startManualTopup(userId: string, amountNpr: number, db: Db
   if (Number(open[0].n) >= MAX_OPEN_REQUESTS) throw new HttpError(429, "You already have open QR top-up requests. Submit or cancel them first.", "too_many_open");
   for (let attempt = 0; attempt < 5; attempt++) {
     const reference = newPaymentReference();
+    const giftCode = gift ? await createPendingGiftCode({ credits, fromUserId: userId, createdBy: userId, toName: gift.toName, message: gift.message }, db) : null;
     const { rows } = await db.query<Row>(
-      "insert into manual_topup_requests (user_id, reference, amount_paisa, credits) values ($1,$2,$3,$4) on conflict (reference) do nothing returning *",
-      [userId, reference, amountPaisa, credits],
+      `insert into manual_topup_requests (user_id, reference, amount_paisa, credits, purpose, gift_code_id) values ($1,$2,$3,$4,$5,$6)
+       on conflict (reference) do nothing returning *`,
+      [userId, reference, amountPaisa, credits, gift ? "gift" : "wallet", giftCode?.id ?? null],
     );
+    if (!rows[0] && giftCode) await db.query("delete from credit_codes where id = $1 and status = 'pending'", [giftCode.id]);
     if (rows[0]) {
       let row = rows[0];
       if (fonepayEnabled()) {
         try {
-          const dq = await createDynamicQr({ amountNpr: amountPaisa / 100, prn: reference, remarks1: reference, remarks2: "Nabikaran topup" });
+          const dq = await createDynamicQr({ amountNpr: amountPaisa / 100, prn: reference, remarks1: reference, remarks2: gift ? "Nabikaran gift card" : "Nabikaran topup" });
           const { rows: upd } = await db.query<Row>(
             "update manual_topup_requests set qr_mode = 'dynamic', qr_payload = $2 where id = $1 returning *",
             [row.id, dq.qrMessage],
@@ -106,7 +138,7 @@ export async function startManualTopup(userId: string, amountNpr: number, db: Db
           console.warn(`[fonepay] dynamic QR failed for ${reference}, using static QR: ${(e as Error).message}`);
         }
       }
-      await audit(db, { userId, via: "web", scopes: [], locale: "en" }, "wallet.manual_topup_started", { type: "manual_topup", id: row.id }, { amountPaisa, reference, qrMode: row.qr_mode });
+      await audit(db, { userId, via: "web", scopes: [], locale: "en" }, gift ? "wallet.gift_purchase_started" : "wallet.manual_topup_started", { type: "manual_topup", id: row.id }, { amountPaisa, reference, qrMode: row.qr_mode });
       return { request: toDto(row), qr };
     }
   }
@@ -168,10 +200,7 @@ export async function checkGatewayTopup(requestId: string, userId: string | null
     const st = await getQrStatus(r.reference);
     if (st.status === "success" && st.traceId) {
       const { rows: c } = await db.query<{ confirm_gateway_topup: boolean }>("select confirm_gateway_topup($1, $2)", [r.id, st.traceId]);
-      if (c[0]?.confirm_gateway_topup) {
-        await retryAwaitingCredits(r.user_id, db);
-        await rewardReferralIfQualified(r.user_id, db).catch((e) => console.error("[referral] reward failed", e));
-      }
+      if (c[0]?.confirm_gateway_topup) await afterPaid(r.id, db);
     }
   }
   const { rows: cur } = await db.query<Row & { user_id: string }>("select * from manual_topup_requests where id = $1", [requestId]);
@@ -200,11 +229,12 @@ export async function sweepGatewayTopups(db: Db = getDb()): Promise<{ checked: n
 }
 
 export async function cancelManualTopup(userId: string, requestId: string, db: Db = getDb()): Promise<void> {
-  const { rowCount } = await db.query(
-    "update manual_topup_requests set status = 'cancelled' where id = $1 and user_id = $2 and status = 'awaiting_payment'",
+  const { rows } = await db.query<{ gift_code_id: string | null }>(
+    "update manual_topup_requests set status = 'cancelled' where id = $1 and user_id = $2 and status = 'awaiting_payment' returning gift_code_id",
     [requestId, userId],
   );
-  if (!rowCount) throw new HttpError(409, "Only unpaid requests can be cancelled", "invalid_state");
+  if (!rows[0]) throw new HttpError(409, "Only unpaid requests can be cancelled", "invalid_state");
+  if (rows[0].gift_code_id) await db.query("update credit_codes set status = 'cancelled', updated_at = now() where id = $1 and status = 'pending'", [rows[0].gift_code_id]);
 }
 
 export async function listMyManualTopups(userId: string, db: Db = getDb()): Promise<ManualTopup[]> {
@@ -240,13 +270,7 @@ export async function approveManualTopup(adminId: string, requestId: string, ban
       const { rows } = await tx.query<{ approve_manual_topup: boolean }>("select approve_manual_topup($1, $2, $3, $4)", [requestId, adminId, bankRef, notes]);
       return rows[0].approve_manual_topup;
     });
-    if (credited) {
-      const { rows } = await db.query<{ user_id: string }>("select user_id from manual_topup_requests where id = $1", [requestId]);
-      if (rows[0]) {
-        await retryAwaitingCredits(rows[0].user_id, db);
-        await rewardReferralIfQualified(rows[0].user_id, db).catch((e) => console.error("[referral] reward failed", e));
-      }
-    }
+    if (credited) await afterPaid(requestId, db);
     return { credited };
   } catch (e) {
     const msg = (e as Error).message;

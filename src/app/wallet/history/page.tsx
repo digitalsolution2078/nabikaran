@@ -14,7 +14,7 @@ export const metadata = { title: "Wallet history" };
 const CAT_KEY: Record<LedgerCategory, MessageKey> = {
   purchased: "ledger.purchased", spent_sms: "ledger.spentSms", spent_whatsapp: "ledger.spentWa", refunded: "ledger.refunded",
   reversed: "ledger.reversed", fee: "ledger.fee", adjustment: "ledger.adjustment", bonus: "ledger.bonus",
-  spent_email: "ledger.spentEmail", plan: "ledger.plan",
+  spent_email: "ledger.spentEmail", plan: "ledger.plan", coupon: "ledger.coupon",
 };
 
 export default async function HistoryPage() {
@@ -31,6 +31,7 @@ export default async function HistoryPage() {
     ...(st.totals.bonus ? [["ledger.bonus", st.totals.bonus] as [MessageKey, number]] : []),
     ...(st.totals.spent_email ? [["ledger.spentEmail", -st.totals.spent_email] as [MessageKey, number]] : []),
     ...(st.totals.plan ? [["ledger.plan", -st.totals.plan] as [MessageKey, number]] : []),
+    ...(st.totals.coupon ? [["ledger.coupon", st.totals.coupon] as [MessageKey, number]] : []),
     ["wallet.reserved", st.wallet.reserved],
   ];
   return (

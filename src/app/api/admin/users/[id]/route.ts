@@ -7,7 +7,7 @@ import { requestWalletAdjustment } from "@/lib/services/admin";
 type Ctx = { params: Promise<{ id: string }> };
 
 const schema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("role"), role: z.enum(["user", "admin", "super_admin", "finance", "support", "content", "auditor"]), confirm: z.literal(true) }),
+  z.object({ action: z.literal("role"), role: z.enum(["user", "admin", "super_admin", "finance", "support", "content", "auditor", "counter"]), confirm: z.literal(true) }),
   z.object({
     action: z.literal("adjust"),
     direction: z.enum(["credit", "debit"]),

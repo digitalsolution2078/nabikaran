@@ -379,3 +379,77 @@ How it works:
   - Retake the screenshots after big UI changes. They must stay 780×1688 (narrow) and 1280×800 (wide).
 - **App icon badge.** The installed app's icon shows the number of expired and due-soon reminders, updated each time the dashboard opens. A push notification adds a dot until the app is opened.
 - **Service worker** is `nabikaran-v5`. Bump `VERSION` in `public/sw.js` whenever precached files change.
+
+## 19. Coupons, gift cards and the counter
+
+Migration `0013_credit_codes` applies automatically.
+
+**Ground rule:** wallet credits can never be moved from one customer to another. Gift cards are bought with **money**, exactly like a top-up.
+
+### 19.1 Coupon codes (Admin → Coupons & gifts; `coupons.manage`: admin and super admin)
+
+There are two kinds:
+
+- **Single-use codes:** 1–5,000 random codes (`XXXX-XXXX-XXXX`). Each works once, for one customer. Print them on flyers, send one per SMS, or hand them out at events.
+- **Shared promo code:** one word such as `DASHAIN50` with a total use limit. Each customer can use it once.
+
+Each batch also has:
+
+- credits per redemption;
+- an optional expiry;
+- a **CSV download**, which can be downloaded again later.
+
+Codes are stored hashed for lookup and encrypted for the CSV, with the same key as the Integrations secrets.
+
+**Disable** stops all unused codes in a batch at once.
+
+**Cost:** coupons are a marketing cost. The form shows the worst-case credits, and the batch list shows the credits already issued.
+
+**Abuse limits:**
+
+- Customers redeem in **Wallet → Redeem a coupon or gift card**.
+- There are 10 attempts per hour per customer and 30 per hour per IP, so codes cannot be guessed.
+- Redeemed credits show in the ledger as **Coupon / gift card**.
+
+### 19.2 Gift cards
+
+Customers buy at **/gift**. It is linked from the home page, the dashboard and Wallet.
+
+1. **Pay.** The buyer picks NPR 50–5,000 and pays by QR. With Fonepay dynamic QR the payment is confirmed automatically; otherwise an admin approves it in Top-ups.
+2. **Pending until paid.** Until the payment is confirmed, the code exists but cannot be redeemed. A cancelled or rejected payment cancels the code.
+3. **Share.** Once paid, the buyer sees the code with Copy, WhatsApp and Share buttons. The share link pre-fills the code in the recipient's Wallet.
+4. **Buyer's wallet.** It is never touched. The money bought a code, not credits.
+5. **Rules.** Gift cards are non-refundable and do not count towards referral rewards.
+
+Settings (super admin, on the same page): on or off, minimum and maximum NPR.
+
+### 19.3 Counter (`/counter`; `counter.topup`)
+
+Who can use it:
+
+- the new **Counter staff** role (Settings & roles → user → role), for front-desk staff or agents;
+- finance, admin and super admin also have it.
+
+Counter staff **cannot open the admin console or any admin API**. They only have /counter.
+
+What staff can do:
+
+- **Top up a customer.** Look up the customer by mobile number, then enter the amount received, how they paid (cash, eSewa, Khalti, Fonepay, bank or other), the receipt number and a note.
+  - Confirming credits the wallet immediately as a normal **top-up**, so it counts for referrals and releases held messages.
+  - The customer gets a push notification.
+- **Sell a gift card** for cash. The printable receipt shows the code, which works immediately.
+
+Safeguards:
+
+- **Idempotent.** A double click records the entry once.
+- **Receipt numbers** cannot be reused.
+- **No self top-ups.** Staff cannot credit their own wallet.
+- **Daily limit.** Staff other than super admins have a daily limit per person: NPR 50,000 by default, set under Coupons & gifts.
+- **Audit.** Every entry is audited (`wallet.counter_topup`, `wallet.counter_gift_sold`).
+
+**Cash reconciliation:**
+
+- **Today's list** shows each entry and the totals per payment method for the signed-in staff member.
+- **All staff** (for admins) shows the whole desk.
+- Count the drawer against the **Cash** total.
+- Admin **adjustments** (Users → customer → Adjust credits, with the two-person rule) remain for corrections, not for sales.

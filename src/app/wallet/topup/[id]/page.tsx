@@ -33,6 +33,11 @@ export default async function QrPayPage({ params }: { params: Promise<{ id: stri
   const qr = await getSetting("manual_qr");
   const amount = localizeNumber(r.amountNpr, prefs.lang);
   const firstName = user.displayName?.split(/\s+/)[0] ?? "";
+  const gift = r.purpose === "gift";
+  const back = gift ? <Link href="/gift" className="small">← {t("gift.title")}</Link> : <Link href="/wallet" className="small">← {t("wallet.title")}</Link>;
+  const sub = gift
+    ? t("gift.paySub", { npr: amount, credits: localizeNumber(r.credits, prefs.lang) })
+    : `${t("common.npr")} ${amount} → ${localizeNumber(r.credits, prefs.lang)} ${t("common.credits")}`;
 
   const dynamicQr = r.qrMode === "dynamic" && r.qrPayload && (r.status === "awaiting_payment" || r.status === "pending");
   const qrSvg = dynamicQr ? await QRCode.toString(r.qrPayload!, { type: "svg", errorCorrectionLevel: "M", margin: 2, width: 300 }) : null;
@@ -40,9 +45,9 @@ export default async function QrPayPage({ params }: { params: Promise<{ id: stri
   if (dynamicQr) {
     return (
       <div className="stack">
-        <Link href="/wallet" className="small">← {t("wallet.title")}</Link>
+        {back}
         <div className="page-head">
-          <div><h1>{t("qr.title")}</h1><p>{t("common.npr")} {amount} → {localizeNumber(r.credits, prefs.lang)} {t("common.credits")}</p></div>
+          <div><h1>{gift ? t("gift.payTitle") : t("qr.title")}</h1><p>{sub}</p></div>
           <StatusBadge status={r.status} />
         </div>
         <div className="grid grid-2" style={{ alignItems: "start" }}>
@@ -76,15 +81,16 @@ export default async function QrPayPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div className="stack">
-      <Link href="/wallet" className="small">← {t("wallet.title")}</Link>
+      {back}
       <div className="page-head">
-        <div><h1>{t("qr.title")}</h1><p>{t("common.npr")} {amount} → {localizeNumber(r.credits, prefs.lang)} {t("common.credits")}</p></div>
+        <div><h1>{gift ? t("gift.payTitle") : t("qr.title")}</h1><p>{sub}</p></div>
         <StatusBadge status={r.status} />
       </div>
 
       {r.status === "pending" && <div className="alert info"><Icon name="clock" /><span><strong>{t("qr.waiting")}</strong><br />{t("qr.waitingd")}</span></div>}
-      {r.status === "approved" && <div className="alert ok"><Icon name="check" /><span><strong>{r.qrMode === "dynamic" && r.decisionNotes?.startsWith("Confirmed automatically") ? t("qr.autoConfirmed") : t("qr.approved")}</strong></span></div>}
-      {r.status === "approved" && <DraftResume />}
+      {r.status === "approved" && gift && <div className="alert ok"><Icon name="gift" /><span><strong>{t("gift.ready")}</strong> <Link href="/gift">{t("gift.openList")} →</Link></span></div>}
+      {r.status === "approved" && !gift && <div className="alert ok"><Icon name="check" /><span><strong>{r.qrMode === "dynamic" && r.decisionNotes?.startsWith("Confirmed automatically") ? t("qr.autoConfirmed") : t("qr.approved")}</strong></span></div>}
+      {r.status === "approved" && !gift && <DraftResume />}
       {r.status === "rejected" && <div className="alert bad"><Icon name="alert" /><span><strong>{t("qr.rejected")}</strong>{r.decisionNotes ? ` — ${r.decisionNotes}` : ""}</span></div>}
 
       {r.status === "awaiting_payment" && (

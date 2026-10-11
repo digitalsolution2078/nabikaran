@@ -75,6 +75,7 @@ export default async function Dashboard() {
         <Link href={s && s.wallet.available < 0 ? `/wallet?amount=${Math.max(20, -s.wallet.available)}` : "/wallet"} className="qa"><Icon name="wallet" /> <span>{t("dash.topUp")}</span></Link>
         <Link href="/messages" className="qa"><Icon name="message" /> <span>{t("dash.viewPending")}</span></Link>
         <Link href="/renewals" className="qa"><Icon name="list" /> <span>{t("dash.viewAll")}</span></Link>
+        <Link href="/gift" className="qa"><Icon name="gift" /> <span>{t("gift.label")}</span></Link>
       </nav>
 
       {lock?.locked && (

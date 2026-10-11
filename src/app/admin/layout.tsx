@@ -14,6 +14,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/admin");
   if (!isAdminRole(user.role)) redirect("/dashboard");
+  // Counter-only staff never see the admin console (customer data); they work at /counter.
+  if (!can(user.role, "admin.view")) redirect(can(user.role, "counter.topup") ? "/counter" : "/dashboard");
   return (
     <div>
       <div className="page-head">
@@ -22,7 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <p>Signed in as {user.displayName ?? user.phoneE164} · <span className="badge info">{user.role.replace("_", " ")}</span></p>
         </div>
       </div>
-      <AdminTabs superAdmin={can(user.role, "settings.manage")} />
+      <AdminTabs superAdmin={can(user.role, "settings.manage")} coupons={can(user.role, "coupons.manage")} counter={can(user.role, "counter.topup")} />
       {children}
     </div>
   );

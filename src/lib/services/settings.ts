@@ -98,6 +98,15 @@ export const integrationSettingsSchema = z.object({
   whatsapp_provider: z.enum(["env", "off", "meta", "mock"]),
 });
 
+/** Gift cards (bought with money; 1 NPR = 1 credit) and counter top-ups. */
+export const codesSettingsSchema = z.object({
+  gifts_enabled: z.boolean(),
+  gift_min_npr: z.number().int().min(1).max(100000),
+  gift_max_npr: z.number().int().min(1).max(100000),
+  /** Most a counter staff member (not a super admin) can take in per Nepal day. 0 = no limit. */
+  counter_daily_limit_npr: z.number().int().min(0).max(10000000),
+}).refine((v) => v.gift_min_npr <= v.gift_max_npr, "gift minimum must be ≤ maximum");
+
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
 export type ManualQrSettings = z.infer<typeof manualQrSettingsSchema>;
 export type SigninSettings = z.infer<typeof signinSettingsSchema>;
@@ -107,11 +116,12 @@ export type PinSettings = z.infer<typeof pinSettingsSchema>;
 export type ProSettings = z.infer<typeof proSettingsSchema>;
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 export type IntegrationSettings = z.infer<typeof integrationSettingsSchema>;
+export type CodesSettings = z.infer<typeof codesSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
@@ -122,6 +132,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 400 },
   email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
   integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
+  codes: { gifts_enabled: true, gift_min_npr: 50, gift_max_npr: 5000, counter_daily_limit_npr: 50000 },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

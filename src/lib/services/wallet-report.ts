@@ -13,9 +13,10 @@ import { readWallet, type WalletView } from "../core/wallet";
  *   bonus           referral bonus credits
  *   spent_email     email reminder charged beyond the Pro allowance
  *   plan            Nabikaran Pro bought with wallet credits
+ *   coupon          coupon code or gift card redeemed
  * Reservations are not ledger rows: they are holds shown separately.
  */
-export type LedgerCategory = "purchased" | "spent_sms" | "spent_whatsapp" | "spent_email" | "refunded" | "reversed" | "fee" | "adjustment" | "bonus" | "plan";
+export type LedgerCategory = "purchased" | "spent_sms" | "spent_whatsapp" | "spent_email" | "refunded" | "reversed" | "fee" | "adjustment" | "bonus" | "plan" | "coupon";
 
 export interface StatementRow {
   id: number;
@@ -40,6 +41,7 @@ export function categorize(type: string, referenceType: string | null, channel: 
   if (type === "fee") return "fee";
   if (type === "referral") return "bonus";
   if (type === "plan") return "plan";
+  if (type === "coupon" || type === "gift") return "coupon";
   if (type === "adjustment") return "adjustment";
   if (type === "debit") return channel === "whatsapp" ? "spent_whatsapp" : channel === "email" ? "spent_email" : "spent_sms";
   if (type === "reversal") return referenceType === "payment_order" ? "reversed" : "refunded";
@@ -64,7 +66,7 @@ export async function getStatement(userId: string, db: Db = getDb(), limit = 300
       [userId],
     ),
   ]);
-  const t: Record<LedgerCategory, number> = { purchased: 0, spent_sms: 0, spent_whatsapp: 0, spent_email: 0, refunded: 0, reversed: 0, fee: 0, adjustment: 0, bonus: 0, plan: 0 };
+  const t: Record<LedgerCategory, number> = { purchased: 0, spent_sms: 0, spent_whatsapp: 0, spent_email: 0, refunded: 0, reversed: 0, fee: 0, adjustment: 0, bonus: 0, plan: 0, coupon: 0 };
   for (const r of totals.rows) t[categorize(r.type, r.reference_type, r.channel)] += Number(r.total);
   return {
     wallet,
