@@ -3,8 +3,8 @@
  * a Super Admin (or the one-time database bootstrap). Checks are enforced in
  * API routes and server components; the UI only hides what the server denies.
  */
-export type Role = "user" | "admin" | "super_admin" | "finance" | "support" | "content" | "auditor";
-export const STAFF_ROLES = ["super_admin", "admin", "finance", "support", "content", "auditor"] as const;
+export type Role = "user" | "admin" | "super_admin" | "finance" | "support" | "content" | "auditor" | "counter";
+export const STAFF_ROLES = ["super_admin", "admin", "finance", "support", "content", "auditor", "counter"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -15,6 +15,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   support: "Support admin",
   content: "Template / content manager",
   auditor: "Read-only auditor",
+  counter: "Counter staff (cash top-ups only)",
 };
 
 export type Permission =
@@ -31,19 +32,22 @@ export type Permission =
   | "notes.write"             // support notes on a customer
   | "oauth.manage"            // MCP client kill-switch
   | "customers.export"        // download the full customer list (personal data)
-  | "plans.grant";            // give, extend or revoke Pro for a customer
+  | "plans.grant"             // give, extend or revoke Pro for a customer
+  | "counter.topup"           // credit a customer's wallet for cash / payment taken in person
+  | "coupons.manage";         // create, download and disable coupon codes
 
 const MATRIX: Record<Role, readonly Permission[]> = {
   user: [],
   auditor: ["admin.view"],
+  counter: ["counter.topup"],
   content: ["admin.view", "templates.manage"],
   support: ["admin.view", "notes.write", "adjustments.request"],
-  finance: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve"],
-  admin: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "templates.manage", "notes.write", "oauth.manage"],
+  finance: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "counter.topup"],
+  admin: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "templates.manage", "notes.write", "oauth.manage", "counter.topup", "coupons.manage"],
   super_admin: [
     "admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "adjustments.direct",
     "templates.manage", "sms.manage", "whatsapp.manage", "settings.manage", "roles.manage", "notes.write", "oauth.manage",
-    "customers.export", "plans.grant",
+    "customers.export", "plans.grant", "counter.topup", "coupons.manage",
   ],
 };
 

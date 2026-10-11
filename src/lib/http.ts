@@ -46,15 +46,17 @@ export async function requirePrincipal(req: Request): Promise<{ user: SessionUse
   return { user, principal: webPrincipal(user) };
 }
 
+/** Staff who may see the admin console (every staff role except counter-only staff). */
 export async function requireAdmin(req: Request): Promise<SessionUser> {
   const user = await requireUser(req);
-  if (!isAdminRole(user.role)) throw new HttpError(403, "Admin only", "forbidden");
+  if (!isAdminRole(user.role) || !can(user.role, "admin.view")) throw new HttpError(403, "Admin only", "forbidden");
   return user;
 }
 
-/** Admin with a specific permission (see src/lib/auth/rbac.ts). */
+/** Staff with a specific permission (see src/lib/auth/rbac.ts). */
 export async function requirePermission(req: Request, permission: Permission): Promise<SessionUser> {
-  const user = await requireAdmin(req);
+  const user = await requireUser(req);
+  if (!isAdminRole(user.role)) throw new HttpError(403, "Admin only", "forbidden");
   if (!can(user.role, permission)) throw new HttpError(403, `Missing permission ${permission}`, "forbidden");
   return user;
 }

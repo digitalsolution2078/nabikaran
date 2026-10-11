@@ -84,6 +84,17 @@ export default async function Home() {
       </section>
 
       <section className="section">
+        <div className="card row" style={{ gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="avatar-icon"><Icon name="gift" /></span>
+          <div className="grow" style={{ minWidth: 220 }}>
+            <h2 className="mb-0">{t("gift.landingTitle")}</h2>
+            <p className="muted mb-0">{t("gift.landingText")}</p>
+          </div>
+          <Link href="/gift" className="btn btn-primary">{t("gift.landingCta")}</Link>
+        </div>
+      </section>
+
+      <section className="section">
         <div className="cta-band">
           <div>
             <h2>{t("landing.pricing")}</h2>

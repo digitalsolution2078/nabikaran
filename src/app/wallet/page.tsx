@@ -6,6 +6,7 @@ import { getWallet, getLedger } from "@/lib/core/wallet";
 import { getSetting } from "@/lib/services/settings";
 import { listMyManualTopups } from "@/lib/services/manual-topups";
 import { AddCredits } from "@/components/AddCredits";
+import { RedeemCode } from "@/components/RedeemCode";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Icon } from "@/components/Icon";
 import { DraftResume } from "@/components/DraftResume";
@@ -16,11 +17,11 @@ import { env } from "@/lib/env";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet" };
 
-export default async function WalletPage({ searchParams }: { searchParams: Promise<{ payment?: string; amount?: string }> }) {
+export default async function WalletPage({ searchParams }: { searchParams: Promise<{ payment?: string; amount?: string; code?: string }> }) {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login");
   const p = webPrincipal(user);
-  const { payment, amount } = await searchParams;
+  const { payment, amount, code } = await searchParams;
   const [wallet, ledger, limits, qr, manual] = await Promise.all([getWallet(p), getLedger(p, 6), getSetting("topup"), getSetting("manual_qr"), listMyManualTopups(user.id)]);
   const open = manual.filter((m) => m.status === "awaiting_payment" || m.status === "pending");
   const n = (v: number) => localizeNumber(v, prefs.lang);
@@ -45,6 +46,12 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
           <AddCredits initialAmount={amount && /^\d{1,6}$/.test(amount) ? Math.min(limits.max_npr, Math.max(limits.min_npr, Number(amount))) : undefined} min={limits.min_npr} max={limits.max_npr} quick={limits.quick_amounts} qrEnabled={qr.enabled} khaltiEnabled={env.paymentGateway !== "none"} qrAutomatic={fonepayEnabled()} />
         </section>
         <div className="stack">
+          <RedeemCode initialCode={code && /^[A-Za-z0-9-]{4,40}$/.test(code) ? code.toUpperCase() : ""} />
+          <Link href="/gift" className="card row" style={{ gap: 12, color: "inherit", textDecoration: "none" }}>
+            <span className="avatar-icon"><Icon name="gift" /></span>
+            <span className="grow"><strong>{t("gift.walletCta")}</strong><br /><span className="small muted">{t("gift.walletCtaText")}</span></span>
+            <Icon name="chevronRight" size={16} />
+          </Link>
           <section className="card">
             <div className="card-head"><h2>{t("wallet.pending")}</h2></div>
             {open.length === 0 ? <p className="muted mb-0">{t("common.none")}</p> : (
@@ -52,7 +59,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
                 {open.map((m) => (
                   <Link key={m.id} href={`/wallet/topup/${m.id}`} className="list-item" style={{ color: "inherit", textDecoration: "none" }}>
                     <span className="avatar-icon"><Icon name="qr" /></span>
-                    <span className="grow"><span className="title" style={{ display: "block" }}>{t("common.npr")} {n(m.amountNpr)} · <span className="mono">{m.reference}</span></span><span className="meta">{formatDateTime(m.createdAt, prefs)}</span></span>
+                    <span className="grow"><span className="title" style={{ display: "block" }}>{m.purpose === "gift" ? `${t("gift.label")} · ` : ""}{t("common.npr")} {n(m.amountNpr)} · <span className="mono">{m.reference}</span></span><span className="meta">{formatDateTime(m.createdAt, prefs)}</span></span>
                     <StatusBadge status={m.status} />
                   </Link>
                 ))}
@@ -65,7 +72,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
               <div className="list">
                 {ledger.map((l) => (
                   <div key={l.id} className="list-item">
-                    <span className="grow"><span className="title" style={{ display: "block", textTransform: "capitalize" }}>{l.type === "fee" ? t("ledger.fee") : l.type === "referral" ? t("ledger.bonus") : l.type === "plan" ? t("ledger.plan") : `${l.type}${l.memo ? ` · ${l.memo}` : ""}`}</span><span className="meta">{formatDateTime(l.createdAt, prefs)}</span></span>
+                    <span className="grow"><span className="title" style={{ display: "block", textTransform: "capitalize" }}>{l.type === "fee" ? t("ledger.fee") : l.type === "referral" ? t("ledger.bonus") : l.type === "plan" ? t("ledger.plan") : l.type === "coupon" || l.type === "gift" ? `${t("ledger.coupon")}${l.memo ? ` · ${l.memo}` : ""}` : `${l.type}${l.memo ? ` · ${l.memo}` : ""}`}</span><span className="meta">{formatDateTime(l.createdAt, prefs)}</span></span>
                     <span className={l.signedCredits >= 0 ? "plus" : "minus"}>{l.signedCredits > 0 ? "+" : ""}{n(l.signedCredits)}</span>
                   </div>
                 ))}

@@ -77,7 +77,7 @@ export function RoleControl({ userId, role }: { userId: string; role: string }) 
     <div>
       <div className="row">
         <select value={value} onChange={(e) => setValue(e.target.value)} aria-label="Role" style={{ maxWidth: 220 }}>
-          {(["user", "auditor", "content", "support", "finance", "admin", "super_admin"] as const).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+          {(["user", "counter", "auditor", "content", "support", "finance", "admin", "super_admin"] as const).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
         </select>
         <button className="btn btn-secondary" onClick={save} disabled={value === role}>Save role</button>
       </div>
