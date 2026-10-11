@@ -3,6 +3,7 @@ import { handle, json, parseBody, requireAdmin, HttpError } from "@/lib/http";
 import { can } from "@/lib/auth/rbac";
 import { directAdjustment, setUserRole } from "@/lib/services/admin-console";
 import { requestWalletAdjustment } from "@/lib/services/admin";
+import { banUser, unbanUser } from "@/lib/services/bans";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -16,6 +17,8 @@ const schema = z.discriminatedUnion("action", [
     idempotencyKey: z.string().min(8).max(64),
     confirm: z.literal(true),
   }),
+  z.object({ action: z.literal("ban"), reason: z.string().trim().min(5).max(300), until: z.string().max(40).nullable().default(null), confirm: z.literal(true) }),
+  z.object({ action: z.literal("unban"), note: z.string().trim().max(300).nullable().default(null), confirm: z.literal(true) }),
 ]);
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -28,6 +31,10 @@ export async function POST(req: Request, ctx: Ctx) {
       if (!can(admin.role, "roles.manage")) throw new HttpError(403, "Only a Super Admin can change roles", "forbidden");
       await setUserRole({ id: admin.id, role: admin.role }, userId, body.role);
       return json({ ok: true });
+    }
+    if (body.action === "ban" || body.action === "unban") {
+      if (!can(admin.role, "users.ban")) throw new HttpError(403, "Only an admin or Super Admin can ban accounts", "forbidden");
+      return json(body.action === "ban" ? await banUser(admin, userId, { reason: body.reason, until: body.until }) : await unbanUser(admin, userId, body.note));
     }
     const signed = body.direction === "credit" ? body.credits : -body.credits;
     if (can(admin.role, "adjustments.direct")) {

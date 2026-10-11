@@ -17,6 +17,7 @@ import { redactPhone } from "../phone";
 import { pushReminders, type ReminderPush } from "./push";
 import { getEmailProvider, textToHtml } from "../providers/email";
 import { runDigests, runProNotices } from "./digest";
+import { liftExpiredBans } from "./bans";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -221,6 +222,7 @@ export interface ReconcileSummary {
   rolledYearly: number;
   digests?: number;
   proNotices?: number;
+  bansLifted?: number;
 }
 
 /**
@@ -342,6 +344,8 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   // 5. Pro: email summaries and "Pro ends soon" notices (free, best effort).
   out.digests = await runDigests(db, now).catch((e) => { console.warn(`[digest] ${(e as Error).message}`); return 0; });
   out.proNotices = await runProNotices(db, now).catch((e) => { console.warn(`[pro-notice] ${(e as Error).message}`); return 0; });
+  // 6. Time-limited bans that have ended.
+  out.bansLifted = await liftExpiredBans(db, now).catch((e) => { console.warn(`[ban] ${(e as Error).message}`); return 0; });
   return out;
 }
 

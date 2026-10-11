@@ -453,3 +453,26 @@ Safeguards:
 - **All staff** (for admins) shows the whole desk.
 - Count the drawer against the **Cash** total.
 - Admin **adjustments** (Users → customer → Adjust credits, with the two-person rule) remain for corrections, not for sales.
+
+## 20. Banning a customer (Admin → Users → customer → Account access)
+
+Who can ban: admin and super admin (`users.ban`). Staff accounts must be changed to Customer first, and nobody can ban themselves. Migration `0014_user_bans` applies automatically.
+
+### 20.1 What a ban does
+
+The account gets status `suspended`, with a required **reason** (internal only, never shown to the customer) and a **duration**: permanent, 7, 30 or 90 days. On ban:
+
+- **Signed out** at once. Sessions need an active account.
+- **No sign-in.** No SMS code is sent to a banned number, so it costs nothing. A code sent before the ban stops working. PIN and email sign-in fail too.
+- **The customer sees** "This account has been suspended… contact Nabikaran support", followed by `SUPPORT_PHONE` / `SUPPORT_EMAIL`.
+- **ChatGPT / Claude** connections are revoked.
+- **No messages** are sent: active reminders are paused and their held credits released.
+- **Nothing is deleted.** Reminders, wallet balance, ledger, payments, Pro plan and all history stay.
+
+### 20.2 Unban
+
+Unban restores the account and resumes exactly the reminders the ban paused. Reminders the customer had paused themselves stay paused. A reminder the wallet cannot cover stays paused, and the customer can resume it after a top-up. Time-limited bans lift themselves (reconciler, `bansLifted`).
+
+### 20.3 History and audit
+
+Every ban and unban is kept in the customer's **ban history**: who, when, reason, until. It is also in the audit log as `user.banned` / `user.unbanned`.
