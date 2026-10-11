@@ -5,6 +5,7 @@ import { getRequestContext } from "@/lib/i18n/server";
 import { webPrincipal } from "@/lib/core/principal";
 import { getReminder, listRenewalHistory as listRenewals } from "@/lib/core/reminders";
 import { isPro } from "@/lib/services/plans";
+import { googleTemplateLink } from "@/lib/services/calendar";
 import { MarkRenewed } from "@/components/MarkRenewed";
 import { ProBadge } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -52,6 +53,9 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
         <div className="mt row">
           {r.status !== "cancelled" && <Link href={`/renewals/${r.id}/edit`} className="btn btn-primary btn-sm"><Icon name="edit" size={14} /> {t("rem.editBtn")}</Link>}
           <RenewalActions id={r.id} status={r.status} />
+          {pro && r.status === "active" && (
+            <a className="btn btn-ghost btn-sm" href={googleTemplateLink({ label: r.label, expiryUtc: r.expiry.utc, details: `Nabikaran reminder` })} target="_blank" rel="noopener noreferrer"><Icon name="calendar" size={14} /> {t("cal.addOne")}</a>
+          )}
           {pro && r.status === "active" && !r.linkedTo && (
             <MarkRenewed id={r.id} repeats={r.repeatYearly || Boolean(r.repeatMonths)} calendar={r.inputCalendar} suggestedNext={suggestedNext} currency={r.subscription?.currency ?? "NPR"} />
           )}

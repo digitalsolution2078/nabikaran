@@ -1,6 +1,6 @@
 # Nabikaran Pro: research and build plan
 
-Status: **built** (migration `0011_pro`). Operations: `docs/OPERATIONS.md` §16.
+Status: **built** (migrations `0011_pro`, `0012_calendar`). Operations: `docs/OPERATIONS.md` §16.
 
 Decisions taken:
 
@@ -16,7 +16,7 @@ Branding follows the Basic vs Pro brief: one brand with an orange Pro accent and
 - Basic headline: "Your important dates, remembered."
 - Pro headline: "Your renewals, subscriptions and spending — in one place."
 - Every plan can repeat monthly, quarterly, yearly or every N months.
-- Pro adds subscriptions, free-trial and cancel-by alerts, Insights, Renewal history and email summaries.
+- Pro adds subscriptions, free-trial and cancel-by alerts, Insights, Renewal history, email summaries and calendar sync (Google, Apple, Outlook; `docs/OPERATIONS.md` §18).
 - Using credits beyond the included messages needs the customer's permission.
 - See `docs/OPERATIONS.md` §16.3.
 
@@ -24,7 +24,6 @@ Not built yet (later):
 
 - screenshot-to-reminder (after cost and accuracy are tested);
 - family sharing;
-- Google Calendar;
 - escalation;
 - price-change history;
 - Pro-only MCP tools;

@@ -10,6 +10,8 @@ import { InviteFriends } from "@/components/InviteFriends";
 import { PinManager } from "@/components/PinManager";
 import { PushManager } from "@/components/PushManager";
 import { EmailManager } from "@/components/EmailManager";
+import { CalendarSync } from "@/components/CalendarSync";
+import { getCalendarLink } from "@/lib/services/calendar";
 import { ThemePicker } from "@/components/ThemePicker";
 import { cookies } from "next/headers";
 import { THEME_COOKIE, parseTheme } from "@/lib/theme";
@@ -26,6 +28,7 @@ export default async function SettingsPage() {
   const { user, t } = await getRequestContext();
   if (!user) redirect("/login");
   const [connections, ref, pin, pro, email, proPrefs] = await Promise.all([listConnections(user.id), referralSummary(user.id), pinStatus(user.id), isPro(user.id), emailStatus(user.id), getProPrefs(user.id)]);
+  const calendar = pro ? await getCalendarLink(user.id) : null;
   const link = `${env.appUrl.replace(/\/$/, "")}/r/${ref.code}`;
   return (
     <div className="stack">
@@ -43,6 +46,7 @@ export default async function SettingsPage() {
           message={ref.settings.message} invited={ref.invited} rewarded={ref.rewarded} pending={ref.pending} creditsEarned={ref.creditsEarned} />
       )}
       {pro && <EmailManager initial={email} digest={proPrefs.digest} />}
+      {calendar && <CalendarSync initial={calendar} />}
       <ThemePicker initial={parseTheme((await cookies()).get(THEME_COOKIE)?.value)} />
       <PushManager />
       <PinManager initial={pin} />

@@ -27,6 +27,7 @@ export default async function ProPage() {
     t("pro.benefit.messages", { sms: n(o.allowance_sms), wa: n(o.allowance_whatsapp), email: n(o.allowance_email) }),
     t("pro.benefit.email"),
     t("pro.benefit.monthly"),
+    t("pro.benefit.calendar"),
     t("pro.benefit.all"),
   ];
   return (
