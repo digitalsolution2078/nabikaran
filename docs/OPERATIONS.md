@@ -346,3 +346,36 @@ Checks on the page:
 - **Check key** for Khalti makes a harmless lookup; a wrong key answers 401.
 - **Check connection** for WhatsApp reads the phone number from Meta.
 - Fonepay has no harmless test call. Check it with a NPR 10 top-up.
+
+## 18. Calendar sync (Pro) and the installable app (PWA)
+
+### 18.1 Google Calendar, Apple Calendar and Outlook
+
+Pro customers open **Settings → Google Calendar sync → Create my calendar link**. They then have three ways to add it:
+
+- **Add to Google Calendar**, which subscribes the Google account;
+- **iPhone / Apple Calendar** (a `webcal://` link);
+- **Outlook**.
+
+How it works:
+
+- **The feed.** It is a private, read-only iCalendar feed at `/api/calendar/<token>.ics` (migration `0012_calendar`: `users.calendar_token`). It needs no Google sign-in, no OAuth app and no Google API key. Nabikaran never reads or writes the customer's calendar.
+- **What it contains.** One all-day event per active reminder on its Nepal date, with the amount and payment method for subscriptions. Free-trial ends and cancel-by dates are named as such.
+  - AD-dated yearly reminders get a yearly repeat rule. AD-dated monthly reminders get a monthly rule, unless they fall on the 29th–31st.
+  - BS dates have no rule, because their AD date moves each year. Each next date appears once the reminder rolls over.
+- **Refresh.** Calendar apps fetch the feed themselves. Google takes a few hours, so a new reminder is not instant.
+- **Security.**
+  - The token is the only credential.
+  - **Reset link** replaces it, and the old link answers 404 at once. **Turn off** removes it.
+  - Feeds are rate-limited per IP.
+  - When Pro ends, the link returns an empty calendar, so old events disappear instead of going stale.
+- **One-off button.** Each reminder's page has an **Add to Google Calendar** button for a single event (Pro).
+
+### 18.2 PWA
+
+- **Manifest.** It has screenshots (`public/screenshots/`), which Android and desktop Chrome show in a richer install dialog.
+  - `launch_handler` reuses an open window.
+  - A Dashboard shortcut is included.
+  - Retake the screenshots after big UI changes. They must stay 780×1688 (narrow) and 1280×800 (wide).
+- **App icon badge.** The installed app's icon shows the number of expired and due-soon reminders, updated each time the dashboard opens. A push notification adds a dot until the app is opened.
+- **Service worker** is `nabikaran-v5`. Bump `VERSION` in `public/sw.js` whenever precached files change.

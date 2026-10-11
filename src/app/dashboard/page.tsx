@@ -13,6 +13,7 @@ import { emailStatus } from "@/lib/services/email-auth";
 import { ProOverview } from "@/components/ProOverview";
 import { getDb } from "@/lib/db";
 import { getSetting } from "@/lib/services/settings";
+import { AppBadge } from "@/components/AppBadge";
 import { formatDate, formatDateTime, daysUntil, localizeNumber, offsetLabel } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/dict";
 
@@ -55,12 +56,18 @@ export default async function Dashboard() {
 
   return (
     <div className="stack">
-      <div className="page-head">
-        <div>
+      <section className={`welcome-hero${isPro ? " is-pro" : ""}`}>
+        <div className="grow">
           <h1>{t("dash.greeting")}{user.displayName ? `, ${user.displayName}` : ""}</h1>
           <p>{isPro ? t("dash.proHeadline") : t("dash.basicHeadline")}</p>
         </div>
-      </div>
+        {s && (
+          <Link href="/wallet" className="welcome-credits">
+            <span className="small">{t("dash.available")}</span>
+            <strong>{n(s.wallet.available)}</strong>
+          </Link>
+        )}
+      </section>
 
       <nav className="quick-actions" aria-label={t("dash.quick")}>
         <Link href="/renewals/new" className="qa qa-primary"><Icon name="plus" /> <span>{t("dash.addReminder")}</span></Link>
@@ -95,6 +102,7 @@ export default async function Dashboard() {
         <div className="alert bad" role="alert"><Icon name="alert" /> <span>{t("dash.sectionError")}</span></div>
       ) : (
         <>
+          <AppBadge count={s.counts.expired + s.counts.dueSoon} />
           <div className="stat-grid">
             <Stat href="/renewals?filter=expired" icon="alert" tone={s.counts.expired > 0 ? "bad" : ""} label={t("dash.expired")} value={n(s.counts.expired)} />
             <Stat href="/renewals?filter=due" icon="clock" tone={s.counts.dueSoon > 0 ? "warn" : ""} label={t("dash.dueSoon")} value={n(s.counts.dueSoon)} />

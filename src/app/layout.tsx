@@ -9,6 +9,8 @@ import { formatPhoneLocal } from "@/lib/phone";
 import { isAdminRole } from "@/lib/auth/rbac";
 import { getPlanState } from "@/lib/services/plans";
 import { getSetting } from "@/lib/services/settings";
+import { cookies } from "next/headers";
+import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: { default: "Nabikaran — SMS renewal reminders for Nepal", template: "%s · Nabikaran" },
@@ -27,6 +29,8 @@ export const viewport: Viewport = { themeColor: "#55239a", width: "device-width"
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getRequestContext();
+  // Light brand theme unless the person chose dark (or "follow my device") in Settings.
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
   const [wallet, plan, offer] = ctx.user
     ? await Promise.all([readWallet(ctx.user.id).catch(() => null), getPlanState(ctx.user.id).catch(() => null), getSetting("pro").catch(() => null)])
     : [null, null, null];
@@ -40,7 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       }
     : null;
   return (
-    <html lang={ctx.prefs.lang}>
+    <html lang={ctx.prefs.lang} data-theme={theme}>
       <body>
         <a href="#main" className="sr-only">Skip to content</a>
         <PrefsProvider initial={ctx.prefs} chosen={ctx.chosen} signedIn={Boolean(ctx.user)}>
