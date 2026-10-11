@@ -100,7 +100,10 @@ export default async function Home() {
             <h2>{t("landing.pricing")}</h2>
             <p className="mb-0" style={{ opacity: 0.9, maxWidth: 620 }}>{t("landing.pricingd")}</p>
           </div>
-          <Link href={cta} className="btn btn-accent btn-lg">{user ? t("nav.dashboard") : t("nav.getStarted")}</Link>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <Link href="/pricing" className="btn btn-outline-light btn-lg">{t("nav.pricing")}</Link>
+            <Link href={cta} className="btn btn-accent btn-lg">{user ? t("nav.dashboard") : t("nav.getStarted")}</Link>
+          </div>
         </div>
       </section>
 

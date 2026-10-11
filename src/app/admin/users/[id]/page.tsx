@@ -11,6 +11,8 @@ import { AdjustCredits, RoleControl } from "@/components/admin/UserControls";
 import { formatPhoneLocal } from "@/lib/phone";
 import { PlanControl } from "@/components/admin/PlanControl";
 import { planHistory } from "@/lib/services/plans";
+import { banInfo } from "@/lib/services/bans";
+import { BanControl } from "@/components/admin/BanControl";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
   const { id } = await params;
   const [me, d] = await Promise.all([getCurrentUser(), getUserDetail(id)]);
   if (!d || !me) notFound();
-  const [st, topups, msgs, notes, auditRows, plans] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id)]);
+  const [st, topups, msgs, notes, auditRows, plans, ban] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id), banInfo(id)]);
   const u = d.user;
   const self = me.id === u.id;
   return (
@@ -34,6 +36,11 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
           <div className="stat"><div className="label">Reserved</div><div className="value">{u.reserved}</div></div>
           <div className="stat"><div className="label">Active reminders</div><div className="value">{u.activeReminders}</div></div>
         </div>
+      </section>
+
+      <section className="card" id="ban">
+        <h2>Account access</h2>
+        {self ? <p className="muted mb-0">This is your account.</p> : <BanControl userId={u.id} info={ban} canBan={can(me.role, "users.ban")} isStaff={u.role !== "user"} />}
       </section>
 
       <section className="card">

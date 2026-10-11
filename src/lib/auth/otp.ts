@@ -23,8 +23,14 @@ export function otpMessage(code: string): string {
  *    verified are not charged to anyone's wallet, so nobody can drain a
  *    stranger's balance by requesting codes for their number.
  */
+/** What a banned customer sees when signing in. The ban reason stays internal. */
+export function suspendedMessage(): string {
+  const contact = [env.legal.supportPhone, env.legal.supportEmail].filter(Boolean).join(" / ");
+  return `This account has been suspended. Your data is kept. To appeal, contact Nabikaran support${contact ? ` (${contact})` : ""}.`;
+}
+
 export class OtpError extends Error {
-  constructor(public readonly code: "invalid_phone" | "rate_limited" | "invalid_code" | "expired" | "too_many_attempts" | "send_failed", message: string) {
+  constructor(public readonly code: "invalid_phone" | "rate_limited" | "invalid_code" | "expired" | "too_many_attempts" | "send_failed" | "account_suspended", message: string) {
     super(message);
   }
 }
@@ -46,6 +52,9 @@ export interface RequestOtpInput {
 export async function requestOtp(input: RequestOtpInput, db: Db = getDb()): Promise<{ phoneE164: string; devCode?: string }> {
   const phoneE164 = normalizeNepalPhone(input.phone);
   if (!phoneE164) throw new OtpError("invalid_phone", "Enter a valid Nepal mobile number");
+  // A banned account gets no sign-in SMS (no cost, no way in).
+  const { rows: banned } = await db.query("select 1 from users where phone_e164 = $1 and status = 'suspended'", [phoneE164]);
+  if (banned[0]) throw new OtpError("account_suspended", suspendedMessage());
   const ipHash = hashIp(input.ip);
 
   const { rows: phoneCount } = await db.query<{ n: string }>(
@@ -106,7 +115,8 @@ export async function verifyOtp(phone: string, code: string, db: Db = getDb()): 
       throw new OtpError("invalid_code", "Incorrect code");
     }
 
-    const { rows: users } = await tx.query<{ id: string }>("select id from users where phone_e164 = $1", [phoneE164]);
+    const { rows: users } = await tx.query<{ id: string; status: string }>("select id, status from users where phone_e164 = $1", [phoneE164]);
+    if (users[0]?.status === "suspended") throw new OtpError("account_suspended", suspendedMessage());
     let userId = users[0]?.id;
     let isNew = false;
     if (!userId) {

@@ -141,6 +141,7 @@ function PublicShell({ signedIn, children }: { signedIn: boolean; children: Reac
         <div className="inner">
           <Logo />
           <nav>
+            <Link href="/pricing" className="btn btn-ghost btn-sm">{t("nav.pricing")}</Link>
             <button className="btn btn-ghost btn-sm" onClick={() => setPrefs({ ...prefs, lang: prefs.lang === "ne" ? "en" : "ne" })} aria-label="Switch language">
               <Icon name="globe" size={16} /> {prefs.lang === "ne" ? "English" : "नेपाली"}
             </button>
@@ -161,6 +162,8 @@ function PublicShell({ signedIn, children }: { signedIn: boolean; children: Reac
           <span>© {new Date().getFullYear()} Nabikaran · nabikaran.org</span>
           <span className="row">
             <Link href="/privacy">{t("common.privacy")}</Link>
+            <Link href="/pricing">{t("nav.pricing")}</Link>
+            <Link href="/gift">{t("gift.label")}</Link>
             <Link href="/terms">{t("common.terms")}</Link>
             <Link href="/docs/mcp">{t("common.aiDocs")}</Link>
           </span>

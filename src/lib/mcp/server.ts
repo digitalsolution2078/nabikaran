@@ -11,7 +11,10 @@ import { listGroups } from "../services/groups";
 import { checkRateLimit, countEvent } from "../core/rate-limit";
 import { getAccount } from "../core/account";
 import { getWalletSummary } from "../core/wallet";
-import { listReminders, setReminderStatus, CATEGORIES } from "../core/reminders";
+import { listReminders, setReminderStatus, CATEGORIES, SUB_CURRENCIES, listRenewalHistory, markRenewed } from "../core/reminders";
+import { getPlanState, isPro, startTrial } from "../services/plans";
+import { listSubscriptions } from "../services/subscriptions";
+import { getInsights } from "../services/insights";
 import { prepareReminderAction, confirmPreparedAction } from "../core/prepared-actions";
 import { MAX_OFFSET_MINUTES } from "../scheduler";
 
@@ -23,7 +26,7 @@ import { MAX_OFFSET_MINUTES } from "../scheduler";
  * Scope checks live in core; this layer adds per-token rate limits, audit and
  * error mapping.
  */
-export const MCP_SERVER_INFO = { name: "nabikaran", version: "0.2.0" } as const;
+export const MCP_SERVER_INFO = { name: "nabikaran", version: "0.3.0" } as const;
 export const TOOL_RATE_LIMIT = { bucket: "mcp:call", limit: 60, windowSeconds: 60 } as const;
 export const PREPARE_RATE_LIMIT = { bucket: "mcp:prepare", limit: 20, windowSeconds: 600 } as const;
 export const MAX_REMINDERS_PER_USER = 200;
@@ -64,7 +67,8 @@ async function run(tool: string, extra: { authInfo?: AuthInfo }, fn: (p: Princip
     }
     if (e instanceof HttpError) {
       await audit(db, p, `mcp.${tool}`, null, { ok: false, error: e.code ?? e.status });
-      return fail(e.code ?? "error", e.message, e.code === "insufficient_credits" ? { ...e.detail, top_up_url: `${env.appUrl}/wallet` } : e.detail);
+      const more = e.code === "insufficient_credits" ? { ...e.detail, top_up_url: `${env.appUrl}/wallet` } : e.code === "pro_required" ? { ...e.detail, upgrade_url: `${env.appUrl}/pricing` } : e.detail;
+      return fail(e.code ?? "error", e.message, more);
     }
     console.error(`[mcp] ${tool} failed`, e);
     await countEvent(db, "mcp:tool_error");
@@ -80,6 +84,8 @@ export function createMcpServer(): McpServer {
       "Top-ups happen only on the website (use top_up_url). Reminders are only ever sent to the user's own verified phone.",
       "Birthdays and anniversaries of friends or family: use category birthday/anniversary with repeat_yearly=true; the SMS still goes to the user, never to the friend.",
       "Dates: Nepal time (Asia/Kathmandu). Both Gregorian (AD) and Bikram Sambat (BS) are returned; always show the user both when they matter.",
+      "Nabikaran Pro (get_pro_status) adds a subscription manager: add a subscription with prepare_reminder (subscription fields, repeat_months), then list_subscriptions, get_spending_insights, mark_subscription_renewed and list_renewal_history.",
+      "Pro tools answer pro_required with an upgrade_url for Basic accounts. Buying Pro, top-ups and gift cards happen only on the website. Never claim Nabikaran cancels a subscription: the user cancels with the provider; Nabikaran reminds them before the deadline.",
     ].join(" "),
   });
 
@@ -219,6 +225,16 @@ export function createMcpServer(): McpServer {
         channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).optional().describe("Delivery channels; default SMS. WhatsApp works only if the user enabled it on the website (assistants cannot give WhatsApp consent). Messages always go to the account holder's own verified number."),
         repeat_yearly: z.boolean().optional().describe("Repeat every year on the same day. Use for birthdays and anniversaries (category birthday / anniversary, label = the person's name in English letters). A past date such as a birth date moves to the next occurrence. The reminder still goes only to the account holder, never to the person whose birthday it is. Birthday/anniversary/event reminders are SMS only."),
         group_id: z.string().uuid().nullable().optional().describe("Optional group from list_groups, e.g. the user's 'Friends' birthdays' group."),
+        repeat_months: z.number().int().min(1).max(11).nullable().optional().describe("Repeat every N months: 1 monthly, 3 quarterly, 6 half-yearly. For yearly use repeat_yearly=true. Every plan."),
+        subscription: z.object({
+          amount: z.number().min(0).max(100_000_000).nullable().default(null).describe("What one renewal costs, as the user stated it. Never estimate."),
+          currency: z.enum(SUB_CURRENCIES).default("NPR"),
+          payment_method: z.string().max(40).nullable().default(null).describe("e.g. 'eSewa', 'Khalti', 'Visa ending 1234'. Never ask for full card numbers."),
+          auto_renew: z.boolean().nullable().default(null),
+          is_trial: z.boolean().default(false).describe("The date is when a free trial turns into a paid subscription."),
+          cancel_notice_days: z.number().int().min(0).max(90).nullable().default(null).describe("The provider needs cancelling this many days before renewal: adds a 'last day to cancel' reminder."),
+        }).nullable().optional().describe("PRO ONLY. Makes this a tracked subscription (category subscription or free_trial). Basic accounts get pro_required with an upgrade_url."),
+        use_credits: z.boolean().optional().describe("Pro: set true only after the user agreed to use wallet credits when confirm_reminder returned credits_permission_required."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -319,6 +335,163 @@ export function createMcpServer(): McpServer {
       }),
   );
 
+  // ---------------------------------------------------------------------------
+  // Nabikaran Pro: plan status and the subscription manager.
+  // ---------------------------------------------------------------------------
+  const proOnly = async (p: Principal) => {
+    if (!(await isPro(p.userId))) throw new HttpError(403, "This is a Nabikaran Pro feature. The user can start a free trial or upgrade on the website.", "pro_required");
+  };
+  const money = (cur: string | null, n: number | null) => (n === null ? "—" : `${cur ?? "NPR"} ${Math.round(n * 100) / 100}`);
+
+  server.registerTool(
+    "get_pro_status",
+    {
+      title: "Get Pro plan status",
+      description: "Whether the account is on Basic or Nabikaran Pro (trial / paid / given), when Pro ends, included messages left (SMS / WhatsApp / email), the current offer (price, trial) and links. Buying or renewing Pro happens on the website only.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (_args, extra) =>
+      run("get_pro_status", extra, async (p) => {
+        requireScope(p, "account:read");
+        const s = await getPlanState(p.userId);
+        const base = env.appUrl.replace(/\/$/, "");
+        const left = s.allowances.map((a) => `${a.channel} ${a.left}/${a.granted}`).join(", ");
+        const summary = s.tier === "pro"
+          ? `Nabikaran Pro (${s.kind}) until ${s.endsAt?.slice(0, 10)} — ${s.daysLeft} day(s) left.${left ? ` Included messages left: ${left}.` : " A free trial has no included messages."}${s.queuedUntil ? ` Another year is already bought, until ${s.queuedUntil.slice(0, 10)}.` : ""}`
+          : `Basic plan.${s.offer.enabled ? ` Pro costs NPR ${s.offer.price_npr} for ${s.offer.duration_days} days${s.offer.trial_enabled && !s.trialUsed ? `; a ${s.offer.trial_days}-day free trial is available (start_pro_trial)` : ""}.` : " Pro is not on sale right now."}`;
+        return ok(summary, {
+          tier: s.tier, kind: s.kind, starts_at: s.startsAt, ends_at: s.endsAt, days_left: s.daysLeft, renewed_until: s.queuedUntil,
+          included_messages: s.allowances.map((a) => ({ channel: a.channel, included: a.granted, used: a.used, held: a.reserved, left: a.left })),
+          offer: s.offer.enabled ? { price_npr: s.offer.price_npr, duration_days: s.offer.duration_days, included: { sms: s.offer.allowance_sms, whatsapp: s.offer.allowance_whatsapp, email: s.offer.allowance_email }, trial_days: s.offer.trial_enabled ? s.offer.trial_days : 0 } : null,
+          trial_available: s.offer.enabled && s.offer.trial_enabled && !s.trialUsed && s.tier === "basic",
+          pricing_url: `${base}/pricing`, manage_url: `${base}/pro`,
+          note: "Purchases are made on the website with wallet credits and are final (no refunds). Nothing renews automatically.",
+        });
+      }),
+  );
+
+  server.registerTool(
+    "start_pro_trial",
+    {
+      title: "Start the free Pro trial",
+      description: "Starts the one-time free Nabikaran Pro trial (all Pro features, no included messages, no payment, nothing renews). Ask the user first and pass confirm=true only after they agree.",
+      inputSchema: { confirm: z.boolean().describe("Must be true; ask the user first.") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("start_pro_trial", extra, async (p) => {
+        requireScope(p, "reminders:write");
+        if (!args.confirm) return fail("confirmation_required", "Ask the user whether to start the free trial, then call again with confirm=true.");
+        const s = await startTrial(p.userId);
+        return ok(`Free Pro trial started; it ends on ${s.endsAt?.slice(0, 10)}. It has all Pro features but no included messages; messages use wallet credits as usual.`, { tier: s.tier, kind: s.kind, ends_at: s.endsAt, days_left: s.daysLeft });
+      }),
+  );
+
+  server.registerTool(
+    "list_subscriptions",
+    {
+      title: "List subscriptions (Pro)",
+      description: "PRO. The user's tracked subscriptions (Netflix, internet, insurance, domains…): amount, cycle, next charge date, payment method, auto-renew, free trials and cancel notice, plus monthly / yearly totals per currency from the amounts the user entered.",
+      inputSchema: { include_cancelled: z.boolean().default(false) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("list_subscriptions", extra, async (p) => {
+        requireScope(p, "reminders:read");
+        await proOnly(p);
+        const v = await listSubscriptions(p.userId);
+        const items = v.items.filter((i) => args.include_cancelled || i.status === "active" || i.status === "paused");
+        const cycle = (m: number | null) => (m === null ? "one-time" : m === 1 ? "monthly" : m === 12 ? "yearly" : `every ${m} months`);
+        const lines = items.map((i) => `• ${i.label}: ${money(i.currency, i.amount)} ${cycle(i.cycleMonths)}, next ${i.nextAt.slice(0, 10)}${i.isTrial ? " (free trial ends)" : ""}${i.paymentMethod ? ` via ${i.paymentMethod}` : ""}${i.status !== "active" ? ` [${i.status}]` : ""}`);
+        const totals = v.totals.map((t) => `${money(t.currency, t.monthly)}/month (${money(t.currency, t.yearly)}/year)`).join("; ");
+        return ok(items.length ? `${lines.join("\n")}${totals ? `\nTotal: ${totals}` : ""}` : "No subscriptions yet. Add one with prepare_reminder (category subscription, subscription fields, repeat_months).", {
+          subscriptions: items.map((i) => ({
+            id: i.id, label: i.label, status: i.status, next_date: i.nextAt, amount: i.amount, currency: i.currency, cycle_months: i.cycleMonths,
+            payment_method: i.paymentMethod, auto_renew: i.autoRenew, is_trial: i.isTrial, cancel_notice_days: i.cancelNoticeDays, channels: i.channels,
+          })),
+          totals: v.totals,
+          note: "Totals come only from amounts the user entered; Nabikaran does not read bank statements or cancel subscriptions.",
+        });
+      }),
+  );
+
+  server.registerTool(
+    "get_spending_insights",
+    {
+      title: "Spending insights (Pro)",
+      description: "PRO. Monthly and yearly subscription cost per currency, cost by payment method, charges due in the next 30 days, total due in 90 days, free trials ending, last days to cancel, and what was renewed in the last 12 months. Figures come only from what the user entered.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (_args, extra) =>
+      run("get_spending_insights", extra, async (p) => {
+        requireScope(p, "reminders:read");
+        await proOnly(p);
+        const i = await getInsights(p.userId);
+        const parts = [
+          i.totals.length ? `Subscriptions cost ${i.totals.map((t) => `${money(t.currency, t.monthly)}/month`).join(", ")}.` : "No amounts entered yet.",
+          i.upcoming90Total.length ? `Due in the next 90 days: ${i.upcoming90Total.map((t) => money(t.currency, t.amount)).join(", ")}.` : "",
+          i.trialsEnding.length ? `Free trials ending in 30 days: ${i.trialsEnding.map((t) => `${t.label} (${t.dueAt.slice(0, 10)})`).join(", ")}.` : "",
+          i.cancelAlerts.length ? `Last days to cancel: ${i.cancelAlerts.map((t) => `${t.label} (${t.dueAt.slice(0, 10)})`).join(", ")}.` : "",
+        ].filter(Boolean);
+        return ok(parts.join(" "), {
+          totals: i.totals, by_payment_method: i.byMethod, due_next_90_days: i.upcoming90Total, subscription_count: i.subscriptionCount,
+          upcoming_30_days: i.upcoming30.map((s) => ({ id: s.id, label: s.label, date: s.nextAt, amount: s.amount, currency: s.currency })),
+          trials_ending: i.trialsEnding, cancel_deadlines: i.cancelAlerts, deadlines_30_days: i.deadlines30, renewed_last_12_months: i.spentLast12,
+          note: "Only amounts the user entered. Not financial advice; no savings are guaranteed.",
+        });
+      }),
+  );
+
+  server.registerTool(
+    "list_renewal_history",
+    {
+      title: "Renewal history (Pro)",
+      description: "PRO. What the user renewed and paid, newest first (from 'mark as renewed' and automatic roll-overs). Optional reminder_id to see one item's history.",
+      inputSchema: { reminder_id: z.string().uuid().optional(), limit: z.number().int().min(1).max(100).default(30) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("list_renewal_history", extra, async (p) => {
+        requireScope(p, "reminders:read");
+        await proOnly(p);
+        const rows = (await listRenewalHistory(p.userId)).filter((h) => !args.reminder_id || h.renewalId === args.reminder_id).slice(0, args.limit);
+        return ok(rows.length ? rows.map((h) => `• ${h.renewedOn} ${h.label}${h.amount !== null ? ` — ${money(h.currency, h.amount)}` : ""}${h.nextDue ? `, next ${h.nextDue.slice(0, 10)}` : ""}`).join("\n") : "No renewals recorded yet.", {
+          history: rows.map((h) => ({ id: h.id, reminder_id: h.renewalId, label: h.label, category: h.category, renewed_on: h.renewedOn, amount: h.amount, currency: h.currency, previous_due: h.previousDue, next_due: h.nextDue, source: h.source, note: h.note })),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "mark_subscription_renewed",
+    {
+      title: "Mark as renewed (Pro)",
+      description: "PRO. Records that the user renewed / paid a reminder or subscription (date, amount) in their renewal history. Repeating items move to their next date on their own; a one-time item needs next_expiry_date (same calendar as the reminder). Ask the user first and pass confirm=true.",
+      inputSchema: {
+        reminder_id: z.string().uuid(),
+        renewed_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Gregorian date the user renewed / paid (YYYY-MM-DD)."),
+        amount: z.number().min(0).max(100_000_000).nullable().default(null).describe("What the user paid, if they said."),
+        currency: z.enum(SUB_CURRENCIES).default("NPR"),
+        note: z.string().max(200).nullable().default(null),
+        next_expiry_date: z.string().max(12).nullable().default(null).describe("One-time reminders only: the new expiry date (YYYY-MM-DD) in the reminder's calendar."),
+        use_credits: z.boolean().optional().describe("Set true only after the user agreed, when a previous call returned credits_permission_required."),
+        confirm: z.boolean().describe("Must be true; ask the user first."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args, extra) =>
+      run("mark_subscription_renewed", extra, async (p) => {
+        if (!args.confirm) return fail("confirmation_required", "Show the user what will be recorded, then call again with confirm=true.");
+        await proOnly(p);
+        const r = await markRenewed(p, args.reminder_id, { renewedOn: args.renewed_on, amount: args.amount, currency: args.currency, note: args.note, nextExpiryDate: args.next_expiry_date, useCredits: args.use_credits });
+        return ok(`Recorded: "${r.reminder.label}" renewed on ${args.renewed_on}${args.amount !== null ? ` for ${money(args.currency, args.amount)}` : ""}. Next date ${r.reminder.expiry.ad}.`, {
+          reminder: reminderOut(r.reminder),
+          history: r.history.slice(0, 5).map((h) => ({ renewed_on: h.renewedOn, amount: h.amount, currency: h.currency, next_due: h.nextDue })),
+        });
+      }),
+  );
+
   return server;
 }
 
@@ -340,4 +513,7 @@ function reminderOut(r: import("../core/dto").ReminderDTO) {
   };
 }
 
-export const TOOL_NAMES = ["get_account", "get_credit_balance", "list_reminders", "list_groups", "prepare_reminder", "confirm_reminder", "update_reminder", "cancel_reminder"] as const;
+export const TOOL_NAMES = [
+  "get_account", "get_credit_balance", "list_reminders", "list_groups", "prepare_reminder", "confirm_reminder", "update_reminder", "cancel_reminder",
+  "get_pro_status", "start_pro_trial", "list_subscriptions", "get_spending_insights", "list_renewal_history", "mark_subscription_renewed",
+] as const;
