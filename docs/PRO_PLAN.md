@@ -1,6 +1,6 @@
 # Nabikaran Pro: research and build plan
 
-Status: **built** (migrations `0011_pro`, `0012_calendar`). Operations: `docs/OPERATIONS.md` §16.
+Status: **built** (migrations `0011_pro`, `0012_calendar`). Public pricing page: `/pricing`. Pro tools for ChatGPT / Claude: `docs/MCP_SETUP.md`. Operations: `docs/OPERATIONS.md` §16.
 
 Decisions taken:
 
@@ -26,8 +26,6 @@ Not built yet (later):
 - family sharing;
 - escalation;
 - price-change history;
-- Pro-only MCP tools;
-- the `/pricing` page;
 - email bounce webhooks.
 
 The original proposal follows.

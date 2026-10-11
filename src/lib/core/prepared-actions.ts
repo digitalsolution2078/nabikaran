@@ -6,7 +6,7 @@ import { instantDTO, type ReminderDTO, type SchedulePreview, type Warning } from
 import { HttpError } from "./errors";
 import { withIdempotency } from "./idempotency";
 import { requireScope, type Principal } from "./principal";
-import { CATEGORIES, createReminderIn, getReminder, previewSchedule, resolveSchedule, updateReminderIn, type ReminderInput } from "./reminders";
+import { CATEGORIES, SUB_CURRENCIES, createReminderIn, getReminder, previewSchedule, resolveSchedule, updateReminderIn, type ReminderInput } from "./reminders";
 import { getActivePricing } from "./wallet";
 
 /**
@@ -47,6 +47,19 @@ export const prepareInputSchema = z.object({
   repeat_yearly: z.boolean().optional(),
   /** Put the reminder in one of the user's groups (see list_groups). On an edit, omitted = keep; null = remove. */
   group_id: z.string().uuid().nullable().optional(),
+  /** Repeat every N months (1 monthly, 3 quarterly, 6 half-yearly). On an edit, omitted = keep; null = stop. */
+  repeat_months: z.number().int().min(1).max(11).nullable().optional(),
+  /** Pro: subscription details (amount, payment method, free trial, cancel notice). On an edit, omitted = keep; null = remove. */
+  subscription: z.object({
+    amount: z.number().min(0).max(100_000_000).nullable().default(null),
+    currency: z.enum(SUB_CURRENCIES).default("NPR"),
+    payment_method: z.string().trim().max(40).nullable().default(null),
+    auto_renew: z.boolean().nullable().default(null),
+    is_trial: z.boolean().default(false),
+    cancel_notice_days: z.number().int().min(0).max(90).nullable().default(null),
+  }).nullable().optional(),
+  /** Pro: the user agreed to use wallet credits for messages their included Pro messages do not cover. */
+  use_credits: z.boolean().optional(),
 });
 export type PrepareInput = z.infer<typeof prepareInputSchema>;
 
@@ -72,12 +85,18 @@ function toReminderInput(i: PrepareInput): ReminderInput {
     offsets: i.offsets_minutes,
     channels: [...new Set(i.channels ?? ["sms"])],
     repeatYearly: i.repeat_yearly,
+    repeatMonths: i.repeat_months,
     groupId: i.group_id,
+    subscription: i.subscription === undefined ? undefined : i.subscription === null ? null : {
+      amount: i.subscription.amount, currency: i.subscription.currency, paymentMethod: i.subscription.payment_method,
+      autoRenew: i.subscription.auto_renew, isTrial: i.subscription.is_trial, cancelNoticeDays: i.subscription.cancel_notice_days,
+    },
+    useCredits: i.use_credits,
   };
 }
 
 function scheduleOf(i: PrepareInput, now: Date) {
-  return resolveSchedule({ calendar: i.expiry.calendar, expiryDate: i.expiry.date, localTime: i.expiry.local_time }, Boolean(i.repeat_yearly), now);
+  return resolveSchedule({ calendar: i.expiry.calendar, expiryDate: i.expiry.date, localTime: i.expiry.local_time }, Boolean(i.repeat_yearly) && !i.repeat_months, now, i.repeat_months ?? null);
 }
 
 function needsConfirmation(i: PrepareInput): boolean {
@@ -88,7 +107,7 @@ function needsConfirmation(i: PrepareInput): boolean {
  * What the assistant must show the user before confirming: exact message text,
  * channel(s), AD and BS dates, the full schedule, and the credit cost.
  */
-export function buildSummary(label: string, preview: SchedulePreview, repeatYearly = false): string {
+export function buildSummary(label: string, preview: SchedulePreview, repeatYearly = false, extra: { repeatMonths?: number | null; subscription?: PrepareInput["subscription"] } = {}): string {
   const bs = preview.expiry.bs?.display ?? "—";
   const chans = preview.channels.map((c) => (c === "sms" ? "SMS" : "WhatsApp")).join(" + ");
   const when = [...new Set(preview.lines.map((l) => l.due.local))].join(", ");
@@ -100,7 +119,11 @@ export function buildSummary(label: string, preview: SchedulePreview, repeatYear
     const b = preview.byChannel[c];
     return b ? `${c === "sms" ? "SMS" : "WhatsApp"} ${b.messages} × ${b.creditsPerUnit} = ${b.credits}` : "";
   }).filter(Boolean).join(", ");
-  return `Reminder "${label}". Date ${preview.expiry.ad} (AD) = ${bs} (BS), ${preview.expiry.local.slice(11)} Nepal time.${repeatYearly ? " Repeats every year on this date; next year's credits are reserved after this date." : ""} ` +
+  const months = extra.repeatMonths ? ` Repeats every ${extra.repeatMonths === 1 ? "month" : `${extra.repeatMonths} months`}.` : "";
+  const sub = extra.subscription
+    ? ` Subscription${extra.subscription.is_trial ? " (free trial ends on this date)" : ""}: ${extra.subscription.amount !== null ? `${extra.subscription.currency} ${extra.subscription.amount}` : "amount not set"}${extra.subscription.payment_method ? ` via ${extra.subscription.payment_method}` : ""}${extra.subscription.cancel_notice_days !== null ? `; adds a "last day to cancel" reminder ${extra.subscription.cancel_notice_days} day(s) before` : ""}.`
+    : "";
+  return `Reminder "${label}". Date ${preview.expiry.ad} (AD) = ${bs} (BS), ${preview.expiry.local.slice(11)} Nepal time.${repeatYearly && !extra.repeatMonths ? " Repeats every year on this date; next year's credits are reserved after this date." : ""}${months}${sub} ` +
     `Channel: ${chans}. Sends at (Nepal time): ${when}. ${sample}. Cost: ${costs}; total ${preview.reservedOnConfirmCredits} credits reserved now ` +
     `(wallet available ${preview.wallet.available}${preview.sufficient ? "" : `, short by ${preview.shortfallCredits} — the user must top up on the website first`}).`;
 }
@@ -109,7 +132,7 @@ function buildPrompt(i: PrepareInput, preview: SchedulePreview): string {
   const ad = preview.expiry.ad;
   const bs = preview.expiry.bs?.display ?? "—";
   const why = i.expiry.calendar === "BS" ? "You entered a Bikram Sambat date" : i.expiry.source === "extracted_from_image" ? "This date was read from a document image" : "This date was inferred";
-  return `${why}. Please confirm the converted date ${ad} (AD) = ${bs} (BS). ${buildSummary(i.label, preview, Boolean(i.repeat_yearly))} ` +
+  return `${why}. Please confirm the converted date ${ad} (AD) = ${bs} (BS). ${buildSummary(i.label, preview, Boolean(i.repeat_yearly), { repeatMonths: i.repeat_months, subscription: i.subscription })} ` +
     `म्याद सकिने मिति ${ad} (ई.सं.) = ${bs} (वि.सं.) हो? पुष्टि गर्नुहोस्।`;
 }
 
@@ -123,6 +146,11 @@ export async function prepareReminderAction(p: Principal, raw: unknown, db: Db =
   if (input.reminder_id && !existing) throw new HttpError(404, "Reminder not found", "not_found");
   // Pin the effective yearly setting in the snapshot so confirm resolves the same date.
   input.repeat_yearly = input.repeat_yearly ?? existing?.repeatYearly ?? false;
+  if (input.repeat_months === undefined) input.repeat_months = existing?.repeatMonths ?? null;
+  if (input.subscription) {
+    const { rows } = await db.query("select 1 from user_plans where user_id = $1 and status = 'active' and starts_at <= now() and ends_at > now() limit 1", [p.userId]);
+    if (!rows[0]) throw new HttpError(403, "Subscriptions are a Nabikaran Pro feature.", "pro_required");
+  }
   if (input.group_id) {
     const { rows } = await db.query("select 1 from reminder_groups where id = $1 and owner_user_id = $2", [input.group_id, p.userId]);
     if (!rows[0]) throw new HttpError(404, "Group not found; call list_groups.", "group_not_found");
@@ -132,7 +160,7 @@ export async function prepareReminderAction(p: Principal, raw: unknown, db: Db =
   const preview = await previewSchedule(p, { ...toReminderInput(input), renewalId: input.reminder_id ?? null }, db, now);
   if (preview.lines.length === 0) throw new HttpError(400, "Every reminder time is already in the past; choose an earlier offset or a later expiry.", "nothing_to_schedule");
   const requiresUserConfirmation = needsConfirmation(input);
-  const confirmationPrompt = requiresUserConfirmation ? buildPrompt(input, preview) : `Please confirm with the user before saving. ${buildSummary(input.label, preview, Boolean(input.repeat_yearly))}`;
+  const confirmationPrompt = requiresUserConfirmation ? buildPrompt(input, preview) : `Please confirm with the user before saving. ${buildSummary(input.label, preview, Boolean(input.repeat_yearly), { repeatMonths: input.repeat_months, subscription: input.subscription })}`;
 
   const { rows } = await db.query<{ id: string; expires_at: string }>(
     `insert into prepared_actions (user_id, client_id, kind, input, preview, pricing_version, expires_at)

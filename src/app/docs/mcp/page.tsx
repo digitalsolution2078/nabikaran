@@ -17,7 +17,15 @@ export default function McpDocs() {
           <li><code>list_reminders</code> — your renewals with AD and BS dates and SMS status</li>
           <li><code>prepare_reminder</code> → <code>confirm_reminder</code> — add or edit a reminder: you see the exact SMS text, dates (AD + BS) and credit cost, then confirm; credits are reserved only after you confirm</li>
           <li><code>update_reminder</code> — pause or resume; <code>cancel_reminder</code> — cancel unsent SMS and release credits</li>
+          <li><code>get_pro_status</code> — your plan, when Pro ends and included messages left; <code>start_pro_trial</code> — start the free trial after you agree</li>
         </ul>
+        <h3>Nabikaran Pro: manage subscriptions from chat</h3>
+        <ul>
+          <li>“Add Netflix, NPR 1,499 every month on the 15th, paid by card, remind me 3 days before” → <code>prepare_reminder</code> with subscription details → you confirm</li>
+          <li><code>list_subscriptions</code> and <code>get_spending_insights</code> — what you pay, when, by payment method, free trials ending and last days to cancel</li>
+          <li><code>mark_subscription_renewed</code> and <code>list_renewal_history</code> — record what you paid and see past renewals</li>
+        </ul>
+        <p className="muted" style={{ fontSize: 13 }}>Pro tools need an active Pro plan or trial (see <a href="/pricing">pricing</a>). Nabikaran never cancels a subscription for you and never estimates amounts: figures come only from what you enter.</p>
         <p className="muted" style={{ fontSize: 13 }}>Bikram Sambat dates and dates read from a document photo always require your explicit confirmation of the converted Gregorian date. The assistant can never top up your wallet, see payment details, or send SMS to any other number.</p>
         <h2>Connect</h2>
         <ol>

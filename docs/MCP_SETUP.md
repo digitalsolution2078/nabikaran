@@ -14,6 +14,14 @@ Nabikaran exposes a remote MCP server at **`https://mcp.nabikaran.org/mcp`**. A 
 | `confirm_reminder` | `reminders:write` | Saves a prepared reminder and reserves its credits |
 | `update_reminder` | `reminders:write` | Pause or resume (edits go through `prepare_reminder` with `reminder_id`) |
 | `cancel_reminder` | `reminders:write` | Cancels with `confirm: true`; reserved credits are released |
+| `get_pro_status` | `account:read` | Basic or Pro, end date, included messages left, current offer, trial availability, pricing link |
+| `start_pro_trial` | `reminders:write` | Starts the one-time free trial with `confirm: true` (no payment; buying Pro stays on the website) |
+| `list_subscriptions` | `reminders:read` | **Pro.** Subscriptions with amount, cycle, next date, payment method, totals per month / year |
+| `get_spending_insights` | `reminders:read` | **Pro.** Totals, by payment method, next 30/90 days, trials ending, last days to cancel |
+| `list_renewal_history` | `reminders:read` | **Pro.** What was renewed and paid |
+| `mark_subscription_renewed` | `reminders:write` | **Pro.** Records a renewal (date, amount) with `confirm: true`; one-time items need the new date |
+
+Adding a subscription from an assistant uses `prepare_reminder` with `subscription` (amount, currency, payment method, auto-renew, `is_trial`, `cancel_notice_days`) and `repeat_months` (1, 3, 6) or `repeat_yearly`, then `confirm_reminder`. Basic accounts get `pro_required` with an `upgrade_url` (`/pricing`). When included Pro messages run out, `confirm_reminder` answers `credits_permission_required`; the assistant must ask the user, then prepare again with `use_credits: true`.
 
 Guarantees enforced on the server:
 

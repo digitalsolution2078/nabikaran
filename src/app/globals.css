@@ -614,3 +614,9 @@ h1, h2, h3 { letter-spacing: -0.02em; }
   .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; box-shadow: none; border: 0; }
   .no-print { display: none !important; }
 }
+
+/* Pricing */
+.price-big { font-size: 34px; font-weight: 800; color: var(--heading); line-height: 1.1; margin: 8px 0 4px; }
+.check-list { list-style: none; padding: 0; margin: 12px 0 16px; display: grid; gap: 8px; }
+.check-list li { position: relative; padding-left: 26px; }
+.check-list li::before { content: ""; position: absolute; left: 0; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--brand-soft, rgba(85, 35, 154, 0.12)) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2355239a' stroke-width='3'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 11px no-repeat; }
