@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { handle, json, parseBody, limit, clientIp, requireSameOrigin } from "@/lib/http";
 import { requestEmailLogin, verifyEmailLogin } from "@/lib/services/email-auth";
-import { setSessionCookie } from "@/lib/auth/session";
+import { startSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { PREFS_COOKIE, encodePrefs } from "@/lib/i18n/prefs";
@@ -27,9 +27,9 @@ export async function PUT(req: Request) {
     const { email, code } = await parseBody(req, z.object({ email: z.string().max(120), code: z.string().max(10) }));
     await limit(`email:${email.trim().toLowerCase()}`, "email:login-verify", 10, 900);
     const userId = await verifyEmailLogin(email, code);
-    await setSessionCookie(userId);
+    const twoFactor = await startSession(userId);
     const { rows } = await getDb().query<{ ui_language: "ne" | "en"; date_format: "BS" | "AD" }>("select ui_language, date_format from users where id = $1", [userId]);
     if (rows[0]) (await cookies()).set(PREFS_COOKIE, encodePrefs({ lang: rows[0].ui_language, date: rows[0].date_format }), { httpOnly: false, sameSite: "lax", secure: env.isProd, path: "/", maxAge: 365 * 24 * 3600 });
-    return json({ ok: true, next: "/dashboard" });
+    return json({ ok: true, twoFactor, next: "/dashboard" });
   });
 }

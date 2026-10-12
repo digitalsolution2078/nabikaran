@@ -46,6 +46,47 @@ export async function setSessionCookie(userId: string) {
   });
 }
 
+// ---- Two-step sign-in -----------------------------------------------------------
+// After the first factor (SMS code / PIN / email) an account with an authenticator
+// app gets only this short "pending" cookie; the session is set after the app code.
+const PENDING_COOKIE = "nb_2fa";
+const PENDING_TTL = 10 * 60;
+
+export async function setPendingTwoFactor(userId: string) {
+  const token = await new SignJWT({ sub: userId, typ: "2fa" }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(`${PENDING_TTL}s`).sign(key());
+  (await cookies()).set(PENDING_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: env.isProd, path: "/", maxAge: PENDING_TTL });
+}
+
+export async function getPendingTwoFactor(): Promise<string | null> {
+  const token = (await cookies()).get(PENDING_COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
+    return payload.typ === "2fa" && typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPendingTwoFactor() {
+  (await cookies()).set(PENDING_COOKIE, "", { httpOnly: true, sameSite: "lax", secure: env.isProd, path: "/", maxAge: 0 });
+}
+
+/**
+ * Finish the first sign-in step: a full session, or (authenticator app on) the
+ * pending step. Returns true when the app code is still needed.
+ */
+export async function startSession(userId: string): Promise<boolean> {
+  const { rows } = await getDb().query("select 1 from users where id = $1 and totp_enabled_at is not null", [userId]);
+  if (rows[0]) {
+    await clearSessionCookie();
+    await setPendingTwoFactor(userId);
+    return true;
+  }
+  await setSessionCookie(userId);
+  return false;
+}
+
 export async function clearSessionCookie() {
   const jar = await cookies();
   jar.set(env.session.cookieName, "", { httpOnly: true, sameSite: "lax", secure: env.isProd, path: "/", maxAge: 0 });
