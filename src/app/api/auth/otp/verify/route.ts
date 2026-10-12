@@ -3,7 +3,7 @@ import { z } from "zod";
 import { handle, json, parseBody, limit, clientIp, requireSameOrigin } from "@/lib/http";
 import { verifyOtp } from "@/lib/auth/otp";
 import { normalizeNepalPhone } from "@/lib/phone";
-import { setSessionCookie } from "@/lib/auth/session";
+import { startSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { PREFS_COOKIE, decodePrefs, encodePrefs } from "@/lib/i18n/prefs";
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     const { phone, code, ref } = await parseBody(req, schema);
     await limit(`phone:${normalizeNepalPhone(phone) ?? "invalid"}`, "otp:verify", 10, 900);
     const { userId, isNew } = await verifyOtp(phone, code);
-    await setSessionCookie(userId);
+    const twoFactor = await startSession(userId);
     const jar0 = await cookies();
     if (isNew) {
       // A new account opened from an invite link (cookie) or ?ref= on the sign-in page.
@@ -36,6 +36,6 @@ export async function POST(req: Request) {
       const { rows } = await db.query<{ ui_language: "ne" | "en"; date_format: "BS" | "AD" }>("select ui_language, date_format from users where id = $1", [userId]);
       if (rows[0]) jar.set(PREFS_COOKIE, encodePrefs({ lang: rows[0].ui_language, date: rows[0].date_format }), { httpOnly: false, sameSite: "lax", secure: env.isProd, path: "/", maxAge: 365 * 24 * 3600 });
     }
-    return json({ ok: true, isNew, next: "/dashboard" });
+    return json({ ok: true, isNew, twoFactor, next: "/dashboard" });
   });
 }

@@ -4,13 +4,14 @@ import { useRouter } from "next/navigation";
 import { api } from "./api";
 import { usePrefs } from "./Prefs";
 import { Icon } from "./Icon";
+import { TwoFactorStep } from "./TwoFactorStep";
 
 export function OtpForm({ next, fee = 1, pinEnabled = false, refCode = null }: { next?: string | null; fee?: number; pinEnabled?: boolean; refCode?: string | null }) {
   const router = useRouter();
   const { t } = usePrefs();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [step, setStep] = useState<"phone" | "code" | "pin">("phone");
+  const [step, setStep] = useState<"phone" | "code" | "pin" | "2fa">("phone");
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +38,12 @@ export function OtpForm({ next, fee = 1, pinEnabled = false, refCode = null }: {
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ next: string }>("/api/auth/otp/verify", { method: "POST", json: { phone, code, ...(refCode ? { ref: refCode } : {}) } });
+      const r = await api<{ next: string; twoFactor?: boolean }>("/api/auth/otp/verify", { method: "POST", json: { phone, code, ...(refCode ? { ref: refCode } : {}) } });
+      if (r.twoFactor) {
+        setStep("2fa");
+        setBusy(false);
+        return;
+      }
       router.push(next ?? r.next);
       router.refresh();
     } catch (err) {
@@ -51,7 +57,12 @@ export function OtpForm({ next, fee = 1, pinEnabled = false, refCode = null }: {
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ next: string }>("/api/auth/pin", { method: "POST", json: { phone, pin } });
+      const r = await api<{ next: string; twoFactor?: boolean }>("/api/auth/pin", { method: "POST", json: { phone, pin } });
+      if (r.twoFactor) {
+        setStep("2fa");
+        setBusy(false);
+        return;
+      }
       router.push(next ?? r.next);
       router.refresh();
     } catch (err) {
@@ -60,6 +71,8 @@ export function OtpForm({ next, fee = 1, pinEnabled = false, refCode = null }: {
       setBusy(false);
     }
   }
+
+  if (step === "2fa") return <TwoFactorStep next={next} />;
 
   if (step === "pin") {
     return (

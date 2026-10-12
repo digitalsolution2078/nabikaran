@@ -14,6 +14,8 @@ import { PlanControl } from "@/components/admin/PlanControl";
 import { planHistory } from "@/lib/services/plans";
 import { banInfo } from "@/lib/services/bans";
 import { BanControl } from "@/components/admin/BanControl";
+import { TwoFactorAdmin } from "@/components/admin/TwoFactorAdmin";
+import { twoFactorStatus } from "@/lib/services/two-factor";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
   const { id } = await params;
   const [me, d] = await Promise.all([getCurrentUser(), getUserDetail(id)]);
   if (!d || !me) notFound();
-  const [st, topups, msgs, notes, auditRows, plans, ban] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id), banInfo(id)]);
+  const [st, topups, msgs, notes, auditRows, plans, ban, tfa] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id), banInfo(id), twoFactorStatus(id)]);
   const u = d.user;
   const self = me.id === u.id;
   return (
@@ -43,6 +45,11 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
       <section className="card" id="ban">
         <h2>Account access</h2>
         {self ? <p className="muted mb-0">This is your account.</p> : <BanControl userId={u.id} info={ban} canBan={can(me.role, "users.ban")} isStaff={u.role !== "user"} />}
+      </section>
+
+      <section className="card">
+        <h2>Two-step sign-in (authenticator app)</h2>
+        <TwoFactorAdmin userId={u.id} enabled={tfa.enabled} enabledAt={tfa.enabledAt} canReset={can(me.role, "roles.manage") && !self} />
       </section>
 
       <section className="card">

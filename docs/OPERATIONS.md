@@ -508,3 +508,20 @@ Owner checklist before launch:
 5. **Staff accounts.** Every staff account belongs to a real staff member, and roles are as small as possible (Settings & roles).
 
 Known, accepted for launch (low): sessions are 30-day signed cookies (a ban or role change applies at once, but logging out does not revoke a copied cookie); calendar feed tokens are stored as-is (192-bit random); OAuth authorize errors before sign-in can redirect to a registered client URI.
+
+## 22. Authenticator app: two-step sign-in (migration `0016_totp`)
+
+Two-step sign-in is optional for every account and strongly recommended for every staff account. Customers turn it on in **Settings → Authenticator app**:
+
+1. Scan the QR code with Google Authenticator, Microsoft Authenticator or Authy.
+2. Enter the 6-digit code from the app.
+3. Save the 10 one-time recovery codes; they are shown only once.
+
+From then on, every sign-in (SMS code, PIN or email) needs one more step before a session exists: an app code or one recovery code. The same applies to sign-ins started from ChatGPT or Claude, because they use the same sign-in page.
+
+- **Standard and storage.** Codes follow TOTP (RFC 6238: SHA-1, 30 s, 6 digits), with ±30 s for clock drift. Each code works once. The secret is encrypted with the server key, like provider keys. Recovery codes are stored hashed.
+- **Limits.** 8 code attempts per account per 15 minutes. The waiting step expires after 10 minutes.
+- **Managing it.**
+  - Turning it off needs an app code or a recovery code.
+  - New recovery codes need an app code, and the old ones stop working.
+- **Lost phone and lost recovery codes.** A Super Admin uses **Admin → Users → customer → Two-step sign-in → Reset 2FA**, with a reason, after checking the customer's identity (for example, a call from their registered number). This is logged as `auth.2fa_reset_by_admin`.

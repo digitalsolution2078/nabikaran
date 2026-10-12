@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/rbac";
 import { directAdjustment, setUserRole } from "@/lib/services/admin-console";
 import { requestWalletAdjustment } from "@/lib/services/admin";
 import { banUser, unbanUser } from "@/lib/services/bans";
+import { adminResetTwoFactor } from "@/lib/services/two-factor";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -19,6 +20,7 @@ const schema = z.discriminatedUnion("action", [
   }),
   z.object({ action: z.literal("ban"), reason: z.string().trim().min(5).max(300), until: z.string().max(40).nullable().default(null), confirm: z.literal(true) }),
   z.object({ action: z.literal("unban"), note: z.string().trim().max(300).nullable().default(null), confirm: z.literal(true) }),
+  z.object({ action: z.literal("reset2fa"), reason: z.string().trim().min(5).max(300), confirm: z.literal(true) }),
 ]);
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -30,6 +32,11 @@ export async function POST(req: Request, ctx: Ctx) {
     if (body.action === "role") {
       if (!can(admin.role, "roles.manage")) throw new HttpError(403, "Only a Super Admin can change roles", "forbidden");
       await setUserRole({ id: admin.id, role: admin.role }, userId, body.role);
+      return json({ ok: true });
+    }
+    if (body.action === "reset2fa") {
+      if (!can(admin.role, "roles.manage")) throw new HttpError(403, "Only a Super Admin can reset two-step sign-in", "forbidden");
+      await adminResetTwoFactor(admin, userId, body.reason);
       return json({ ok: true });
     }
     if (body.action === "ban" || body.action === "unban") {

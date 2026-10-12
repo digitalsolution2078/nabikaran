@@ -3,12 +3,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
 import { usePrefs } from "./Prefs";
+import { TwoFactorStep } from "./TwoFactorStep";
 
 /** Pro: sign in with an emailed code. Collapsed by default under the phone sign-in. */
 export function EmailLogin({ next }: { next?: string | null }) {
   const { t } = usePrefs();
   const router = useRouter();
   const [email, setEmail] = useState("");
+  const [twoFactor, setTwoFactor] = useState(false);
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
   const [devCode, setDevCode] = useState<string | null>(null);
@@ -35,7 +37,12 @@ export function EmailLogin({ next }: { next?: string | null }) {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/auth/email", { method: "PUT", json: { email, code } });
+      const r = await api<{ twoFactor?: boolean }>("/api/auth/email", { method: "PUT", json: { email, code } });
+      if (r.twoFactor) {
+        setTwoFactor(true);
+        setBusy(false);
+        return;
+      }
       router.push(next ?? "/dashboard");
       router.refresh();
     } catch (err) {
@@ -43,6 +50,8 @@ export function EmailLogin({ next }: { next?: string | null }) {
       setBusy(false);
     }
   }
+
+  if (twoFactor) return <div className="mt"><TwoFactorStep next={next} /></div>;
 
   return (
     <details className="email-login">
