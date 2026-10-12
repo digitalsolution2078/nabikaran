@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "./api";
+import { usePrefs } from "./Prefs";
+import { formatDate, formatDateTime } from "@/lib/i18n/format";
 
 export interface Connection {
   clientId: string;
@@ -13,9 +15,10 @@ export interface Connection {
 
 export function ConnectedApps({ connections }: { connections: Connection[] }) {
   const router = useRouter();
+  const { t, prefs } = usePrefs();
   const [busy, setBusy] = useState<string | null>(null);
   async function disconnect(clientId: string) {
-    if (!confirm("Disconnect this app? It will lose access immediately.")) return;
+    if (!confirm(t("apps.confirm"))) return;
     setBusy(clientId);
     try {
       await api("/api/me/connections", { method: "DELETE", json: { clientId } });
@@ -26,23 +29,23 @@ export function ConnectedApps({ connections }: { connections: Connection[] }) {
   }
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>Connected apps</h2>
+      <h2 style={{ marginTop: 0 }}>{t("apps.title")}</h2>
       {connections.length === 0 ? (
-        <p className="muted">No AI assistants or apps are connected. Connect ChatGPT or Claude from the assistant's connector settings using the Nabikaran MCP server.</p>
+        <p className="muted">{t("apps.none")}</p>
       ) : (
-        <table>
-          <thead><tr><th>App</th><th>Access</th><th>Last used</th><th /></tr></thead>
+        <div className="table-wrap"><table>
+          <thead><tr><th>{t("apps.app")}</th><th>{t("apps.access")}</th><th>{t("apps.lastUsed")}</th><th /></tr></thead>
           <tbody>
             {connections.map((c) => (
               <tr key={c.clientId}>
-                <td>{c.name}<br /><span className="muted" style={{ fontSize: 12 }}>since {new Date(c.connectedAt).toLocaleDateString("en-GB", { timeZone: "Asia/Kathmandu" })}</span></td>
+                <td>{c.name}<br /><span className="muted" style={{ fontSize: 12 }}>{t("apps.since", { date: formatDate(c.connectedAt, prefs) })}</span></td>
                 <td className="muted" style={{ fontSize: 13 }}>{c.scopes.join(", ")}</td>
-                <td className="muted" style={{ fontSize: 13 }}>{c.lastUsedAt ? new Date(c.lastUsedAt).toLocaleString("en-GB", { timeZone: "Asia/Kathmandu" }) : "never"}</td>
-                <td><button className="danger" disabled={busy === c.clientId} onClick={() => disconnect(c.clientId)}>Disconnect</button></td>
+                <td className="muted" style={{ fontSize: 13 }}>{c.lastUsedAt ? formatDateTime(c.lastUsedAt, prefs) : t("apps.never")}</td>
+                <td><button className="btn btn-secondary btn-sm" disabled={busy === c.clientId} onClick={() => disconnect(c.clientId)}>{t("apps.disconnect")}</button></td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );

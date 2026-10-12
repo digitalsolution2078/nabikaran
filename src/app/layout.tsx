@@ -10,6 +10,9 @@ import { isAdminRole } from "@/lib/auth/rbac";
 import { getPlanState } from "@/lib/services/plans";
 import { getSetting } from "@/lib/services/settings";
 import { cookies } from "next/headers";
+import { MotionRoot } from "@/components/motion/MotionRoot";
+import { jakarta, mukta } from "./fonts";
+import { translate } from "@/lib/i18n/dict";
 import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 
 export const metadata: Metadata = {
@@ -44,13 +47,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       }
     : null;
   return (
-    <html lang={ctx.prefs.lang} data-theme={theme}>
+    <html lang={ctx.prefs.lang} data-theme={theme} className={`${jakarta.variable} ${mukta.variable}`}>
       <body>
-        <a href="#main" className="sr-only">Skip to content</a>
+        <a href="#main" className="skip-link">{translate(ctx.prefs.lang, "common.skip")}</a>
         <PrefsProvider initial={ctx.prefs} chosen={ctx.chosen} signedIn={Boolean(ctx.user)}>
           <Shell user={shellUser} clockIso={new Date().toISOString()}>{children}</Shell>
         </PrefsProvider>
         <SwRegister />
+        <MotionRoot />
       </body>
     </html>
   );
