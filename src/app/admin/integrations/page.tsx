@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
@@ -8,6 +9,7 @@ import { IntegrationsAdmin } from "@/components/admin/IntegrationsAdmin";
 export const dynamic = "force-dynamic";
 
 export default async function AdminIntegrations() {
+  await requireAdminPage();
   const me = await getCurrentUser();
   if (!can(me?.role, "settings.manage")) redirect("/admin");
   const st = await integrationStatus();

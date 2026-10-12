@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
@@ -8,6 +9,7 @@ import { CouponsAdmin } from "@/components/admin/CouponsAdmin";
 export const dynamic = "force-dynamic";
 
 export default async function CouponsPage() {
+  await requireAdminPage();
   const user = await getCurrentUser();
   if (!user || !can(user.role, "coupons.manage")) redirect("/admin");
   const [batches, gifts, codes] = await Promise.all([listCouponBatches(), giftCardStats(), getSetting("codes")]);

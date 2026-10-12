@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { searchUsers } from "@/lib/services/admin-console";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -8,6 +9,7 @@ import { can } from "@/lib/auth/rbac";
 export const dynamic = "force-dynamic";
 
 export default async function AdminUsers({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  await requireAdminPage();
   const { q = "" } = await searchParams;
   const [users, me] = await Promise.all([searchUsers(q, 100), getCurrentUser()]);
   return (

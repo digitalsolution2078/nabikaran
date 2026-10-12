@@ -1,7 +1,8 @@
 import { cookies } from "next/headers";
 import { z } from "zod";
-import { handle, json, parseBody, limit, clientIp } from "@/lib/http";
+import { handle, json, parseBody, limit, clientIp, requireSameOrigin } from "@/lib/http";
 import { verifyOtp } from "@/lib/auth/otp";
+import { normalizeNepalPhone } from "@/lib/phone";
 import { setSessionCookie } from "@/lib/auth/session";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -12,8 +13,10 @@ const schema = z.object({ phone: z.string().min(7).max(20), code: z.string().len
 
 export async function POST(req: Request) {
   return handle(async () => {
+    await requireSameOrigin();
     await limit(`ip:${clientIp(req) ?? "unknown"}`, "otp:verify", 30, 600);
     const { phone, code, ref } = await parseBody(req, schema);
+    await limit(`phone:${normalizeNepalPhone(phone) ?? "invalid"}`, "otp:verify", 10, 900);
     const { userId, isNew } = await verifyOtp(phone, code);
     await setSessionCookie(userId);
     const jar0 = await cookies();

@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -13,6 +14,7 @@ import { referralReport } from "@/lib/services/referrals";
 export const dynamic = "force-dynamic";
 
 export default async function AdminSettings() {
+  await requireAdminPage();
   const me = await getCurrentUser();
   if (!can(me?.role, "settings.manage")) redirect("/admin");
   const [topup, qr, signin, referral, pin, report, admins] = await Promise.all([

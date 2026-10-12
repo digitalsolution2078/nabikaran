@@ -47,6 +47,7 @@ const hint = (code: string) => normalizeCode(code).slice(-4);
 function mapError(e: unknown): never {
   const m = (e as Error).message ?? "";
   if (/code_invalid|code_not_found/.test(m)) throw new HttpError(404, "This code is not valid. Check it and try again.", "code_invalid");
+  if (/code_staff/.test(m)) throw new HttpError(403, "Staff accounts cannot redeem codes.", "code_staff");
   if (/code_already_redeemed/.test(m)) throw new HttpError(409, "You have already used this code.", "code_already_redeemed");
   if (/code_used/.test(m)) throw new HttpError(409, "This code has already been used.", "code_used");
   if (/code_expired/.test(m)) throw new HttpError(410, "This code has expired.", "code_expired");
@@ -179,7 +180,10 @@ export interface CreateBatchInput {
   code?: string | null;
 }
 
-export async function createCouponBatch(admin: { id: string }, input: CreateBatchInput, db: Db = getDb()): Promise<{ batch: CouponBatch; codes: string[] }> {
+/** Most credits a batch made by anyone but a Super Admin can give away in total. */
+export const ADMIN_COUPON_CAP = 10_000;
+
+export async function createCouponBatch(admin: { id: string; role?: string }, input: CreateBatchInput, db: Db = getDb()): Promise<{ batch: CouponBatch; codes: string[] }> {
   const name = input.name.trim();
   if (name.length < 3 || name.length > 80) throw new HttpError(400, "Give the batch a name (3–80 characters).", "invalid_name");
   if (!Number.isInteger(input.credits) || input.credits < 1 || input.credits > 100000) throw new HttpError(400, "Credits per code must be 1–100,000.", "invalid_credits");
@@ -188,6 +192,10 @@ export async function createCouponBatch(admin: { id: string }, input: CreateBatc
   const count = input.kind === "single" ? input.count ?? 1 : 1;
   if (!Number.isInteger(count) || count < 1 || count > 5000) throw new HttpError(400, "Make 1–5,000 codes at a time.", "invalid_count");
   const maxRedemptions = input.kind === "shared" ? input.maxRedemptions ?? 100 : 1;
+  const worstCase = input.credits * (input.kind === "single" ? count : maxRedemptions);
+  if (admin.role !== "super_admin" && worstCase > ADMIN_COUPON_CAP) {
+    throw new HttpError(403, `A batch can give away at most ${ADMIN_COUPON_CAP.toLocaleString("en-US")} credits in total; ask a Super Admin for bigger campaigns.`, "coupon_cap");
+  }
   if (!Number.isInteger(maxRedemptions) || maxRedemptions < 1 || maxRedemptions > 1000000) throw new HttpError(400, "Use limit must be 1–1,000,000.", "invalid_limit");
   let codes: string[];
   if (input.kind === "shared" && input.code?.trim()) {

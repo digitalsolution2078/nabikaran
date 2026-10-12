@@ -97,7 +97,9 @@ export const env = {
     ttlSeconds: 300,
     maxAttempts: 5,
     perPhonePer15Min: 3,
-    perIpPerHour: 10,
+    // Mobile carriers in Nepal put many customers behind one IP (CGNAT), so the
+    // per-IP limit is generous; the per-phone limit is what stops SMS abuse.
+    perIpPerHour: Number(process.env.OTP_PER_IP_PER_HOUR ?? 40) || 40,
   },
   session: {
     cookieName: "nb_session",

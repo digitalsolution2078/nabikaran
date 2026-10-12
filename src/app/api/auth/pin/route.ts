@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { z } from "zod";
-import { handle, json, parseBody, limit, clientIp, HttpError } from "@/lib/http";
+import { handle, json, parseBody, limit, clientIp, HttpError, requireSameOrigin } from "@/lib/http";
 import { PinError, verifyPinLogin } from "@/lib/auth/pin";
 import { setSessionCookie } from "@/lib/auth/session";
 import { getDb } from "@/lib/db";
@@ -13,6 +13,7 @@ const schema = z.object({ phone: z.string().min(7).max(20), pin: z.string().min(
 /** Sign in with mobile + PIN: no SMS is sent, so no sign-in fee. */
 export async function POST(req: Request) {
   return handle(async () => {
+    await requireSameOrigin();
     await limit(`ip:${clientIp(req) ?? "unknown"}`, "pin:login", 20, 600);
     const { phone, pin } = await parseBody(req, schema);
     await limit(`phone:${normalizeNepalPhone(phone) ?? "invalid"}`, "pin:login", 10, 900);

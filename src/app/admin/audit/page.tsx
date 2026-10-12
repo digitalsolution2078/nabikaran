@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { listAudit } from "@/lib/services/admin-console";
 
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 const PREFIXES = ["", "wallet.", "rbac.", "settings.", "sms.", "templates.", "reminder.", "oauth.", "mcp.", "auth.", "payment."];
 
 export default async function AdminAudit({ searchParams }: { searchParams: Promise<{ action?: string }> }) {
+  await requireAdminPage();
   const { action = "" } = await searchParams;
   const rows = await listAudit({ action: PREFIXES.includes(action) ? action : "", limit: 300 });
   return (

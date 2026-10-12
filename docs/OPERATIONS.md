@@ -476,3 +476,35 @@ Unban restores the account and resumes exactly the reminders the ban paused. Rem
 ### 20.3 History and audit
 
 Every ban and unban is kept in the customer's **ban history**: who, when, reason, until. It is also in the audit log as `user.banned` / `user.unbanned`.
+
+## 21. Security (pre-launch review, migration `0015_security`)
+
+What is enforced in code:
+
+- **Admin pages.** Every admin page checks the role itself (`requireAdminPage`), not only the admin layout. Counter-only staff never see admin data.
+- **Sign-in.**
+  - Same-site checks on every sign-in and logout request.
+  - Atomic limits: SMS-code requests are capped at 3 per phone per 15 minutes and `OTP_PER_IP_PER_HOUR` (default 40) per IP. The IP limit is generous because mobile carriers share IPs (CGNAT). Code checks are capped at 10 per phone per 15 minutes.
+  - The `next=` redirect after sign-in accepts same-site paths only.
+- **Rate-limit IP.** It is the address our own proxy saw: the `TRUSTED_PROXY_HOPS`-th entry from the right of X-Forwarded-For (default 1, Traefik). Keep Traefik's `forwardedHeaders.insecure` off. If another proxy (Nginx, Cloudflare) sits in front of Traefik, raise the number.
+- **Money.**
+  - Staff accounts cannot redeem coupons or gift cards, and an admin cannot redeem a coupon they made.
+  - A coupon batch from anyone but a Super Admin can give away at most 10,000 credits in total.
+  - One bank or wallet reference can fund only one top-up, however it is typed ("FT 123" = "ft123" = "FONEPAY:123").
+  - A Khalti payment reference belongs to one order.
+  - The referral cap holds under concurrent top-ups.
+  - Nobody can request an adjustment to their own wallet.
+- **Errors and health.** Clients never see database or network error text; `/api/health` says only `down`.
+- **Headers.** `Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; object-src 'none'` and `Permissions-Policy` are added to the existing HSTS, X-Frame-Options, nosniff and Referrer-Policy.
+- **Uploads.** Receipts over 3.5 MB are refused before they are read.
+- **Mock SMS.** On a real domain the mock SMS provider never prints sign-in codes into the logs, and it warns that nothing is delivered.
+
+Owner checklist before launch:
+
+1. **SMS.** `SMS_PROVIDER=aakash` with a valid key (Admin → Integrations). With mock, no one receives sign-in codes.
+2. **Secrets.** `SESSION_SECRET`, `OTP_PEPPER`, `WORKER_TOKEN` and `SECRETS_KEY` are long random values, e.g. `openssl rand -base64 48`, never `CHANGE_ME`. Changing `SESSION_SECRET` signs everyone out; changing `OTP_PEPPER` only invalidates codes in flight.
+3. **Proxy.** Traefik is the only proxy in front of the app, or `TRUSTED_PROXY_HOPS` is set to match.
+4. **Backups.** A daily off-server database backup is in place.
+5. **Staff accounts.** Every staff account belongs to a real staff member, and roles are as small as possible (Settings & roles).
+
+Known, accepted for launch (low): sessions are 30-day signed cookies (a ban or role change applies at once, but logging out does not revoke a copied cookie); calendar feed tokens are stored as-is (192-bit random); OAuth authorize errors before sign-in can redirect to a registered client URI.

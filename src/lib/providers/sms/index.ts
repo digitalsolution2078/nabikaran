@@ -21,7 +21,10 @@ export function getSmsProvider(): SmsProvider {
     instance = new AakashSmsProvider(env.aakash);
   } else {
     const mock = new MockSmsProvider();
-    mock.log = (line) => console.log(line);
+    // On a real production domain the mock must never print sign-in codes into the logs.
+    const realProd = env.isProd && !/localhost|127\.0\.0\.1/.test(env.appUrl);
+    if (realProd) console.warn("[sms] SMS_PROVIDER is mock in production: no SMS is delivered. Set Aakash in Admin → Integrations.");
+    mock.log = (line) => console.log(realProd ? line.replace(/\d{4,}/g, "****") : line);
     instance = mock;
   }
   return instance;

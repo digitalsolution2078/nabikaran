@@ -11,6 +11,9 @@ export async function POST(req: Request, ctx: Ctx) {
     await limit(`user:${user.id}`, "topup:manual", 20, 3600);
     const { id } = await ctx.params;
     const requestId = z.string().uuid().parse(id);
+    // Refuse oversized uploads before reading them into memory (receipts are at most 3 MB).
+    const size = Number(req.headers.get("content-length") ?? "0");
+    if (!size || size > 3.5 * 1024 * 1024) throw new HttpError(413, "Receipt must be 3 MB or smaller", "receipt_too_large");
     const form = await req.formData().catch(() => {
       throw new HttpError(400, "Expected form data");
     });

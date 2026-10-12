@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { listDocTemplates } from "@/lib/services/admin-console";
 import { DocTemplateEditor } from "@/components/admin/DocTemplateEditor";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -6,6 +7,7 @@ import { can } from "@/lib/auth/rbac";
 export const dynamic = "force-dynamic";
 
 export default async function AdminTemplates() {
+  await requireAdminPage();
   const [templates, me] = await Promise.all([listDocTemplates(true), getCurrentUser()]);
   return (
     <div className="stack">
