@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDb, createUser } from "./helpers/db";
 import type { Db } from "@/lib/db";
 import { base32Decode, base32Encode, currentStep, totpAt, verifyTotp } from "@/lib/auth/totp";
-import { adminResetTwoFactor, beginSetup, confirmSetup, disableTwoFactor, regenerateRecoveryCodes, twoFactorRequired, twoFactorStatus, verifySecondFactor } from "@/lib/services/two-factor";
+import { staffNeedsTwoFactor, adminResetTwoFactor, beginSetup, confirmSetup, disableTwoFactor, regenerateRecoveryCodes, twoFactorRequired, twoFactorStatus, verifySecondFactor } from "@/lib/services/two-factor";
 import { decryptSecret } from "@/lib/services/secrets";
 
 let db: Db;
@@ -75,5 +75,21 @@ describe("two-step sign-in service", () => {
     await expect(adminResetTwoFactor({ id: u }, u, "lost my phone", db)).rejects.toMatchObject({ code: "self_reset" });
     await adminResetTwoFactor({ id: admin }, u, "Lost phone, verified by call", db);
     expect(await twoFactorRequired(u, db)).toBe(false);
+  });
+});
+
+describe("staff must use the authenticator app", () => {
+  it("customers never, staff until it is on, unless switched off for an emergency", async () => {
+    const cust = await createUser(db, "+9779841000510");
+    const staff = await createUser(db, "+9779841000511", "admin");
+    expect(await staffNeedsTwoFactor({ id: cust, role: "user" }, db)).toBe(false);
+    expect(await staffNeedsTwoFactor({ id: staff, role: "admin" }, db)).toBe(true);
+    expect(await staffNeedsTwoFactor({ id: staff, role: "counter" }, db)).toBe(true);
+    process.env.STAFF_2FA_REQUIRED = "false";
+    expect(await staffNeedsTwoFactor({ id: staff, role: "admin" }, db)).toBe(false);
+    delete process.env.STAFF_2FA_REQUIRED;
+    await beginSetup(staff, db);
+    await confirmSetup(staff, totpAt(await secretOf(staff), currentStep()), db);
+    expect(await staffNeedsTwoFactor({ id: staff, role: "admin" }, db)).toBe(false);
   });
 });

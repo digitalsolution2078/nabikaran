@@ -6,6 +6,7 @@ import { env } from "./env";
 import { HttpError, RateLimitError } from "./core/errors";
 import { webPrincipal, type Principal } from "./core/principal";
 import { can, isAdminRole, type Permission } from "./auth/rbac";
+import { staffNeedsTwoFactor } from "./services/two-factor";
 
 export { HttpError };
 
@@ -54,10 +55,18 @@ export async function requirePrincipal(req: Request): Promise<{ user: SessionUse
   return { user, principal: webPrincipal(user) };
 }
 
+/** Staff must have the authenticator app on before any staff action. */
+async function assertStaffTwoFactor(user: SessionUser): Promise<void> {
+  if (await staffNeedsTwoFactor(user)) {
+    throw new HttpError(403, "Staff accounts must turn on the authenticator app first: Settings → Authenticator app.", "staff_2fa_required");
+  }
+}
+
 /** Staff who may see the admin console (every staff role except counter-only staff). */
 export async function requireAdmin(req: Request): Promise<SessionUser> {
   const user = await requireUser(req);
   if (!isAdminRole(user.role) || !can(user.role, "admin.view")) throw new HttpError(403, "Admin only", "forbidden");
+  await assertStaffTwoFactor(user);
   return user;
 }
 
@@ -66,6 +75,7 @@ export async function requirePermission(req: Request, permission: Permission): P
   const user = await requireUser(req);
   if (!isAdminRole(user.role)) throw new HttpError(403, "Admin only", "forbidden");
   if (!can(user.role, permission)) throw new HttpError(403, `Missing permission ${permission}`, "forbidden");
+  await assertStaffTwoFactor(user);
   return user;
 }
 
