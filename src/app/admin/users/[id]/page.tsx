@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -17,6 +18,7 @@ import { BanControl } from "@/components/admin/BanControl";
 export const dynamic = "force-dynamic";
 
 export default async function AdminUserDetail({ params }: { params: Promise<{ id: string }> }) {
+  await requireAdminPage();
   const { id } = await params;
   const [me, d] = await Promise.all([getCurrentUser(), getUserDetail(id)]);
   if (!d || !me) notFound();

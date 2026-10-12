@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
 import { assertSameOrigin, getCurrentUser, type SessionUser } from "./auth/session";
@@ -18,8 +19,10 @@ export function errorResponse(e: unknown) {
   }
   if (e instanceof HttpError) return json({ error: e.message, code: e.code, ...(e.detail ? { detail: e.detail } : {}) }, { status: e.status });
   if (e instanceof ZodError) return json({ error: "Invalid input", issues: e.issues }, { status: 400 });
+  // Our own errors (OtpError, PinError, OAuthError…) carry a snake_case code and a
+  // message written for users. Anything else (database, network) stays internal.
   const code = (e as { code?: string })?.code;
-  if (code) return json({ error: (e as Error).message, code }, { status: 400 });
+  if (typeof code === "string" && /^[a-z][a-z_]*$/.test(code)) return json({ error: (e as Error).message, code }, { status: 400 });
   console.error(e);
   return json({ error: "Internal error" }, { status: 500 });
 }
@@ -38,6 +41,11 @@ export async function requireUser(req: Request): Promise<SessionUser> {
   const user = await getCurrentUser();
   if (!user) throw new HttpError(401, "Sign in required", "unauthenticated");
   return user;
+}
+
+/** Cross-site check for routes that do not require a session (sign-in, logout). */
+export async function requireSameOrigin(): Promise<void> {
+  if (!(await assertSameOrigin())) throw new HttpError(403, "Cross-site request blocked", "csrf");
 }
 
 /** Web transport → core Principal (all scopes; identity from the session cookie only). */
@@ -65,12 +73,25 @@ export async function requirePermission(req: Request, permission: Permission): P
 export function requireWorker(req: Request) {
   const auth = req.headers.get("authorization") ?? "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token || token !== env.workerToken()) throw new HttpError(401, "Worker token required", "unauthenticated");
+  const expected = Buffer.from(env.workerToken());
+  const given = Buffer.from(token);
+  if (!token || given.length !== expected.length || !timingSafeEqual(given, expected)) throw new HttpError(401, "Worker token required", "unauthenticated");
 }
 
+/**
+ * The client's IP for rate limits. X-Forwarded-For is "client, proxy1, proxy2…";
+ * each proxy APPENDS what it saw, so only the entries added by our own proxies
+ * can be trusted. TRUSTED_PROXY_HOPS (default 1: Traefik / Nginx in front of the
+ * app) says how many; the entry that many places from the right is the client.
+ * A client-supplied value further left is ignored.
+ */
 export function clientIp(req: Request): string | null {
+  const hops = Math.max(1, Number(process.env.TRUSTED_PROXY_HOPS ?? 1) || 1);
   const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
+  if (fwd) {
+    const parts = fwd.split(",").map((x) => x.trim()).filter(Boolean);
+    if (parts.length) return parts[Math.max(0, parts.length - hops)]!;
+  }
   return req.headers.get("x-real-ip");
 }
 

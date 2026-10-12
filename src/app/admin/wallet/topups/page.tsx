@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listTopupsForAdmin } from "@/lib/services/manual-topups";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 const TABS = ["pending", "approved", "rejected", "awaiting_payment", "all"] as const;
 
 export default async function AdminTopups({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+  await requireAdminPage();
   const { status: raw } = await searchParams;
   const status = (TABS as readonly string[]).includes(raw ?? "") ? (raw as (typeof TABS)[number]) : "pending";
   const me = await getCurrentUser();

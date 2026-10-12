@@ -86,6 +86,8 @@ export async function rewardReferralIfQualified(userId: string, db: Db = getDb()
     if (!s.enabled) return false; // stays pending; paid if the programme is switched back on before the next top-up
     const { rows: paid } = await tx.query<{ n: string }>("select coalesce(sum(signed_credits),0)::text as n from wallet_ledger where user_id = $1 and type = 'topup'", [userId]);
     if (Number(paid[0].n) < s.min_topup_npr) return false;
+    // Serialise per referrer so concurrent qualifying top-ups cannot pass the cap together.
+    await tx.query("select pg_advisory_xact_lock(hashtext('referral:' || $1::text))", [r.referrer_id]);
     const { rows: done } = await tx.query<{ n: string }>("select count(*)::text as n from referral_rewards where referrer_id = $1 and status = 'rewarded'", [r.referrer_id]);
     const capped = Number(done[0].n) >= s.max_rewards_per_referrer;
     const referrerCredits = capped ? 0 : s.referrer_credits;

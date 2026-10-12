@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -10,6 +11,7 @@ import { ProAdmin } from "@/components/admin/ProAdmin";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPro() {
+  await requireAdminPage();
   const me = await getCurrentUser();
   if (!can(me?.role, "settings.manage")) redirect("/admin");
   const [pro, email, key, report] = await Promise.all([getSetting("pro"), getSetting("email"), secretStatus("resend_api_key"), proReport()]);

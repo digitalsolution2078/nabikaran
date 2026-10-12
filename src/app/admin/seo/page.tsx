@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { listSeoPages } from "@/lib/services/seo";
 import { listDocTemplates } from "@/lib/services/admin-console";
 import { SeoEditor } from "@/components/admin/SeoEditor";
@@ -7,6 +8,7 @@ import { can } from "@/lib/auth/rbac";
 export const dynamic = "force-dynamic";
 
 export default async function AdminSeo() {
+  await requireAdminPage();
   const [pages, templates, me] = await Promise.all([listSeoPages({ includeHidden: true }), listDocTemplates(true), getCurrentUser()]);
   return (
     <div className="stack">

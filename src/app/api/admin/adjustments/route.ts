@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handle, json, parseBody, requireAdmin, requirePermission } from "@/lib/http";
+import { handle, json, parseBody, requireAdmin, requirePermission, HttpError } from "@/lib/http";
 import { approveWalletAdjustment, requestWalletAdjustment } from "@/lib/services/admin";
 import { getDb } from "@/lib/db";
 
@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     // Each action needs its own permission (e.g. a read-only auditor can do neither).
     const admin = await requirePermission(req, body.action === "request" ? "adjustments.request" : "adjustments.approve");
     if (body.action === "request") {
+      if (body.userId === admin.id) throw new HttpError(403, "You cannot request an adjustment to your own wallet", "self_adjustment");
       const id = await requestWalletAdjustment(admin.id, body.userId, body.signedCredits, body.reason);
       return json({ id, status: "pending" }, { status: 201 });
     }

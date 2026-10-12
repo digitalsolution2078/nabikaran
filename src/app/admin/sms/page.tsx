@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
 import { listSmsTemplates } from "@/lib/services/admin-console";
@@ -17,6 +18,7 @@ const when = (s: string | null) => (s ? new Date(s).toLocaleString("en-GB", { ti
 
 /** Channels & pricing: SMS and WhatsApp prices (with history), templates, WhatsApp provider settings. */
 export default async function AdminChannels() {
+  await requireAdminPage();
   const me = await getCurrentUser();
   const managePrice = can(me?.role, "sms.manage");
   const manageTemplates = can(me?.role, "templates.manage") || managePrice;

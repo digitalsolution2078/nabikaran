@@ -23,6 +23,7 @@ export async function GET() {
       { status: dispatcherOk ? 200 : 503, headers: { "cache-control": "no-store" } },
     );
   } catch (e) {
-    return NextResponse.json({ status: "down", db: "error", error: (e as Error).message.slice(0, 120) }, { status: 503, headers: { "cache-control": "no-store" } });
+    console.error("[health] database check failed", e);
+    return NextResponse.json({ status: "down", db: "error" }, { status: 503, headers: { "cache-control": "no-store" } });
   }
 }

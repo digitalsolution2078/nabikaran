@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { getMetrics } from "@/lib/services/admin";
 import { getOverview } from "@/lib/services/admin-console";
@@ -45,6 +46,7 @@ function ChannelRow({ name, c, extra }: { name: string; c: ChannelOps; extra?: R
 }
 
 export default async function AdminOverview() {
+  await requireAdminPage();
   const [o, m, ops, clients, me] = await Promise.all([getOverview(), getMetrics(), getOps(), listClientsForAdmin(), getCurrentUser()]);
   const stale = ops.dispatcher.minutesSinceDispatch === null || ops.dispatcher.minutesSinceDispatch >= 3;
   const npr = (paisa: number) => `NPR ${(paisa / 100).toLocaleString("en-IN")}`;

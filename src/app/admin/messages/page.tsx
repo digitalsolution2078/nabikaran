@@ -1,3 +1,4 @@
+import { requireAdminPage } from "@/lib/auth/admin-page";
 import Link from "next/link";
 import { listQueue, listSmsLog } from "@/lib/services/admin-console";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -12,6 +13,7 @@ const QUEUE = new Set(["scheduled", "awaiting_credits"]);
 
 /** Sending log across channels, plus the not-yet-sent queue. Phone numbers are masked. */
 export default async function AdminMessages({ searchParams }: { searchParams: Promise<{ status?: string; channel?: string }> }) {
+  await requireAdminPage();
   const sp = await searchParams;
   const status = (STATUSES as readonly string[]).includes(sp.status ?? "") ? sp.status! : "all";
   const channel = (CHANNELS as readonly string[]).includes(sp.channel ?? "") ? sp.channel! : "all";
