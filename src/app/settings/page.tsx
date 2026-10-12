@@ -9,7 +9,7 @@ import { formatPhoneLocal } from "@/lib/phone";
 import { InviteFriends } from "@/components/InviteFriends";
 import { PinManager } from "@/components/PinManager";
 import { TwoFactorManager } from "@/components/TwoFactorManager";
-import { twoFactorStatus } from "@/lib/services/two-factor";
+import { twoFactorStatus, staffNeedsTwoFactor } from "@/lib/services/two-factor";
 import { PushManager } from "@/components/PushManager";
 import { EmailManager } from "@/components/EmailManager";
 import { CalendarSync } from "@/components/CalendarSync";
@@ -32,10 +32,12 @@ export default async function SettingsPage() {
   const [connections, ref, pin, pro, email, proPrefs] = await Promise.all([listConnections(user.id), referralSummary(user.id), pinStatus(user.id), isPro(user.id), emailStatus(user.id), getProPrefs(user.id)]);
   const calendar = pro ? await getCalendarLink(user.id) : null;
   const tfa = await twoFactorStatus(user.id);
+  const staffMust = await staffNeedsTwoFactor(user);
   const link = `${env.appUrl.replace(/\/$/, "")}/r/${ref.code}`;
   return (
     <div className="stack">
       <h1>{t("settings.title")}</h1>
+      {staffMust && <div className="alert warn" role="alert"><span><strong>{t("tfa.staffRequired")}</strong> <a href="#two-factor">{t("tfa.enable")} →</a></span></div>}
       <div className="card">
         <div className="field mb-0">
           <label htmlFor="phone">{t("settings.phone")}</label>
@@ -52,8 +54,9 @@ export default async function SettingsPage() {
       {calendar && <CalendarSync initial={calendar} />}
       <ThemePicker initial={parseTheme((await cookies()).get(THEME_COOKIE)?.value)} />
       <PushManager />
+      {staffMust && <TwoFactorManager initial={tfa} />}
       <PinManager initial={pin} />
-      <TwoFactorManager initial={tfa} />
+      {!staffMust && <TwoFactorManager initial={tfa} />}
       <InstallApp variant="card" />
       <ConnectedApps connections={connections} />
     </div>

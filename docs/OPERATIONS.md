@@ -525,3 +525,14 @@ From then on, every sign-in (SMS code, PIN or email) needs one more step before 
   - Turning it off needs an app code or a recovery code.
   - New recovery codes need an app code, and the old ones stop working.
 - **Lost phone and lost recovery codes.** A Super Admin uses **Admin → Users → customer → Two-step sign-in → Reset 2FA**, with a reason, after checking the customer's identity (for example, a call from their registered number). This is logged as `auth.2fa_reset_by_admin`.
+
+### 22.1 Compulsory for staff
+
+Every staff role (super admin, admin, finance, support, content, auditor, counter) must turn on the authenticator app. Until they do:
+
+- **Pages:** `/admin` and `/counter` redirect to **Settings → Authenticator app**, which shows a red notice at the top.
+- **APIs:** every staff API answers `403 staff_2fa_required`.
+
+Customers are not forced; for them the app stays optional.
+
+**Emergency switch.** Set `STAFF_2FA_REQUIRED=false` in `.env` and restart the app. Use it only if every super admin has lost both their phone and their recovery codes. Turn it back on as soon as access is restored.

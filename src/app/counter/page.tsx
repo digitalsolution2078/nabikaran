@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/rbac";
 import { counterLog } from "@/lib/services/counter";
 import { getSetting } from "@/lib/services/settings";
 import { CounterDesk } from "@/components/admin/CounterDesk";
+import { staffNeedsTwoFactor } from "@/lib/services/two-factor";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Counter", robots: { index: false } };
@@ -13,6 +14,7 @@ export default async function CounterPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/counter");
   if (!can(user.role, "counter.topup")) redirect("/dashboard");
+  if (await staffNeedsTwoFactor(user)) redirect("/settings?staff2fa=1#two-factor");
   const [log, codes] = await Promise.all([counterLog({ staffId: user.id }), getSetting("codes")]);
   return (
     <div className="stack">

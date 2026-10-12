@@ -30,6 +30,18 @@ export async function twoFactorStatus(userId: string, db: Db = getDb()): Promise
   return { enabled: Boolean(rows[0]?.totp_enabled_at), enabledAt: rows[0]?.totp_enabled_at ? new Date(rows[0].totp_enabled_at).toISOString() : null, recoveryLeft: rows[0]?.left ?? 0 };
 }
 
+/**
+ * Staff must use the authenticator app before they can open the admin console,
+ * the counter or any staff API. STAFF_2FA_REQUIRED=false switches this off for
+ * an emergency (e.g. every super admin lost their phone and recovery codes).
+ */
+export const staffTwoFactorEnforced = () => (process.env.STAFF_2FA_REQUIRED ?? "true").toLowerCase() !== "false";
+
+export async function staffNeedsTwoFactor(user: { id: string; role: string }, db: Db = getDb()): Promise<boolean> {
+  if (user.role === "user" || !staffTwoFactorEnforced()) return false;
+  return !(await twoFactorRequired(user.id, db));
+}
+
 export async function twoFactorRequired(userId: string, db: Db = getDb()): Promise<boolean> {
   const { rows } = await db.query("select 1 from users where id = $1 and totp_enabled_at is not null", [userId]);
   return Boolean(rows[0]);

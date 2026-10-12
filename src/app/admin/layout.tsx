@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isAdminRole, can } from "@/lib/auth/rbac";
 import { AdminTabs } from "@/components/admin/AdminTabs";
+import { staffNeedsTwoFactor } from "@/lib/services/two-factor";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin" };
@@ -16,6 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!isAdminRole(user.role)) redirect("/dashboard");
   // Counter-only staff never see the admin console (customer data); they work at /counter.
   if (!can(user.role, "admin.view")) redirect(can(user.role, "counter.topup") ? "/counter" : "/dashboard");
+  if (await staffNeedsTwoFactor(user)) redirect("/settings?staff2fa=1#two-factor");
   return (
     <div>
       <div className="page-head">
