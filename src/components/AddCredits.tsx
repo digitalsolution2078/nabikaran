@@ -29,7 +29,8 @@ export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled, esewaEna
       if (r.paymentUrl) window.location.href = r.paymentUrl;
       else if (r.next) router.push(r.next);
     } catch (err) {
-      setError((err as Error).message);
+      const code = (err as { code?: string }).code;
+      setError(code === "payment_start_failed" ? t("wallet.payStartFailed") : code === "gateway_disabled" ? t("wallet.payUnavailable") : (err as Error).message);
       setBusy(false);
     }
   }

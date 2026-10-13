@@ -27,9 +27,14 @@ export async function signSession(userId: string): Promise<string> {
 }
 
 export async function verifySession(token: string): Promise<string | null> {
+  return (await verifySessionClaims(token))?.sub ?? null;
+}
+
+/** Subject and issue time (seconds) of a valid session token. */
+export async function verifySessionClaims(token: string): Promise<{ sub: string; iat: number } | null> {
   try {
     const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
-    return typeof payload.sub === "string" ? payload.sub : null;
+    return typeof payload.sub === "string" ? { sub: payload.sub, iat: Number(payload.iat ?? 0) } : null;
   } catch {
     return null;
   }
@@ -92,12 +97,15 @@ export async function clearSessionCookie() {
   jar.set(env.session.cookieName, "", { httpOnly: true, sameSite: "lax", secure: env.isProd, path: "/", maxAge: 0 });
 }
 
-export async function loadUser(userId: string): Promise<SessionUser | null> {
+export async function loadUser(userId: string, issuedAt?: number): Promise<SessionUser | null> {
   const { rows } = await getDb().query<{
     id: string; phone_e164: string; role: Role; locale: string; display_name: string | null; status: string; email: string | null; ui_language: "ne" | "en"; date_format: "BS" | "AD";
-  }>("select id, phone_e164, role, locale, display_name, status, email, ui_language, date_format from users where id = $1", [userId]);
+    valid_after: number | null;
+  }>("select id, phone_e164, role, locale, display_name, status, email, ui_language, date_format, floor(extract(epoch from sessions_valid_after))::float8 as valid_after from users where id = $1", [userId]);
   const r = rows[0];
   if (!r || r.status !== "active") return null;
+  // "Log out all devices": sessions issued before that moment are refused.
+  if (issuedAt !== undefined && r.valid_after !== null && issuedAt < Number(r.valid_after)) return null;
   return {
     id: r.id, phoneE164: r.phone_e164, role: r.role, locale: r.locale, displayName: r.display_name, status: r.status,
     email: r.email, uiLanguage: r.ui_language, dateFormat: r.date_format,
@@ -108,9 +116,18 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const jar = await cookies();
   const token = jar.get(env.session.cookieName)?.value;
   if (!token) return null;
-  const userId = await verifySession(token);
-  if (!userId) return null;
-  return loadUser(userId);
+  const claims = await verifySessionClaims(token);
+  if (!claims) return null;
+  return loadUser(claims.sub, claims.iat);
+}
+
+/**
+ * End every session of this account (all phones and browsers). With
+ * `keepCurrent`, this browser gets a fresh session so the customer stays in.
+ */
+export async function revokeAllSessions(userId: string, opts: { keepCurrent?: boolean } = {}): Promise<void> {
+  await getDb().query("update users set sessions_valid_after = now() where id = $1", [userId]);
+  if (opts.keepCurrent) await setSessionCookie(userId);
 }
 
 /**

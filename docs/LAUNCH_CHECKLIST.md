@@ -49,7 +49,7 @@ Negative checks: forged bearer → 401 with `WWW-Authenticate`; 61 calls/min →
 | # | Step |
 | --- | --- |
 | E1 | Production Supabase: apply `0001..0003`; daily backups on. |
-| E2 | Production env: `SMS_PROVIDER=aakash` + `AAKASH_AUTH_TOKEN` (after written quote, sender ID and Unicode billing confirmed), `PAYMENT_GATEWAY=khalti` + live key, `KHALTI_BASE_URL=https://a.khalti.com`, `OAUTH_ISSUER=https://nabikaran.org`, `MCP_HOST=mcp.nabikaran.org`, `MCP_PUBLIC_URL=https://mcp.nabikaran.org/mcp`. |
+| E2 | Production env: `SMS_PROVIDER=aakash` + `AAKASH_AUTH_TOKEN` (after written quote, sender ID and Unicode billing confirmed), `PAYMENT_GATEWAY=khalti` + live key, `KHALTI_BASE_URL=https://khalti.com` (live; `dev.khalti.com` is the sandbox), `OAUTH_ISSUER=https://nabikaran.org`, `MCP_HOST=mcp.nabikaran.org`, `MCP_PUBLIC_URL=https://mcp.nabikaran.org/mcp`. |
 | E3 | DNS `nabikaran.org`, `mcp.nabikaran.org`. Re-run section B against production with a founder phone. |
 | E4 | Uptime monitor on `GET /api/health` (alert on 503 ≥ 3 min). Alert on admin "tool error rate > 20%". |
 | E5 | Private beta: 50–100 users (PRD §12 Phase 5). Daily reconciliation per PRD §9. |

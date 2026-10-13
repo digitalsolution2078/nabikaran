@@ -11,6 +11,16 @@ function req(name: string, fallback?: string): string {
 }
 
 const isProd = process.env.NODE_ENV === "production";
+/**
+ * Khalti's live API is https://khalti.com/api/v2 (sandbox: dev.khalti.com, and
+ * the older sandbox a.khalti.com). Earlier docs here wrongly said a.khalti.com
+ * was production; a live key is always rejected there, so in production that
+ * value is treated as the live host.
+ */
+function khaltiBase(url: string): string {
+  const u = url.replace(/\/+$/, "");
+  return isProd && /^https:\/\/a\.khalti\.com$/i.test(u) ? "https://khalti.com" : u;
+}
 /** Admin-panel value if set, else the environment value. */
 const pick = (admin: string | undefined, fromEnv: string) => (admin && admin.length ? admin : fromEnv);
 
@@ -52,7 +62,7 @@ export const env = {
   get khalti() {
     return {
       secretKey: pick(o().khaltiSecretKey, process.env.KHALTI_SECRET_KEY ?? ""),
-      baseUrl: pick(o().khaltiBaseUrl, process.env.KHALTI_BASE_URL ?? (isProd ? "https://a.khalti.com" : "https://dev.khalti.com")),
+      baseUrl: khaltiBase(pick(o().khaltiBaseUrl, process.env.KHALTI_BASE_URL ?? (isProd ? "https://khalti.com" : "https://dev.khalti.com"))),
     };
   },
 

@@ -26,7 +26,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <p>Signed in as {user.displayName ?? user.phoneE164} · <span className="badge info">{user.role.replace("_", " ")}</span></p>
         </div>
       </div>
-      <AdminTabs superAdmin={can(user.role, "settings.manage")} coupons={can(user.role, "coupons.manage")} counter={can(user.role, "counter.topup")} support={can(user.role, "support.manage")} />
+      <AdminTabs superAdmin={can(user.role, "settings.manage")} coupons={can(user.role, "coupons.manage")} counter={can(user.role, "counter.topup")} support={can(user.role, "support.manage")} revenue={can(user.role, "revenue.view")} />
       {children}
     </div>
   );

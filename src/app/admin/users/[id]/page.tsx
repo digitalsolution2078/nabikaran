@@ -1,4 +1,5 @@
 import { requireAdminPage } from "@/lib/auth/admin-page";
+import { AdminLogoutAll } from "@/components/admin/AdminLogoutAll";
 import { listMcpConnectionsForAdmin } from "@/lib/oauth/tokens";
 import { McpConnections } from "@/components/admin/McpConnections";
 import Link from "next/link";
@@ -47,6 +48,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
       <section className="card" id="ban">
         <h2>Account access</h2>
         {self ? <p className="muted mb-0">This is your account.</p> : <BanControl userId={u.id} info={ban} canBan={can(me.role, "users.ban")} isStaff={u.role !== "user"} />}
+        {!self && can(me.role, "users.ban") && <AdminLogoutAll userId={u.id} />}
       </section>
 
       <section className="card">
