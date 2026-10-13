@@ -3,6 +3,7 @@ import { handle, json, parseBody, requireUser, limit } from "@/lib/http";
 import { createCustomTopupOrder, createTopupOrder, listPacks } from "@/lib/services/payments";
 import { startManualTopup } from "@/lib/services/manual-topups";
 import { getSetting } from "@/lib/services/settings";
+import { enabledGateways } from "@/lib/payments";
 
 export async function GET(req: Request) {
   return handle(async () => {
@@ -12,13 +13,14 @@ export async function GET(req: Request) {
       packs: packs.map((p) => ({ code: p.code, amountPaisa: Number(p.amount_paisa), credits: Number(p.credits) })),
       limits: topup,
       qrEnabled: qr.enabled,
+      gateways: enabledGateways(),
     });
   });
 }
 
 const schema = z.union([
   z.object({ packCode: z.string().min(1).max(20) }),
-  z.object({ amountNpr: z.number().int().positive(), method: z.enum(["khalti", "qr"]) }),
+  z.object({ amountNpr: z.number().int().positive(), method: z.enum(["khalti", "esewa", "qr"]) }),
 ]);
 
 /**
@@ -32,7 +34,9 @@ export async function POST(req: Request) {
     if (req.method === "POST") await limit(`user:${user.id}`, "topup:start", 10, 3600);
     const body = await parseBody(req, schema);
     if ("packCode" in body) return json(await createTopupOrder(user, body.packCode), { status: 201 });
-    if (body.method === "khalti") return json(await createCustomTopupOrder(user, body.amountNpr), { status: 201 });
+    if (body.method === "esewa") return json(await createCustomTopupOrder(user, body.amountNpr, undefined, "esewa"), { status: 201 });
+    // "khalti" is the card/wallet checkout; in development it is the mock gateway.
+    if (body.method === "khalti") return json(await createCustomTopupOrder(user, body.amountNpr, undefined, enabledGateways().includes("khalti") ? "khalti" : "mock"), { status: 201 });
     const { request } = await startManualTopup(user.id, body.amountNpr);
     return json({ manualRequestId: request.id, reference: request.reference, next: `/wallet/topup/${request.id}` }, { status: 201 });
   });

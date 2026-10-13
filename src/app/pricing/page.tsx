@@ -8,6 +8,7 @@ import { ProBadge } from "@/components/Shell";
 import { Icon } from "@/components/Icon";
 import { localizeNumber } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/dict";
+import { listBonusTiers } from "@/lib/services/pricing";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -22,9 +23,10 @@ const price = async (ch: "sms" | "whatsapp" | "email") => (await getActivePricin
 export default async function PricingPage() {
   const { user, t, prefs } = await getRequestContext();
   const n = (v: number) => localizeNumber(v, prefs.lang);
-  const [pro, topup, codes, sms, wa, email, plan] = await Promise.all([
+  const [pro, topup, codes, sms, wa, email, plan, tiers] = await Promise.all([
     getSetting("pro"), getSetting("topup"), getSetting("codes"), price("sms"), price("whatsapp"), price("email"),
     user ? getPlanState(user.id) : Promise.resolve(null),
+    listBonusTiers().catch(() => []),
   ]);
   const isPro = plan?.tier === "pro";
   const trialOpen = pro.enabled && pro.trial_enabled && !(plan?.trialUsed ?? false);
@@ -41,7 +43,8 @@ export default async function PricingPage() {
     ["price.row.dates", true, true],
     ["price.row.repeat", true, true],
     ["price.row.ai", true, true],
-    ["price.row.included", false, t("price.includedShort", { sms: n(pro.allowance_sms), wa: n(pro.allowance_whatsapp), email: n(pro.allowance_email) })],
+    ...(pro.monthly_credits > 0 ? [["price.row.monthlyCredits", false, t("price.includedCredits", { n: n(pro.monthly_credits) })] as [MessageKey, boolean | string, boolean | string]] : []),
+    ...(pro.allowance_sms + pro.allowance_whatsapp + pro.allowance_email > 0 ? [["price.row.included", false, t("price.includedShort", { sms: n(pro.allowance_sms), wa: n(pro.allowance_whatsapp), email: n(pro.allowance_email) })] as [MessageKey, boolean | string, boolean | string]] : []),
     ["price.row.subs", false, true],
     ["price.row.alerts", false, true],
     ["price.row.insights", false, true],
@@ -80,9 +83,16 @@ export default async function PricingPage() {
               <div className="price-big">{t("common.npr")} {n(pro.price_npr)} <span className="small muted">/ {pro.duration_days >= 360 ? t("price.year") : t("price.days", { n: n(pro.duration_days) })}</span></div>
               <p className="small muted">{t("price.proSub", { month: n(Math.round(pro.price_npr / Math.max(1, pro.duration_days / 30.4))) })}</p>
               <ul className="check-list">
-                <li><strong>{t("price.p1", { sms: n(pro.allowance_sms), wa: n(pro.allowance_whatsapp), email: n(pro.allowance_email) })}</strong></li>
+                {pro.monthly_credits > 0 && <li><strong>{t("price.p1credits", { n: n(pro.monthly_credits), sms: n(Math.floor(pro.monthly_credits / (sms ?? 1.5))) })}</strong></li>}
+                {pro.allowance_sms + pro.allowance_whatsapp + pro.allowance_email > 0 && <li><strong>{t("price.p1", { sms: n(pro.allowance_sms), wa: n(pro.allowance_whatsapp), email: n(pro.allowance_email) })}</strong></li>}
                 <li>{t("price.p2")}</li><li>{t("price.p3")}</li><li>{t("price.p4")}</li><li>{t("price.p5")}</li>
               </ul>
+              {pro.monthly_credits > 0 && (
+                <div className="flex-credits">
+                  <strong>{t("pro.credits.flex")}</strong>
+                  <p className="small mb-0">{t("pro.credits.flexText", { n: n(pro.monthly_credits), sms: n(Math.floor(pro.monthly_credits / (sms ?? 1.5))), wa: n(Math.floor(pro.monthly_credits / (wa ?? 1))), email: n(Math.floor(pro.monthly_credits / (email ?? 0.3))) })}</p>
+                </div>
+              )}
               {trialOpen && <p className="hint">{t("price.trialNote", { days: n(pro.trial_days) })}</p>}
               {proCta && <Link href={proCta.href} className="btn btn-primary btn-block">{proCta.label}</Link>}
             </>
@@ -121,6 +131,15 @@ export default async function PricingPage() {
             <li>{t("price.pay2")}</li>
             <li>{t("price.pay3")}</li>
           </ul>
+          {tiers.length > 0 && (
+            <div className="bonus-box">
+              <strong><Icon name="gift" size={16} /> {t("price.bonusTitle")}</strong>
+              <p className="small muted mb-0">{t("price.bonusText")}</p>
+              <div className="chips mt">
+                {tiers.map((tr) => <span key={tr.minNpr} className="chip">{t("wallet.bonusRow", { min: n(tr.minNpr), pct: n(tr.percent) })}</span>)}
+              </div>
+            </div>
+          )}
           {codes.gifts_enabled && (
             <Link href="/gift" className="row" style={{ gap: 10, color: "inherit", textDecoration: "none" }}>
               <span className="avatar-icon"><Icon name="gift" /></span>

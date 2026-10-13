@@ -8,6 +8,8 @@ import { getSetting } from "@/lib/services/settings";
 import { getOps } from "@/lib/services/ops";
 import { getDb } from "@/lib/db";
 import { SmsTemplateEditor, PricingEditor } from "@/components/admin/SmsControls";
+import { BonusTiersEditor } from "@/components/admin/BonusTiersEditor";
+import { listBonusTiers } from "@/lib/services/pricing";
 import { WhatsAppSettingsForm, WaTemplateEditor } from "@/components/admin/WhatsAppControls";
 import { validateTemplateBody } from "@/lib/sms/templates";
 import { env } from "@/lib/env";
@@ -23,41 +25,55 @@ export default async function AdminChannels() {
   const managePrice = can(me?.role, "sms.manage");
   const manageTemplates = can(me?.role, "templates.manage") || managePrice;
   const manageWa = can(me?.role, "whatsapp.manage");
-  const [smsT, waT, smsPrice, waPrice, versions, wa, ops] = await Promise.all([
+  const [smsT, waT, smsPrice, waPrice, emailPrice, versions, wa, ops, tiers] = await Promise.all([
     listSmsTemplates(),
     listWaTemplates(),
     getActivePricing(undefined, "sms"),
     getActivePricing(undefined, "whatsapp"),
+    getActivePricing(undefined, "email").catch(() => ({ id: 0, creditsPerUnit: 0.3 })),
     getDb().query<{ id: string; channel: string; credits_per_billable_unit: number; effective_at: unknown }>("select id::text, channel, credits_per_billable_unit, effective_at from pricing_versions order by effective_at desc, id desc limit 30"),
     getSetting("whatsapp"),
     getOps(),
+    listBonusTiers(),
   ]);
   const activeSms = smsT.filter((t) => t.active);
   const activeWa = waT.filter((t) => t.active);
   const webhookUrl = `${env.appUrl}/api/webhooks/whatsapp`;
   return (
     <div className="stack">
-      <div className="grid grid-2" style={{ alignItems: "start" }}>
+      <div className="alert info"><span>1 credit = NPR 1. Prices can have two decimals (e.g. SMS 1.50, WhatsApp 1.00, email 0.30). App notifications are always free. A new price applies to reminders scheduled from now on; already scheduled messages keep the price they were reserved at.</span></div>
+      <div className="grid grid-3" style={{ alignItems: "start" }}>
         <section className="card">
           <h2>SMS price</h2>
-          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{smsPrice.creditsPerUnit}</span> credits per SMS unit</p>
+          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{smsPrice.creditsPerUnit.toFixed(2)}</span> credits per SMS unit</p>
           <p className="hint">Provider: {env.smsProvider} · token {env.aakash.authToken ? "configured (hidden)" : "not set — add it in Admin → Integrations"}. Set the customer charge from your actual Aakash rate plus margin; reminders stay within one GSM-7 unit.</p>
           {managePrice ? <PricingEditor current={smsPrice.creditsPerUnit} channel="sms" /> : <p className="small muted">Only a Super Admin can change pricing.</p>}
         </section>
         <section className="card">
           <h2>WhatsApp price</h2>
-          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{waPrice.creditsPerUnit}</span> credits per accepted WhatsApp template message</p>
+          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{waPrice.creditsPerUnit.toFixed(2)}</span> credits per accepted WhatsApp template message</p>
           <p className="hint">Charged when Meta accepts the message; refunded automatically if Meta later reports it failed. Set it from your Meta rate card for utility templates in Nepal.</p>
           {managePrice ? <PricingEditor current={waPrice.creditsPerUnit} channel="whatsapp" /> : <p className="small muted">Only a Super Admin can change pricing.</p>}
         </section>
+        <section className="card">
+          <h2>Email price</h2>
+          <p className="mb-0"><span style={{ fontSize: 28, fontWeight: 700 }}>{emailPrice.creditsPerUnit.toFixed(2)}</span> credits per email</p>
+          <p className="hint">Email reminders beyond a Pro plan's included messages. Resend cost is tiny; keep a margin for support.</p>
+          {managePrice ? <PricingEditor current={emailPrice.creditsPerUnit} channel="email" /> : <p className="small muted">Only a Super Admin can change pricing.</p>}
+        </section>
       </div>
+
+      <section className="card">
+        <h2>Top-up bonus tiers</h2>
+        <BonusTiersEditor tiers={tiers} canEdit={managePrice} />
+      </section>
 
       <section className="card">
         <h2>Price history</h2>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Version</th><th>Channel</th><th className="num">Credits</th><th>Effective from</th></tr></thead>
-            <tbody>{versions.rows.map((v) => <tr key={v.id}><td>v{v.id}</td><td>{v.channel === "whatsapp" ? "WhatsApp" : "SMS"}</td><td className="num">{v.credits_per_billable_unit}</td><td className="small">{when(new Date(String(v.effective_at instanceof Date ? v.effective_at.toISOString() : v.effective_at)).toISOString())}</td></tr>)}</tbody>
+            <tbody>{versions.rows.map((v) => <tr key={v.id}><td>v{v.id}</td><td>{v.channel === "whatsapp" ? "WhatsApp" : v.channel === "email" ? "Email" : "SMS"}</td><td className="num">{Number(v.credits_per_billable_unit).toFixed(2)}</td><td className="small">{when(new Date(String(v.effective_at instanceof Date ? v.effective_at.toISOString() : v.effective_at)).toISOString())}</td></tr>)}</tbody>
           </table>
         </div>
         <p className="hint mt mb-0">Scheduled messages keep the price they were reserved at; a new price applies to new reminders only.</p>

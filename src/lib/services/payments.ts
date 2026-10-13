@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getDb, type Db } from "../db";
-import { getPaymentGateway, type LookupResult } from "../payments";
+import { enabledGateways, getPaymentGateway, type GatewayName, type LookupResult } from "../payments";
 import { env } from "../env";
 import { HttpError } from "../core/errors";
 import { retryAwaitingCredits } from "../core/wallet";
@@ -50,14 +50,15 @@ export async function createTopupOrder(user: { id: string; phoneE164: string }, 
 }
 
 /** Customer-chosen amount (whole NPR), validated against admin min/max. 1 credit = NPR 1. */
-export async function createCustomTopupOrder(user: { id: string; phoneE164: string }, amountNpr: number, db: Db = getDb()) {
+export async function createCustomTopupOrder(user: { id: string; phoneE164: string }, amountNpr: number, db: Db = getDb(), gatewayName?: GatewayName) {
   const { amountPaisa, credits } = await validateTopupAmount(amountNpr, db);
-  return createOrder(user, amountPaisa, credits, null, db);
+  return createOrder(user, amountPaisa, credits, null, db, gatewayName);
 }
 
-async function createOrder(user: { id: string; phoneE164: string }, amountPaisa: number, credits: number, packCode: string | null, db: Db) {
-  if (env.paymentGateway === "none") throw new HttpError(400, "Online payment is not available yet; use QR top-up", "gateway_disabled");
-  const gateway = getPaymentGateway();
+async function createOrder(user: { id: string; phoneE164: string }, amountPaisa: number, credits: number, packCode: string | null, db: Db, gatewayName?: GatewayName) {
+  const available = enabledGateways();
+  if (available.length === 0 || (gatewayName && !available.includes(gatewayName))) throw new HttpError(400, "This payment method is not available right now; use QR top-up", "gateway_disabled");
+  const gateway = getPaymentGateway(gatewayName ?? available[0]);
   const orderReference = newOrderReference();
   const { rows } = await db.query<OrderRow>(
     `insert into payment_orders (user_id, gateway, order_reference, pack_code, amount_paisa, credits, status)
@@ -92,14 +93,18 @@ export type ConfirmOutcome =
  * only when lookup says Completed AND amount/order match our record.
  */
 export async function confirmPaymentByRef(gatewayName: string, gatewayRef: string, db: Db = getDb()): Promise<ConfirmOutcome> {
-  const gateway = getPaymentGateway();
-  if (gateway.name !== gatewayName) throw new HttpError(400, "Gateway mismatch");
   const { rows } = await db.query<OrderRow>("select * from payment_orders where gateway = $1 and gateway_ref = $2", [gatewayName, gatewayRef]);
   const order = rows[0];
   if (!order) throw new HttpError(404, "Unknown payment reference", "unknown_order");
   if (order.status === "paid") return { result: "already_credited", orderId: order.id };
+  let gateway;
+  try {
+    gateway = getPaymentGateway(gatewayName as GatewayName);
+  } catch {
+    throw new HttpError(400, "Gateway not available", "gateway_disabled");
+  }
 
-  const lookup = await gateway.lookup(gatewayRef);
+  const lookup = await gateway.lookup(gatewayRef, { amountPaisa: Number(order.amount_paisa), orderReference: order.order_reference });
   const payloadHash = createHash("sha256").update(JSON.stringify(lookup.raw ?? lookup)).digest("hex");
   await db.query(
     `insert into payment_events (payment_order_id, gateway_event_id, payload_hash, event_type, payload)
@@ -133,7 +138,7 @@ export async function confirmPaymentByRef(gatewayName: string, gatewayRef: strin
   if (!credited) return { result: "already_credited", orderId: order.id };
   await retryAwaitingCredits(order.user_id, db);
   await rewardReferralIfQualified(order.user_id, db).catch((e) => console.error("[referral] reward failed", e));
-  return { result: "credited", orderId: order.id, credits: Number(order.credits) };
+  return { result: "credited", orderId: order.id, credits: Number(order.credits) + Number((order as OrderRow & { bonus_credits?: string }).bonus_credits ?? 0) };
 }
 
 export async function listOrders(userId: string, db: Db = getDb()): Promise<OrderRow[]> {

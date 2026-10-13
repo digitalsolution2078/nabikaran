@@ -42,7 +42,7 @@ export const prepareInputSchema = z.object({
   family_member_label: z.string().trim().max(60).nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
   /** Delivery channels. WhatsApp requires the user to have opted in on the website; assistants cannot give consent. */
-  channels: z.array(z.enum(["sms", "whatsapp"])).min(1).max(2).default(["sms"]),
+  channels: z.array(z.enum(["sms", "whatsapp", "push"])).min(1).max(3).default(["sms"]),
   /** Repeat every year (birthdays, anniversaries). On an edit, omitted = keep the current setting. */
   repeat_yearly: z.boolean().optional(),
   /** Put the reminder in one of the user's groups (see list_groups). On an edit, omitted = keep; null = remove. */

@@ -34,7 +34,7 @@ let seq = 0;
 const key = () => `k-${Date.now()}-${++seq}`;
 const prep = (over: Record<string, unknown> = {}) => ({ category: "bluebook", label: "Ba 2 Pa 1234", expiry: { calendar: "AD", date: inDays(40), source: "user_typed" }, offsets_minutes: [7 * 1440, 1440], ...over });
 
-const PRO = { enabled: true, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 400 };
+const PRO = { enabled: true, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 400, monthly_credits: 0 };
 const subPrep = (over: Record<string, unknown> = {}) => ({
   category: "subscription", label: "Netflix", expiry: { calendar: "AD", date: inDays(20), source: "user_typed" }, offsets_minutes: [3 * 1440],
   repeat_months: 1, subscription: { amount: 1499, currency: "NPR", payment_method: "Visa 1234", auto_renew: true, cancel_notice_days: null }, ...over,

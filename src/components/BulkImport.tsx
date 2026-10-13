@@ -103,7 +103,7 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
     URL.revokeObjectURL(a.href);
   };
 
-  const shortfall = preview ? Math.max(topupMin, preview.shortfallCredits) : topupMin;
+  const shortfall = preview ? Math.max(topupMin, Math.ceil(preview.shortfallCredits)) : topupMin;
 
   return (
     <div className="stack">

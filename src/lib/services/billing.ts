@@ -6,7 +6,7 @@
  *   $1 job id, $2 units (quoted), $3 fallback price, $4 ledger idempotency key
  */
 export const BOOKED_COMMIT = `select wallet_commit_for_job($1::uuid,
-  $2::bigint * coalesce((select pv.credits_per_billable_unit from reminder_jobs j join pricing_versions pv on pv.id = j.cost_version where j.id = $1::uuid), $3::bigint),
+  $2::numeric * coalesce((select pv.credits_per_billable_unit from reminder_jobs j join pricing_versions pv on pv.id = j.cost_version where j.id = $1::uuid), $3::numeric),
   $4::text)`;
 
 /**

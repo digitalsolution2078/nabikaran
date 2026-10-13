@@ -26,7 +26,7 @@ export function RenewalActions({ id, status }: { id: string; status: string }) {
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
-      if (e instanceof ApiError && (e.code === "insufficient_credits" || e.code === "account_locked")) setNeedTopup(Math.max(20, e.detail?.shortfallCredits ?? 20));
+      if (e instanceof ApiError && (e.code === "insufficient_credits" || e.code === "account_locked")) setNeedTopup(Math.max(20, Math.ceil(e.detail?.shortfallCredits ?? 20)));
     } finally {
       setBusy(false);
     }

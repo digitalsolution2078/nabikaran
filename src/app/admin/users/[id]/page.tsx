@@ -1,4 +1,6 @@
 import { requireAdminPage } from "@/lib/auth/admin-page";
+import { listMcpConnectionsForAdmin } from "@/lib/oauth/tokens";
+import { McpConnections } from "@/components/admin/McpConnections";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -24,7 +26,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
   const { id } = await params;
   const [me, d] = await Promise.all([getCurrentUser(), getUserDetail(id)]);
   if (!d || !me) notFound();
-  const [st, topups, msgs, notes, auditRows, plans, ban, tfa] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id), banInfo(id), twoFactorStatus(id)]);
+  const [st, topups, msgs, notes, auditRows, plans, ban, tfa, mcp] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id), banInfo(id), twoFactorStatus(id), listMcpConnectionsForAdmin({ userId: id })]);
   const u = d.user;
   const self = me.id === u.id;
   return (
@@ -50,6 +52,11 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
       <section className="card">
         <h2>Two-step sign-in (authenticator app)</h2>
         <TwoFactorAdmin userId={u.id} enabled={tfa.enabled} enabledAt={tfa.enabledAt} canReset={can(me.role, "roles.manage") && !self} />
+      </section>
+
+      <section className="card">
+        <h2>AI assistants connected (MCP)</h2>
+        {mcp.length === 0 ? <p className="muted mb-0">No AI assistant connected.</p> : <McpConnections rows={mcp} canManage={can(me.role, "oauth.manage")} showUser={false} />}
       </section>
 
       <section className="card">

@@ -12,7 +12,9 @@ import { Icon } from "@/components/Icon";
 import { DraftResume } from "@/components/DraftResume";
 import { fonepayEnabled } from "@/lib/providers/payments/fonepay";
 import { formatDateTime, localizeNumber } from "@/lib/i18n/format";
-import { env } from "@/lib/env";
+import { enabledGateways } from "@/lib/payments";
+import { channelPrices, listBonusTiers, usageByChannel } from "@/lib/services/pricing";
+import { ChannelBadge } from "@/components/ChannelBadge";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Wallet" };
@@ -22,7 +24,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
   if (!user) redirect("/login");
   const p = webPrincipal(user);
   const { payment, amount, code } = await searchParams;
-  const [wallet, ledger, limits, qr, manual] = await Promise.all([getWallet(p), getLedger(p, 6), getSetting("topup"), getSetting("manual_qr"), listMyManualTopups(user.id)]);
+  const [wallet, ledger, limits, qr, manual, tiers, prices, usage] = await Promise.all([getWallet(p), getLedger(p, 6), getSetting("topup"), getSetting("manual_qr"), listMyManualTopups(user.id), listBonusTiers().catch(() => []), channelPrices(), usageByChannel(user.id).catch(() => null)]);
   const open = manual.filter((m) => m.status === "awaiting_payment" || m.status === "pending");
   const n = (v: number) => localizeNumber(v, prefs.lang);
   return (
@@ -43,9 +45,24 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <section className="card" id="add">
           <h2>{t("wallet.addCredits")}</h2>
-          <AddCredits initialAmount={amount && /^\d{1,6}$/.test(amount) ? Math.min(limits.max_npr, Math.max(limits.min_npr, Number(amount))) : undefined} min={limits.min_npr} max={limits.max_npr} quick={limits.quick_amounts} qrEnabled={qr.enabled} khaltiEnabled={env.paymentGateway !== "none"} qrAutomatic={fonepayEnabled()} />
+          <AddCredits initialAmount={amount && /^\d{1,6}$/.test(amount) ? Math.min(limits.max_npr, Math.max(limits.min_npr, Number(amount))) : undefined} min={limits.min_npr} max={limits.max_npr} quick={limits.quick_amounts} qrEnabled={qr.enabled} khaltiEnabled={enabledGateways().some((g) => g === "khalti" || g === "mock")} esewaEnabled={enabledGateways().includes("esewa")} qrAutomatic={fonepayEnabled()} tiers={tiers} />
         </section>
         <div className="stack">
+          {usage && (
+            <section className="card">
+              <div className="card-head"><h2>{t("wallet.usageTitle")}</h2><span className="small muted">{t("wallet.usageMonth")} · {t("wallet.usageAll")}</span></div>
+              <div className="usage-rows">
+                {usage.allTime.map((u, i) => (
+                  <div key={u.channel} className="usage-row">
+                    <ChannelBadge channel={u.channel} />
+                    <span className="grow small muted">{t("wallet.usageMsgs", { n: n(usage.thisMonth[i].messages) })} · {t("wallet.usageMsgs", { n: n(u.messages) })}</span>
+                    <span className="nowrap"><strong>{n(usage.thisMonth[i].credits)}</strong> <span className="muted">· {n(u.credits)}</span></span>
+                  </div>
+                ))}
+              </div>
+              <p className="hint mb-0">{t("wallet.prices")}: {t("wallet.priceLine", { sms: n(prices.sms), wa: n(prices.whatsapp), email: n(prices.email) })}</p>
+            </section>
+          )}
           <RedeemCode initialCode={code && /^[A-Za-z0-9-]{4,40}$/.test(code) ? code.toUpperCase() : ""} />
           <Link href="/gift" className="card row" style={{ gap: 12, color: "inherit", textDecoration: "none" }}>
             <span className="avatar-icon"><Icon name="gift" /></span>
@@ -72,7 +89,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
               <div className="list">
                 {ledger.map((l) => (
                   <div key={l.id} className="list-item">
-                    <span className="grow"><span className="title" style={{ display: "block", textTransform: "capitalize" }}>{l.type === "fee" ? t("ledger.fee") : l.type === "referral" ? t("ledger.bonus") : l.type === "plan" ? t("ledger.plan") : l.type === "coupon" || l.type === "gift" ? `${t("ledger.coupon")}${l.memo ? ` · ${l.memo}` : ""}` : `${l.type}${l.memo ? ` · ${l.memo}` : ""}`}</span><span className="meta">{formatDateTime(l.createdAt, prefs)}</span></span>
+                    <span className="grow"><span className="title" style={{ display: "block", textTransform: "capitalize" }}>{l.type === "fee" ? t("ledger.fee") : l.type === "referral" ? t("ledger.bonus") : l.type === "bonus" ? t("ledger.topupBonus") : l.type === "pro_credit" ? t("ledger.proCredit") : l.type === "pro_expiry" ? t("ledger.proExpiry") : l.type === "plan" ? t("ledger.plan") : l.type === "coupon" || l.type === "gift" ? `${t("ledger.coupon")}${l.memo ? ` · ${l.memo}` : ""}` : `${l.type}${l.memo ? ` · ${l.memo}` : ""}`}</span><span className="meta">{formatDateTime(l.createdAt, prefs)}</span></span>
                     <span className={l.signedCredits >= 0 ? "plus" : "minus"}>{l.signedCredits > 0 ? "+" : ""}{n(l.signedCredits)}</span>
                   </div>
                 ))}

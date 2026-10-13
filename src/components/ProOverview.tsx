@@ -36,7 +36,11 @@ export function ProOverview({ t, prefs, plan, ins, waiting, onboarding }: {
           <Link href="/insights" className="stat"><div className="label">{t("pro.dash.deadlines")}</div><div className="value">{n(ins.deadlines30.length)}</div></Link>
           <Link href="/insights" className="stat"><div className="label">{t("pro.dash.monthly")}</div><div className="value" style={{ fontSize: 18 }}>{monthly}</div></Link>
           <Link href="/subscriptions" className="stat"><div className="label">{t("pro.dash.cancel")}</div><div className="value">{n(ins.cancelAlerts.length + ins.trialsEnding.length)}</div></Link>
-          <Link href="/pro" className="stat"><div className="label">{t("pro.dash.included")}</div><div className="value">{sms ? `${n(sms.left)}/${n(sms.granted)}` : "—"}</div></Link>
+          {sms ? (
+            <Link href="/pro" className="stat"><div className="label">{t("pro.dash.included")}</div><div className="value">{`${n(sms.left)}/${n(sms.granted)}`}</div></Link>
+          ) : (
+            <Link href="/pro" className="stat"><div className="label">{t("pro.dash.credits")}</div><div className="value">{plan.monthGrant ? n(plan.monthGrant.credits) : "—"}</div></Link>
+          )}
         </div>
       </section>
 

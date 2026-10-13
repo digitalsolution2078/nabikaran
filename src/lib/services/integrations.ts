@@ -30,6 +30,9 @@ export function overridesFrom(s: IntegrationSettings, k: Partial<Record<AdminSec
     paymentGateway: mode(s.payment_gateway),
     khaltiSecretKey: k.khalti_secret_key,
     khaltiBaseUrl: s.khalti_env === "env" ? undefined : KHALTI_URL[s.khalti_env],
+    esewaMode: mode(s.esewa_mode ?? "env"),
+    esewaProductCode: s.esewa_product_code || undefined,
+    esewaSecretKey: k.esewa_secret_key,
     fonepayMode: mode(s.fonepay_mode),
     fonepayMerchantCode: s.fonepay_merchant_code || undefined,
     fonepayUsername: k.fonepay_username,
@@ -69,7 +72,7 @@ export async function saveIntegrationSettings(actor: { id: string }, value: unkn
 }
 
 export interface ProviderStatus {
-  key: "sms" | "khalti" | "fonepay" | "whatsapp" | "email";
+  key: "sms" | "khalti" | "esewa" | "fonepay" | "whatsapp" | "email";
   mode: string;
   ready: boolean;
   missing: string[];
@@ -85,6 +88,9 @@ export async function integrationStatus(db: Db = getDb()): Promise<{ settings: I
   providers.push({ key: "sms", mode: sms, ready: sms === "mock" || (sms === "aakash" && has("aakash_auth_token")), missing: sms === "aakash" && !has("aakash_auth_token") ? ["Aakash auth token"] : [] });
   const pg = env.paymentGateway;
   providers.push({ key: "khalti", mode: `${pg}${pg === "khalti" ? ` · ${env.khalti.baseUrl.includes("dev.") ? "test" : "live"}` : ""}`, ready: pg !== "khalti" || has("khalti_secret_key"), missing: pg === "khalti" && !has("khalti_secret_key") ? ["Khalti secret key"] : [] });
+  const es = env.esewa;
+  const esMissing = es.mode === "live" ? [!es.productCode && "product code", !has("esewa_secret_key") && "secret key"].filter(Boolean) as string[] : [];
+  providers.push({ key: "esewa", mode: es.mode, ready: es.mode === "off" || esMissing.length === 0, missing: esMissing });
   const f = env.fonepay;
   const fMissing = f.mode === "live" ? [!f.merchantCode && "merchant code", !has("fonepay_username") && "username", !has("fonepay_password") && "password", !has("fonepay_secret_key") && "secret key"].filter(Boolean) as string[] : [];
   providers.push({ key: "fonepay", mode: f.mode, ready: f.mode !== "live" || fMissing.length === 0, missing: fMissing });

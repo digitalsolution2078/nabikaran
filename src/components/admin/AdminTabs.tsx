@@ -2,15 +2,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-type Need = boolean | "coupons" | "counter";
+type Need = boolean | "coupons" | "counter" | "support";
 const TABS: [string, string, Need][] = [
   ["/admin", "Overview", false],
   ["/admin/users", "Users", false],
   ["/admin/messages", "Messages", false],
+  ["/admin/support", "Support", "support"],
   ["/admin/wallet/topups", "Top-ups", false],
   ["/counter", "Counter", "counter"],
   ["/admin/coupons", "Coupons & gifts", "coupons"],
   ["/admin/sms", "Channels & pricing", false],
+  ["/admin/mcp", "AI apps (MCP)", false],
   ["/admin/templates", "Templates", false],
   ["/admin/seo", "SEO pages", false],
   ["/admin/audit", "Audit log", false],
@@ -19,11 +21,11 @@ const TABS: [string, string, Need][] = [
   ["/admin/settings", "Settings & roles", true],
 ];
 
-export function AdminTabs({ superAdmin, coupons = false, counter = false }: { superAdmin: boolean; coupons?: boolean; counter?: boolean }) {
+export function AdminTabs({ superAdmin, coupons = false, counter = false, support = false }: { superAdmin: boolean; coupons?: boolean; counter?: boolean; support?: boolean }) {
   const path = usePathname() ?? "";
   return (
     <nav className="admin-tabs" aria-label="Admin sections">
-      {TABS.filter(([, , need]) => (need === "coupons" ? coupons : need === "counter" ? counter : !need || superAdmin)).map(([href, label]) => {
+      {TABS.filter(([, , need]) => (need === "coupons" ? coupons : need === "counter" ? counter : need === "support" ? support : !need || superAdmin)).map(([href, label]) => {
         const active = href === "/admin" ? path === "/admin" : path.startsWith(href);
         return <Link key={href} href={href} className={active ? "active" : ""} aria-current={active ? "page" : undefined}>{label}</Link>;
       })}

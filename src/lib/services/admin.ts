@@ -54,8 +54,11 @@ export async function getMetrics(db: Db = getDb()): Promise<Metrics> {
 }
 
 /** Prospective price change: inserted with a future effective_at; existing reservations keep their cost snapshot. */
-export async function createPricingVersion(actorId: string, creditsPerUnit: number, effectiveAt: Date, db: Db = getDb(), channel: "sms" | "whatsapp" = "sms") {
-  if (!Number.isInteger(creditsPerUnit) || creditsPerUnit <= 0) throw new HttpError(400, "creditsPerUnit must be a positive integer");
+export async function createPricingVersion(actorId: string, creditsPerUnit: number, effectiveAt: Date, db: Db = getDb(), channel: "sms" | "whatsapp" | "email" = "sms") {
+  // Two decimals (1 credit = NPR 1): e.g. SMS 1.50, WhatsApp 1.00, email 0.30.
+  if (!Number.isFinite(creditsPerUnit) || creditsPerUnit < 0.01 || creditsPerUnit > 1000 || Math.abs(Math.round(creditsPerUnit * 100) - creditsPerUnit * 100) > 1e-6) {
+    throw new HttpError(400, "Price must be between 0.01 and 1000 credits, with at most two decimals", "invalid_price");
+  }
   if (effectiveAt.getTime() < Date.now() - 60_000) throw new HttpError(400, "Price changes are prospective only");
   const { rows } = await db.query<{ id: number }>(
     "insert into pricing_versions (credits_per_billable_unit, effective_at, created_by, channel) values ($1,$2,$3,$4) returning id",

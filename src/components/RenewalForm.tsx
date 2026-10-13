@@ -39,7 +39,7 @@ export interface RenewalFormValues {
   familyMemberLabel: string;
   offsets: number[];
   templateSlug: string | null;
-  channels: Array<"sms" | "whatsapp" | "email">;
+  channels: Array<"sms" | "whatsapp" | "email" | "push">;
   whatsappConsent?: boolean;
   groupId: string | null;
   repeatYearly: boolean;
@@ -248,7 +248,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       setBsConfirmed(false);
       setUseCredits(false);
       if (!r.preview.sufficient) {
-        setTopup({ needed: r.preview.reservedOnConfirmCredits, available: r.preview.wallet.available, shortfall: r.preview.shortfallCredits });
+        setTopup({ needed: r.preview.reservedOnConfirmCredits, available: r.preview.wallet.available, shortfall: Math.ceil(r.preview.shortfallCredits) });
       }
       setIdempotencyKey(crypto.randomUUID());
       setStep(3);
@@ -282,7 +282,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
         setTopup({
           needed: d.neededCredits ?? preview?.reservedOnConfirmCredits ?? 0,
           available: d.availableCredits ?? preview?.wallet.available ?? 0,
-          shortfall: d.shortfallCredits ?? Math.max(1, -(preview?.wallet.available ?? 0)),
+          shortfall: Math.ceil(d.shortfallCredits ?? Math.max(1, -(preview?.wallet.available ?? 0))),
           locked: e.code === "account_locked",
         });
       } else {
@@ -482,23 +482,27 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           <fieldset className="mt">
             <legend className="label">{t("rem.deliveryChannel")}</legend>
             <div className="choice-row" role="radiogroup">
-              {([["sms"], ["whatsapp"], ["sms", "whatsapp"], ...(emailAvailable ? [["email"]] : [])] as Array<Array<"sms" | "whatsapp" | "email">>).map((opt) => {
+              {([["push"], ["sms"], ["whatsapp"], ["sms", "whatsapp"], ...(emailAvailable ? [["email"]] : [])] as Array<Array<"sms" | "whatsapp" | "email" | "push">>).map((opt) => {
                 const key = opt.join("+");
                 const needsWa = opt.includes("whatsapp");
                 const waOff = needsWa && (!whatsapp.available || occasion);
                 const base = v.channels.filter((c) => c !== "email");
-                const emailOnly = v.channels.length === 1 && v.channels[0] === "email";
-                const selected = key === "email" ? emailOnly : !emailOnly && base.length === opt.length && opt.every((c) => (base as string[]).includes(c));
-                const pick = () => set("channels", key === "email" ? ["email"] : [...opt, ...(v.channels.includes("email") && !emailOnly ? (["email"] as const) : [])]);
+                const solo = v.channels.length === 1 && (v.channels[0] === "email" || v.channels[0] === "push") ? v.channels[0] : null;
+                const selected = key === "email" || key === "push" ? solo === key : !solo && base.length === opt.length && opt.every((c) => (base as string[]).includes(c));
+                const pick = () => set("channels", key === "email" || key === "push" ? [key] : [...opt, ...(v.channels.includes("email") && !solo ? (["email"] as const) : [])]);
                 return (
-                  <label key={key} className={`choice ${selected ? "selected" : ""} ${waOff ? "disabled" : ""}`}>
+                  <label key={key} className={`choice ${selected ? "selected" : ""} ${waOff ? "disabled" : ""} ${key === "push" ? "choice-free" : ""}`}>
                     <input type="radio" name="channels" checked={selected} disabled={waOff} onChange={pick} />
-                    <span>{key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : key === "email" ? t("channel.emailOnly") : t("channel.both")}</span>
+                    <span>
+                      {key === "push" ? t("channel.pushOnly") : key === "sms" ? t("channel.smsOnly") : key === "whatsapp" ? t("channel.waOnly") : key === "email" ? t("channel.emailOnly") : t("channel.both")}
+                      {key === "push" && <><br /><span className="badge ok">{t("channel.free")}</span></>}
+                    </span>
                   </label>
                 );
               })}
             </div>
-            {emailAvailable && !(v.channels.length === 1 && v.channels[0] === "email") && (
+            <p className="hint">{v.channels.includes("push") ? t("channel.pushHint") : t("channel.pushAlso")}</p>
+            {emailAvailable && !(v.channels.length === 1 && (v.channels[0] === "email" || v.channels[0] === "push")) && (
               <label className="row small mt"><input type="checkbox" checked={v.channels.includes("email")} onChange={(e) => set("channels", e.target.checked ? [...v.channels, "email"] : v.channels.filter((c) => c !== "email"))} /> {t("channel.alsoEmail")}</label>
             )}
             {!whatsapp.available && <p className="hint mb-0">{t("channel.waComingSoon")}</p>}
@@ -572,7 +576,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(2)}>{t("rem.back")}</button>
             {!preview.sufficient && (
-              <button type="button" className="btn btn-accent btn-lg" onClick={() => setTopup({ needed: preview.reservedOnConfirmCredits, available: preview.wallet.available, shortfall: preview.shortfallCredits })}>
+              <button type="button" className="btn btn-accent btn-lg" onClick={() => setTopup({ needed: preview.reservedOnConfirmCredits, available: preview.wallet.available, shortfall: Math.ceil(preview.shortfallCredits) })}>
                 <Icon name="wallet" size={18} /> {t("topup.needTitle")}
               </button>
             )}

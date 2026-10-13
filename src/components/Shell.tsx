@@ -22,7 +22,7 @@ export interface ShellUser {
   plan?: { kind: string | null; endsAt: string | null; left: Record<"sms" | "whatsapp" | "email", number> | null } | null;
 }
 
-const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding", "/pro", "/subscriptions", "/insights", "/history"];
+const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding", "/pro", "/subscriptions", "/insights", "/history", "/support"];
 
 const PRO_NAV: { href: string; icon: IconName; key: MessageKey }[] = [
   { href: "/subscriptions", icon: "repeat", key: "nav.subscriptions" },
@@ -103,6 +103,7 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
           <div className="side-credits"><CountUp value={user.availableCredits} lang={prefs.lang} /></div>
           <Link href="/wallet" className="small">{t("dash.topUp")} →</Link>
         </div>
+        <Link href="/support" className={`side-link ${isActive(path, "/support") ? "active" : ""}`}><Icon name="message" /> {t("nav.support")}</Link>
         <button className="side-link" style={{ border: 0, background: "transparent", cursor: "pointer", font: "inherit" }} onClick={logout}><Icon name="logout" /> {t("nav.logout")}</button>
       </aside>
       <div className="app-main">
@@ -160,6 +161,7 @@ function PublicShell({ signedIn, children }: { signedIn: boolean; children: Reac
         <div className="inner">
           <span>© {new Date().getFullYear()} Nabikaran · nabikaran.org</span>
           <span className="row">
+            <Link href="/support">{t("nav.support")}</Link>
             <Link href="/privacy">{t("common.privacy")}</Link>
             <Link href="/pricing">{t("nav.pricing")}</Link>
             <Link href="/gift">{t("gift.label")}</Link>

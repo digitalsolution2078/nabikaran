@@ -32,8 +32,16 @@ export interface LookupResult {
   raw?: unknown;
 }
 
+export type GatewayName = "khalti" | "esewa" | "mock";
+
+/** What we know about the order when looking it up (eSewa's status API needs the amount). */
+export interface LookupContext {
+  amountPaisa: number;
+  orderReference: string;
+}
+
 export interface PaymentGateway {
-  readonly name: "khalti" | "esewa" | "mock";
+  readonly name: GatewayName;
   initiate(input: InitiateInput): Promise<InitiateResult>;
-  lookup(gatewayRef: string): Promise<LookupResult>;
+  lookup(gatewayRef: string, ctx?: LookupContext): Promise<LookupResult>;
 }

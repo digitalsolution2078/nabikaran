@@ -49,7 +49,7 @@ export default async function AdminTopups({ searchParams }: { searchParams: Prom
               <tr key={r.id}>
                 <td><Link href={`/admin/users/${r.userId}`}>{r.userName ?? formatPhoneLocal(r.userPhone)}</Link><br /><span className="small muted">{r.userPhone}</span></td>
                 <td className="mono">{r.reference}</td>
-                <td className="num"><strong>{r.amountNpr.toLocaleString("en-IN")}</strong><br /><span className="small muted">{r.credits} cr</span></td>
+                <td className="num"><strong>{r.amountNpr.toLocaleString("en-IN")}</strong><br /><span className="small muted">{r.credits} cr{r.bonusCredits > 0 ? ` + ${r.bonusCredits} bonus` : ""}</span></td>
                 <td className="mono small">{r.payerTxnRef ?? "—"}{r.payerNote ? <><br /><span className="muted">“{r.payerNote}”</span></> : null}{r.hasReceipt && <><br /><a href={`/api/admin/topups/${r.id}/receipt`} target="_blank" rel="noopener noreferrer">View receipt</a></>}</td>
                 <td className="nowrap small">{(r.submittedAt ?? r.createdAt).replace("T", " ").slice(0, 16)}</td>
                 <td>

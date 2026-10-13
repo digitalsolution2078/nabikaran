@@ -33,6 +33,7 @@ export function ProAdmin({ pro, email, keyStatus }: { pro: ProSettings; email: E
     await api("/api/admin/settings", { method: "POST", json: { key: "pro", value: {
       enabled: p.enabled, price_npr: num("price_npr"), duration_days: num("duration_days"), trial_enabled: p.trial_enabled, trial_days: num("trial_days"),
       allowance_sms: num("allowance_sms"), allowance_whatsapp: num("allowance_whatsapp"), allowance_email: num("allowance_email"),
+      monthly_credits: num("monthly_credits"),
     } } });
     return "Pro settings saved. New prices and allowances apply to new purchases only.";
   });
@@ -111,9 +112,10 @@ export function ProAdmin({ pro, email, keyStatus }: { pro: ProSettings; email: E
           {numField("price_npr", "Price (NPR per plan)", "Shown as is; include VAT if you charge it.")}
           {numField("duration_days", "Plan length (days)")}
           {numField("trial_days", "Trial length (days)")}
-          {numField("allowance_sms", "Included SMS per plan", "Counted per SMS part (a 2-part SMS uses 2).")}
-          {numField("allowance_whatsapp", "Included WhatsApp messages per plan")}
-          {numField("allowance_email", "Included emails per plan")}
+          {numField("monthly_credits", "Credits every plan month", "Given at the start of each plan month; unused ones expire at its end. 30 credits ≈ 20 SMS. Applies to new purchases.")}
+          {numField("allowance_sms", "Old model: included SMS per plan", "Keep 0 with monthly credits. Counted per SMS part.")}
+          {numField("allowance_whatsapp", "Old model: included WhatsApp per plan")}
+          {numField("allowance_email", "Old model: included emails per plan")}
         </div>
         <button type="button" className="btn btn-primary" disabled={busy} onClick={savePro}>Save Pro settings</button>
       </section>

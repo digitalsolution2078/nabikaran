@@ -65,7 +65,11 @@ export const pinSettingsSchema = z.object({
   max_attempts: z.number().int().min(3).max(10),
 });
 
-/** Pro plan offer (admin-editable). Allowances are messages per plan year. */
+/**
+ * Pro plan offer (admin-editable). Pro gives `monthly_credits` every plan month
+ * (unused ones expire at the month's end). The per-channel allowances are the
+ * older model (messages per plan year); keep them at 0 unless you want both.
+ */
 export const proSettingsSchema = z.object({
   enabled: z.boolean(),
   price_npr: z.number().int().min(1).max(100000),
@@ -75,6 +79,7 @@ export const proSettingsSchema = z.object({
   allowance_sms: z.number().int().min(0).max(10000),
   allowance_whatsapp: z.number().int().min(0).max(10000),
   allowance_email: z.number().int().min(0).max(100000),
+  monthly_credits: z.number().min(0).max(10000).default(30),
 });
 
 /** Email sending (Resend). The API key is a secret and lives in app_secrets, not here. */
@@ -93,6 +98,8 @@ export const integrationSettingsSchema = z.object({
   sms_provider: z.enum(["env", "aakash", "mock"]),
   payment_gateway: z.enum(["env", "khalti", "none", "mock"]),
   khalti_env: z.enum(["env", "live", "test"]),
+  esewa_mode: z.enum(["env", "off", "live", "test"]).default("env"),
+  esewa_product_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only").default(""),
   fonepay_mode: z.enum(["env", "off", "live", "mock"]),
   fonepay_merchant_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only"),
   whatsapp_provider: z.enum(["env", "off", "meta", "mock"]),
@@ -129,9 +136,9 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   referral: { enabled: true, referrer_credits: 20, referee_credits: 10, min_topup_npr: 50, max_rewards_per_referrer: 25, message: "" },
   pin: { enabled: true, max_attempts: 5 },
   // Off until an admin turns it on (after setting up email in Admin → Pro & email).
-  pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 400 },
+  pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 0, allowance_whatsapp: 0, allowance_email: 0, monthly_credits: 30 },
   email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
-  integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
+  integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", esewa_mode: "env", esewa_product_code: "", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
   codes: { gifts_enabled: true, gift_min_npr: 50, gift_max_npr: 5000, counter_daily_limit_npr: 50000 },
 };
 

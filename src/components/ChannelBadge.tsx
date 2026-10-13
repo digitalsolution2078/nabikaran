@@ -1,6 +1,7 @@
 /** Small, colour-coded channel marker. Server- and client-safe. */
 export function ChannelBadge({ channel }: { channel: "sms" | "whatsapp" | string }) {
   if (channel === "email") return <span className="ch-badge ch-email">Email</span>;
+  if (channel === "push") return <span className="ch-badge ch-push">App</span>;
   const wa = channel === "whatsapp";
   return <span className={`ch-badge ${wa ? "ch-wa" : "ch-sms"}`}>{wa ? "WhatsApp" : "SMS"}</span>;
 }

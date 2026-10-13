@@ -50,7 +50,7 @@ describe("sign-in SMS", () => {
     const sent = sms.sent.at(-1)!;
     expect(sent.text).toMatch(/^Nabikaran login code: \d{6}\./);
     const { rows } = await db.query<{ type: string; signed_credits: string; memo: string }>("select type, signed_credits::text, memo from wallet_ledger where user_id = $1", [first.userId]);
-    expect(rows).toEqual([{ type: "fee", signed_credits: "-1", memo: "Sign-in SMS" }]);
+    expect(rows).toEqual([{ type: "fee", signed_credits: "-1.00", memo: "Sign-in SMS" }]);
   });
 
   it("a code that is requested but never verified charges nobody", async () => {
@@ -109,7 +109,7 @@ describe("sign-in SMS", () => {
     await db.query("update reminder_jobs set due_at_utc = now() - interval '1 minute' where id = $1", [job]);
     await runDispatcher(db, new Date());
     const { rows } = await db.query<{ signed_credits: string }>("select signed_credits::text from wallet_ledger where user_id = $1 and type = 'debit'", [uid]);
-    expect(rows.map((r) => r.signed_credits)).toEqual(["-3"]);
+    expect(rows.map((r) => r.signed_credits)).toEqual(["-3.00"]);
     expect(await wallet(db, uid)).toEqual({ posted: -1, reserved: 0, available: -1 });
   });
 
@@ -147,7 +147,7 @@ describe("SMS charge uses the price the job was reserved at", () => {
     await db.query("update reminder_jobs set due_at_utc = now() - interval '1 minute' where id = $1", [reminder.jobs[0].id]);
     await runDispatcher(db, new Date());
     const { rows } = await db.query<{ signed_credits: string }>("select signed_credits::text from wallet_ledger where user_id = $1 and type = 'debit'", [uid]);
-    expect(rows.map((r) => r.signed_credits)).toEqual(["-3"]);
+    expect(rows.map((r) => r.signed_credits)).toEqual(["-3.00"]);
     expect(await wallet(db, uid)).toEqual({ posted: 47, reserved: 0, available: 47 });
     await db.query("delete from pricing_versions where credits_per_billable_unit = 5");
   });
