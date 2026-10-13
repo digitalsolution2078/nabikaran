@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   return handle(async () => {
     const admin = await requirePermission(req, "sms.manage");
-    const body = await parseBody(req, z.object({ channel: z.enum(["sms", "whatsapp"]).default("sms"), creditsPerUnit: z.number().int().positive().max(1000), effectiveAt: z.string().datetime().optional(), confirm: z.boolean().default(false) }));
+    const body = await parseBody(req, z.object({ channel: z.enum(["sms", "whatsapp", "email"]).default("sms"), creditsPerUnit: z.number().positive().max(1000), effectiveAt: z.string().datetime().optional(), confirm: z.boolean().default(false) }));
     const effectiveAt = body.effectiveAt ? new Date(body.effectiveAt) : new Date();
     const preview = { channel: body.channel, creditsPerUnit: body.creditsPerUnit, effectiveAt: effectiveAt.toISOString(), note: "Existing reservations keep their cost snapshot; only new schedules use the new price." };
     if (!body.confirm) return json({ preview });

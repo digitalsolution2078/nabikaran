@@ -248,7 +248,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       setBsConfirmed(false);
       setUseCredits(false);
       if (!r.preview.sufficient) {
-        setTopup({ needed: r.preview.reservedOnConfirmCredits, available: r.preview.wallet.available, shortfall: r.preview.shortfallCredits });
+        setTopup({ needed: r.preview.reservedOnConfirmCredits, available: r.preview.wallet.available, shortfall: Math.ceil(r.preview.shortfallCredits) });
       }
       setIdempotencyKey(crypto.randomUUID());
       setStep(3);
@@ -282,7 +282,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
         setTopup({
           needed: d.neededCredits ?? preview?.reservedOnConfirmCredits ?? 0,
           available: d.availableCredits ?? preview?.wallet.available ?? 0,
-          shortfall: d.shortfallCredits ?? Math.max(1, -(preview?.wallet.available ?? 0)),
+          shortfall: Math.ceil(d.shortfallCredits ?? Math.max(1, -(preview?.wallet.available ?? 0))),
           locked: e.code === "account_locked",
         });
       } else {
@@ -576,7 +576,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(2)}>{t("rem.back")}</button>
             {!preview.sufficient && (
-              <button type="button" className="btn btn-accent btn-lg" onClick={() => setTopup({ needed: preview.reservedOnConfirmCredits, available: preview.wallet.available, shortfall: preview.shortfallCredits })}>
+              <button type="button" className="btn btn-accent btn-lg" onClick={() => setTopup({ needed: preview.reservedOnConfirmCredits, available: preview.wallet.available, shortfall: Math.ceil(preview.shortfallCredits) })}>
                 <Icon name="wallet" size={18} /> {t("topup.needTitle")}
               </button>
             )}

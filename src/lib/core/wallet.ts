@@ -73,6 +73,9 @@ export async function getLedger(p: Principal, limit = 50, db: Db = getDb()): Pro
   }));
 }
 
+/** Credits have two decimals (1 credit = NPR 1). Round sums and products made in JS. */
+export const roundCredits = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
+
 /** Channels with a price. App (push) notifications are free. */
 export type PricedChannel = "sms" | "whatsapp" | "email";
 export type Channel = PricedChannel | "push";

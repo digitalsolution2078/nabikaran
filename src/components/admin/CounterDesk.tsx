@@ -5,7 +5,7 @@ import { Icon } from "../Icon";
 
 type Log = { day: string; entries: Array<{ id: string; reference: string; at: string; amountNpr: number; method: string; receipt: string | null; kind: "wallet" | "gift"; customer: string | null; staff: string }>; totals: Array<{ method: string; amountNpr: number; count: number }>; totalNpr: number };
 type Customer = { id: string; phone: string; name: string | null; available: number };
-type Done = { kind: "wallet" | "gift"; reference: string; amountNpr: number; credits: number; method: string; receipt: string; at: string; phone?: string; name?: string | null; balance?: number; code?: string; toName?: string };
+type Done = { kind: "wallet" | "gift"; reference: string; amountNpr: number; credits: number; bonus?: number; method: string; receipt: string; at: string; phone?: string; name?: string | null; balance?: number; code?: string; toName?: string };
 
 const METHODS: Array<[string, string]> = [["cash", "Cash"], ["esewa", "eSewa"], ["khalti", "Khalti"], ["fonepay", "Fonepay / bank QR"], ["bank", "Bank transfer"], ["other", "Other"]];
 const methodLabel = (m: string) => METHODS.find(([k]) => k === m)?.[1] ?? m;
@@ -46,14 +46,14 @@ export function CounterDesk({ initialLog, canSeeAll, gift }: { initialLog: Log; 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const what = tab === "topup" ? `Add ${npr(amount)} = ${amount} credits to ${customer?.phone}${customer?.name ? ` (${customer.name})` : ""}` : `Sell a gift card of ${npr(amount)}`;
+    const what = tab === "topup" ? `Add ${npr(amount)} (= ${amount} credits + any top-up bonus) to ${customer?.phone}${customer?.name ? ` (${customer.name})` : ""}` : `Sell a gift card of ${npr(amount)}`;
     if (!window.confirm(`${what}, paid by ${methodLabel(f.method)}?\n\nOnly confirm after the money is in your hand or account.`)) return;
     setBusy(true);
     try {
       const common = { amountNpr: amount, method: f.method, receipt: f.receipt.trim() || null, note: f.note.trim() || null, idempotencyKey: key };
       if (tab === "topup") {
-        const r = await api<{ reference: string; credits: number; customer: Customer }>("/api/admin/counter", { method: "POST", json: { action: "topup", phone: customer!.phone, ...common } });
-        setDone({ kind: "wallet", reference: r.reference, amountNpr: amount, credits: r.credits, method: f.method, receipt: f.receipt.trim(), at: new Date().toISOString(), phone: r.customer.phone, name: r.customer.name, balance: r.customer.available });
+        const r = await api<{ reference: string; credits: number; bonus?: number; customer: Customer }>("/api/admin/counter", { method: "POST", json: { action: "topup", phone: customer!.phone, ...common } });
+        setDone({ kind: "wallet", reference: r.reference, amountNpr: amount, credits: r.credits, bonus: r.bonus ?? 0, method: f.method, receipt: f.receipt.trim(), at: new Date().toISOString(), phone: r.customer.phone, name: r.customer.name, balance: r.customer.available });
         setCustomer(r.customer);
       } else {
         const r = await api<{ reference: string; credits: number; code: string }>("/api/admin/counter", { method: "POST", json: { action: "gift", toName: f.toName.trim() || null, message: f.message.trim() || null, ...common } });
@@ -139,7 +139,7 @@ export function CounterDesk({ initialLog, canSeeAll, gift }: { initialLog: Log; 
                 <dt>Reference</dt><dd className="mono">{done.reference}</dd>
                 <dt>Amount paid</dt><dd>{npr(done.amountNpr)} ({methodLabel(done.method)})</dd>
                 {done.receipt && <><dt>Receipt no.</dt><dd>{done.receipt}</dd></>}
-                {done.kind === "wallet" && <><dt>Customer</dt><dd>{done.name ? `${done.name} · ` : ""}{done.phone}</dd><dt>Credits added</dt><dd>{done.credits}</dd><dt>New balance</dt><dd>{done.balance?.toLocaleString()} credits</dd></>}
+                {done.kind === "wallet" && <><dt>Customer</dt><dd>{done.name ? `${done.name} · ` : ""}{done.phone}</dd><dt>Credits added</dt><dd>{done.credits}{done.bonus ? ` (incl. ${done.bonus} bonus)` : ""}</dd><dt>New balance</dt><dd>{done.balance?.toLocaleString()} credits</dd></>}
               </dl>
               <p className="small muted">Credits do not expire and are not refundable as cash.</p>
               <button type="button" className="btn btn-outline btn-sm no-print" onClick={() => window.print()}>Print</button>

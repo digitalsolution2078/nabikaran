@@ -6,7 +6,7 @@ import { planReminders, MAX_OFFSET_MINUTES, type Candidate } from "../scheduler"
 import { renderReminder, type TemplateRow } from "../sms/templates";
 import { renderWhatsApp, type WaTemplateRow } from "../whatsapp/templates";
 import { whatsappAvailable } from "../whatsapp/availability";
-import { getActivePricing, readWallet, type Channel } from "./wallet";
+import { getActivePricing, readWallet, roundCredits, type Channel } from "./wallet";
 import { HttpError } from "./errors";
 import { requireScope, type Principal } from "./principal";
 import { audit } from "./audit";
@@ -317,7 +317,7 @@ export async function previewSchedule(
           smsText: r.body,
           segments: r.estimate.segments,
           encoding: r.estimate.encoding,
-          credits: r.estimate.segments * smsPricing.creditsPerUnit,
+          credits: roundCredits(r.estimate.segments * smsPricing.creditsPerUnit),
           smsLabel: r.smsLabel,
           labelAdjusted: r.labelAdjusted,
         });
@@ -384,7 +384,7 @@ export async function previewSchedule(
   let permissionCredits = 0;
   if (allowance && !allowance.fallback) {
     for (const l of lines) {
-      if (l.channel !== "push" && !l.included && allowance.granted[l.channel] > 0 && new Date(l.due.utc).getTime() < allowance.endsAt.getTime()) permissionCredits += l.credits;
+      if (l.channel !== "push" && !l.included && allowance.granted[l.channel] > 0 && new Date(l.due.utc).getTime() < allowance.endsAt.getTime()) permissionCredits = roundCredits(permissionCredits + l.credits);
     }
   }
   const proEndsAt = await proEnd(db, p.userId, now);
@@ -392,9 +392,9 @@ export async function previewSchedule(
   for (const ch of channels) {
     const ls = lines.filter((l) => l.channel === ch);
     const pr = ch === "push" ? { id: 0, creditsPerUnit: 0 } : ch === "sms" ? smsPricing : ch === "email" ? emailPricing : waPricing;
-    byChannel[ch] = { messages: ls.length, included: ls.filter((l) => l.included).length, credits: ls.reduce((n, l) => n + l.credits, 0), creditsPerUnit: pr.creditsPerUnit, pricingVersion: pr.id };
+    byChannel[ch] = { messages: ls.length, included: ls.filter((l) => l.included).length, credits: roundCredits(ls.reduce((n, l) => n + l.credits, 0)), creditsPerUnit: pr.creditsPerUnit, pricingVersion: pr.id };
   }
-  const totalCredits = lines.reduce((n, l) => n + l.credits, 0);
+  const totalCredits = roundCredits(lines.reduce((n, l) => n + l.credits, 0));
   const reservedOnConfirmCredits = totalCredits; // every message is reserved when the reminder is saved
   const warnings: Warning[] = [];
   if (expiryAtUtc.getTime() <= now.getTime()) warnings.push("expiry_in_past");
@@ -412,7 +412,7 @@ export async function previewSchedule(
   if (channels.includes("push") && (await deviceCount(p.userId, db).catch(() => 0)) === 0) warnings.push("push_no_device");
   if (proEndsAt && lines.some((l) => new Date(l.due.utc).getTime() >= proEndsAt.getTime())) warnings.push("after_pro_ends");
   // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
-  const shortfallCredits = Math.max(0, reservedOnConfirmCredits - (wallet.available + releasable));
+  const shortfallCredits = Math.max(0, roundCredits(reservedOnConfirmCredits - (wallet.available + releasable)));
   if (shortfallCredits > 0) warnings.push("insufficient_credits");
   return {
     expiry: instantDTO(expiryAtUtc),
@@ -491,7 +491,7 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       if (ch === "sms") {
         const rendered = renderReminder({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale, category: renewal.category }, templates);
         segments = rendered.estimate.segments;
-        credits = segments * smsPricing.creditsPerUnit;
+        credits = roundCredits(segments * smsPricing.creditsPerUnit);
         version = smsPricing.id;
       } else if (ch === "email") {
         credits = emailPricing.creditsPerUnit;
@@ -516,7 +516,7 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       if (res[0].wallet_reserve_for_job === "scheduled") result.scheduled++;
       else {
         result.awaiting++;
-        if (res[0].wallet_reserve_for_job === "needs_permission") needsPermission += credits;
+        if (res[0].wallet_reserve_for_job === "needs_permission") needsPermission = roundCredits(needsPermission + credits);
       }
       if (ch === "whatsapp") await audit(tx, null, "whatsapp.message.scheduled", { type: "reminder_job", id: jobRows[0].id }, { due: c.dueAtUtc.toISOString(), credits });
     }
@@ -551,8 +551,9 @@ async function heldFor(tx: Db, renewalId: string, cycleNo: number): Promise<numb
 }
 
 export function insufficientCredits(needed: number, available: number): HttpError {
-  // Debt counts: with -1 available and 12 needed, 13 must be added.
-  const shortfall = Math.max(1, needed - available);
+  // Debt counts: with -1 available and 12 needed, 13 must be added. Top-ups are
+  // whole rupees, so a fractional gap (e.g. 0.50) rounds up.
+  const shortfall = Math.max(1, Math.ceil(roundCredits(needed - available)));
   return new HttpError(
     402,
     `Not enough credits: this reminder needs ${needed} credits and you have ${available}. Top up at least ${shortfall} credits — nothing was saved.`,

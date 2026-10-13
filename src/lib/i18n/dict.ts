@@ -928,6 +928,20 @@ const en = {
   "sup.a1": "QR payments are checked by hand and can take up to 24 hours. Khalti payments are added automatically within a minute.",
   "sup.q2": "I did not get the reminder SMS",
   "sup.a2": "Open the reminder and check its message list. A failed SMS returns its credits automatically.",
+  "wallet.bonusIncl": "includes {bonus} bonus",
+  "wallet.bonusNudge": "Add NPR {more} more to get a {pct}% bonus",
+  "wallet.usageTitle": "Credits used",
+  "wallet.usageMonth": "This month",
+  "wallet.usageAll": "All time",
+  "wallet.usageMsgs": "{n} messages",
+  "wallet.prices": "Price per message",
+  "wallet.priceLine": "SMS {sms} · WhatsApp {wa} · Email {email} · App notification free",
+  "wallet.bonusTitle": "Top-up bonus",
+  "wallet.bonusRow": "NPR {min}+ → {pct}% extra",
+  "ledger.topupBonus": "Top-up bonus",
+  "price.bonusTitle": "Top up more, get more",
+  "price.bonusText": "Bigger top-ups earn bonus credits on QR, Khalti, eSewa, Fonepay and at our counter.",
+  "price.appFree": "App notification",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1857,6 +1871,20 @@ const ne: Record<MessageKey, string> = {
   "sup.a1": "QR भुक्तानी हातैले जाँचिन्छ र बढीमा २४ घण्टा लाग्न सक्छ। Khalti भुक्तानी एक मिनेटभित्र आफैं थपिन्छ।",
   "sup.q2": "मलाई रिमाइन्डर SMS आएन",
   "sup.a2": "रिमाइन्डर खोलेर सन्देश सूची हेर्नुहोस्। असफल SMS को क्रेडिट आफैं फिर्ता हुन्छ।",
+  "wallet.bonusIncl": "{bonus} बोनस सहित",
+  "wallet.bonusNudge": "रु {more} थप्नुहोस् र {pct}% बोनस पाउनुहोस्",
+  "wallet.usageTitle": "प्रयोग भएको क्रेडिट",
+  "wallet.usageMonth": "यो महिना",
+  "wallet.usageAll": "सुरुदेखि",
+  "wallet.usageMsgs": "{n} सन्देश",
+  "wallet.prices": "प्रति सन्देश मूल्य",
+  "wallet.priceLine": "SMS {sms} · WhatsApp {wa} · इमेल {email} · एप नोटिफिकेसन निःशुल्क",
+  "wallet.bonusTitle": "टप-अप बोनस",
+  "wallet.bonusRow": "रु {min}+ → {pct}% थप",
+  "ledger.topupBonus": "टप-अप बोनस",
+  "price.bonusTitle": "धेरै टप-अप, धेरै फाइदा",
+  "price.bonusText": "QR, Khalti, eSewa, Fonepay र काउन्टरमा ठूलो टप-अप गर्दा बोनस क्रेडिट पाइन्छ।",
+  "price.appFree": "एप नोटिफिकेसन",
 };
 
 export const DICTS = { en: en as Record<MessageKey, string>, ne } as const;

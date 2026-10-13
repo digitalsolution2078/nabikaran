@@ -30,15 +30,18 @@ export function SmsTemplateEditor({ locale, category, body }: { locale: "en-NP" 
   );
 }
 
-export function PricingEditor({ current, channel = "sms" }: { current: number; channel?: "sms" | "whatsapp" }) {
-  const unit = channel === "sms" ? "SMS unit" : "accepted WhatsApp message";
+export function PricingEditor({ current, channel = "sms" }: { current: number; channel?: "sms" | "whatsapp" | "email" }) {
+  const unit = channel === "sms" ? "SMS unit (160 characters)" : channel === "email" ? "email" : "accepted WhatsApp message";
   const router = useRouter();
   const [value, setValue] = useState(String(current));
   const [msg, setMsg] = useState<string | null>(null);
   async function save() {
     const n = Number(value);
-    if (!Number.isInteger(n) || n <= 0) return;
-    if (!confirm(`Set the customer price to ${n} credits per ${unit} from now?\n\nExisting scheduled reminders keep their reserved price; only new schedules use the new price.`)) return;
+    if (!Number.isFinite(n) || n < 0.01 || Math.abs(Math.round(n * 100) - n * 100) > 1e-6) {
+      setMsg("Use a price like 1.50 or 0.30 (two decimals at most).");
+      return;
+    }
+    if (!confirm(`Set the customer price to ${n.toFixed(2)} credits (NPR ${n.toFixed(2)}) per ${unit} from now?\n\nExisting scheduled reminders keep their reserved price; only new schedules use the new price.`)) return;
     try {
       await api("/api/admin/pricing", { method: "POST", json: { channel, creditsPerUnit: n, confirm: true } });
       setMsg("New price active for new schedules.");
@@ -50,7 +53,7 @@ export function PricingEditor({ current, channel = "sms" }: { current: number; c
   return (
     <div className="row mt">
       <label htmlFor={`price-${channel}`} className="sr-only">Credits per {unit}</label>
-      <input id={`price-${channel}`} type="number" min={1} step={1} value={value} onChange={(e) => setValue(e.target.value)} style={{ width: 120 }} />
+      <input id={`price-${channel}`} type="number" min={0.01} step={0.01} inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} style={{ width: 120 }} />
       <button className="btn btn-secondary" disabled={Number(value) === current} onClick={save}>Update price</button>
       {msg && <span className="small" role="status">{msg}</span>}
     </div>

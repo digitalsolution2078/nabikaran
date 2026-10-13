@@ -536,3 +536,15 @@ Every staff role (super admin, admin, finance, support, content, auditor, counte
 Customers are not forced; for them the app stays optional.
 
 **Emergency switch.** Set `STAFF_2FA_REQUIRED=false` in `.env` and restart the app. Use it only if every super admin has lost both their phone and their recovery codes. Turn it back on as soon as access is restored.
+
+## 23. Free app notifications, support tickets, decimal credits and top-up bonus (migrations `0017`–`0020`)
+
+**Free app (push) reminders (`0017_push_channel`).** "App notification only" is a delivery channel on every plan. Push jobs cost nothing, need no reservation and are never blocked by a low or negative balance. The dispatcher marks them `delivered` when the customer has at least one device with notifications on, `failed` otherwise (the preview warns about this). Paid SMS/WhatsApp/email reminders still send a free push alongside, as before.
+
+**AI apps (MCP).** Admin → AI apps (MCP) lists every customer connected through ChatGPT/Claude (name, phone, app, access, last used). Staff with `oauth.manage` can disconnect one customer from one app; the customer can reconnect. The same list appears on each customer's page.
+
+**Support tickets (`0018_support`).** Customers open tickets at `/support` (signed in: linked to the account; visitors: name + phone or email, and a private link whose hash only is stored). Staff with `support.manage` (support, finance, admin, super admin) work them in Admin → Support: reply, internal note, status, priority, assign. A reply notifies the customer by free app notification and/or email. Payment tickets start as high priority. Attachments: PNG/JPG/WebP/PDF up to 3 MB, content-checked.
+
+**Decimal credits (`0019_decimal_credits`).** 1 credit is still NPR 1, but every credit amount is now `numeric(14,2)` — exact two-decimal maths in Postgres. Default prices per message: SMS 1.50, WhatsApp 1.00, email 0.30; app notifications free. Change them in Admin → Channels & pricing (two decimals at most; applies to new schedules only, booked messages keep their price). "Top up at least…" amounts round up to whole rupees.
+
+**Top-up bonus (`0020_topup_bonus`).** Tiers (default NPR 500+ 3%, 1,000+ 5%, 2,500+ 8%, 5,000+ 10%) are edited in Admin → Channels & pricing. The bonus is fixed when the top-up request or payment order is created, applies to QR, gateway and counter wallet top-ups (not gift cards or coupons), and is posted as a separate `bonus` ledger line. A refunded gateway payment reverses the top-up and its bonus together. Remove every tier to switch the bonus off.

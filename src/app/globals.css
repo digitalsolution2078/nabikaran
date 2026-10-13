@@ -977,3 +977,16 @@ html[lang="ne"] .final-cta h2 { letter-spacing: 0; }
 .bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble-file { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; }
 a.chip { text-decoration: none !important; }
+
+/* Top-up bonus + usage */
+.chip-bonus { margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 700; color: var(--ok); background: var(--ok-bg); }
+.you-get { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.you-get-total { font-weight: 700; color: var(--brand-700); }
+:root[data-theme="dark"] .you-get-total { color: var(--brand-200); }
+.bonus-nudge { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--accent-border); background: var(--accent-soft); color: #c2410c; font: 600 13px var(--font); padding: 6px 10px; border-radius: 999px; cursor: pointer; transition: transform var(--dur-2) var(--ease-out); }
+.bonus-nudge:hover { transform: translateY(-1px); }
+:root[data-theme="dark"] .bonus-nudge { background: #2b1a0c; color: #fdba74; border-color: #7c2d12; }
+.usage-rows { display: grid; gap: 8px; margin-bottom: 8px; }
+.usage-row { display: flex; align-items: center; gap: 10px; }
+.bonus-box { margin: 4px 0 14px; padding: 12px 14px; border-radius: 14px; border: 1px dashed var(--accent-border); background: var(--accent-soft); }
+:root[data-theme="dark"] .bonus-box { background: #2b1a0c; border-color: #7c2d12; }

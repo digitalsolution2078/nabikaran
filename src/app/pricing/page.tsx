@@ -8,6 +8,7 @@ import { ProBadge } from "@/components/Shell";
 import { Icon } from "@/components/Icon";
 import { localizeNumber } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/dict";
+import { listBonusTiers } from "@/lib/services/pricing";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -22,9 +23,10 @@ const price = async (ch: "sms" | "whatsapp" | "email") => (await getActivePricin
 export default async function PricingPage() {
   const { user, t, prefs } = await getRequestContext();
   const n = (v: number) => localizeNumber(v, prefs.lang);
-  const [pro, topup, codes, sms, wa, email, plan] = await Promise.all([
+  const [pro, topup, codes, sms, wa, email, plan, tiers] = await Promise.all([
     getSetting("pro"), getSetting("topup"), getSetting("codes"), price("sms"), price("whatsapp"), price("email"),
     user ? getPlanState(user.id) : Promise.resolve(null),
+    listBonusTiers().catch(() => []),
   ]);
   const isPro = plan?.tier === "pro";
   const trialOpen = pro.enabled && pro.trial_enabled && !(plan?.trialUsed ?? false);
@@ -121,6 +123,15 @@ export default async function PricingPage() {
             <li>{t("price.pay2")}</li>
             <li>{t("price.pay3")}</li>
           </ul>
+          {tiers.length > 0 && (
+            <div className="bonus-box">
+              <strong><Icon name="gift" size={16} /> {t("price.bonusTitle")}</strong>
+              <p className="small muted mb-0">{t("price.bonusText")}</p>
+              <div className="chips mt">
+                {tiers.map((tr) => <span key={tr.minNpr} className="chip">{t("wallet.bonusRow", { min: n(tr.minNpr), pct: n(tr.percent) })}</span>)}
+              </div>
+            </div>
+          )}
           {codes.gifts_enabled && (
             <Link href="/gift" className="row" style={{ gap: 10, color: "inherit", textDecoration: "none" }}>
               <span className="avatar-icon"><Icon name="gift" /></span>

@@ -37,7 +37,7 @@ export default async function QrPayPage({ params }: { params: Promise<{ id: stri
   const back = gift ? <Link href="/gift" className="small">← {t("gift.title")}</Link> : <Link href="/wallet" className="small">← {t("wallet.title")}</Link>;
   const sub = gift
     ? t("gift.paySub", { npr: amount, credits: localizeNumber(r.credits, prefs.lang) })
-    : `${t("common.npr")} ${amount} → ${localizeNumber(r.credits, prefs.lang)} ${t("common.credits")}`;
+    : `${t("common.npr")} ${amount} → ${localizeNumber(r.credits + r.bonusCredits, prefs.lang)} ${t("common.credits")}${r.bonusCredits > 0 ? ` (${t("wallet.bonusIncl", { bonus: localizeNumber(r.bonusCredits, prefs.lang) })})` : ""}`;
 
   const dynamicQr = r.qrMode === "dynamic" && r.qrPayload && (r.status === "awaiting_payment" || r.status === "pending");
   const qrSvg = dynamicQr ? await QRCode.toString(r.qrPayload!, { type: "svg", errorCorrectionLevel: "M", margin: 2, width: 300 }) : null;

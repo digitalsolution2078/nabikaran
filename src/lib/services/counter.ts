@@ -77,9 +77,12 @@ export async function counterTopup(admin: { id: string }, input: CounterInput & 
   const customer = await counterLookup(input.phone, db);
   const credits = creditsForNpr(input.amountNpr);
   const r = await run(admin, customer.id, credits, input, null, db);
+  const { rows } = await db.query<{ bonus: string }>("select bonus_credits::text as bonus from manual_topup_requests where id = $1", [r.id]);
+  const bonus = Number(rows[0]?.bonus ?? 0);
   await afterPaid(r.id, db);
-  await sendPushToUser(customer.id, { title: "Credits added", body: `${credits} credits were added to your Nabikaran wallet (NPR ${input.amountNpr}).`, url: "/wallet", tag: "topup" }, db).catch(() => 0);
-  return { ...r, credits, customer: { ...customer, available: (await readWallet(customer.id, db)).available } };
+  const total = credits + bonus;
+  await sendPushToUser(customer.id, { title: "Credits added", body: `${total} credits were added to your Nabikaran wallet (NPR ${input.amountNpr}${bonus > 0 ? `, incl. ${bonus} bonus` : ""}).`, url: "/wallet", tag: "topup" }, db).catch(() => 0);
+  return { ...r, credits: total, bonus, customer: { ...customer, available: (await readWallet(customer.id, db)).available } };
 }
 
 /** Sell a gift card for money taken at the counter. The code is shown once to print or hand over. */

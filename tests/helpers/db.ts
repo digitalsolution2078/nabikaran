@@ -11,11 +11,16 @@ const migrations = readdirSync(migrationsDir)
   .map((f) => readFileSync(path.join(migrationsDir, f), "utf8"));
 
 /** Fresh in-process Postgres with every migration applied in order. */
-export async function createTestDb(): Promise<{ db: Db; pg: PGlite; close: () => Promise<void> }> {
+export async function createTestDb(opts: { decimalPricing?: boolean; topupBonus?: boolean } = {}): Promise<{ db: Db; pg: PGlite; close: () => Promise<void> }> {
   const pg = new PGlite();
   // Supabase provides auth.uid(); stub it so RLS policies compile.
   await pg.exec("create schema if not exists auth; create or replace function auth.uid() returns uuid language sql as $$ select null::uuid $$;");
   for (const sql of migrations) await pg.exec(sql);
+  // Most tests were written against whole-credit prices (SMS 3, WhatsApp 5, email 1);
+  // keep those unless a test asks for the production defaults from 0019.
+  if (!opts.decimalPricing) await pg.exec("delete from pricing_versions where pricing_policy->>'note' = 'decimal credits (0019)'");
+  // Bonus tiers (0020) are off unless a test turns them on, so amounts stay exact.
+  if (!opts.topupBonus) await pg.exec("delete from topup_bonus_tiers");
   const db = wrapQueryable({
     query: (sql, params) => pg.query(sql, params as unknown[]),
     transaction: (fn) => pg.transaction((tx) => fn({ query: (s, p) => tx.query(s, p as unknown[]) })),

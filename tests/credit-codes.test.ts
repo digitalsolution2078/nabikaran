@@ -48,7 +48,7 @@ describe("admin coupons", () => {
     await expect(redeemCode(u1, codes[0], db)).rejects.toMatchObject({ code: "code_already_redeemed" });
     await expect(redeemCode(u2, codes[0], db)).rejects.toMatchObject({ code: "code_used" });
     await expect(redeemCode(u2, "ZZZZ-ZZZZ-ZZZZ", db)).rejects.toMatchObject({ code: "code_invalid" });
-    expect(await ledgerTypes(u1)).toEqual(["coupon:25"]);
+    expect(await ledgerTypes(u1)).toEqual(["coupon:25.00"]);
     const b = (await listCouponBatches(db)).find((x) => x.id === batch.id)!;
     expect(b).toMatchObject({ redeemed: 1, creditsIssued: 25 });
     const { csv } = await couponBatchCsv(A(), batch.id, db);
@@ -94,7 +94,7 @@ describe("gift cards are bought with money, never from wallet credits", () => {
     expect(g.code).toBe(displayCode(code));
     expect((await wallet(db, buyer)).posted).toBe(0); // the payment bought a code, not credits
     expect(await redeemCode(friend, g.code!, db)).toMatchObject({ credits: 500, source: "gift", message: "Happy Dashain" });
-    expect(await ledgerTypes(friend)).toEqual(["gift:500"]);
+    expect(await ledgerTypes(friend)).toEqual(["gift:500.00"]);
     expect((await listMyGiftCards(buyer, db))[0]).toMatchObject({ status: "used", code: null });
     expect(categorize("gift", "credit_code", null)).toBe("coupon");
   });
@@ -139,7 +139,7 @@ describe("counter", () => {
     const again = await counterTopup({ id: counter }, { phone: "9841000980", amountNpr: 600, method: "cash", receipt: "B-101", idempotencyKey: "k-counter-1" }, db);
     expect(again.id).toBe(r.id);
     expect((await wallet(db, cust)).posted).toBe(600);
-    expect(await ledgerTypes(cust)).toEqual(["topup:600"]);
+    expect(await ledgerTypes(cust)).toEqual(["topup:600.00"]);
     // Same receipt number cannot be used twice.
     await expect(counterTopup({ id: counter }, { phone: "9841000980", amountNpr: 100, method: "cash", receipt: "B-101", idempotencyKey: "k-counter-2" }, db)).rejects.toMatchObject({ code: "receipt_used" });
     // Daily limit (1000 set above): 600 used, 500 more is refused.

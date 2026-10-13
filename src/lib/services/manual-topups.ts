@@ -29,6 +29,8 @@ export interface ManualTopup {
   reference: string;
   amountNpr: number;
   credits: number;
+  /** Top-up bonus (tiers), posted as its own ledger line when paid. */
+  bonusCredits: number;
   status: "awaiting_payment" | "pending" | "approved" | "rejected" | "cancelled";
   payerTxnRef: string | null;
   payerNote: string | null;
@@ -50,13 +52,13 @@ interface Row {
   id: string; reference: string; amount_paisa: string | number; credits: string | number; status: ManualTopup["status"];
   payer_txn_ref: string | null; payer_note: string | null; has_receipt: boolean; submitted_at: string | null; decided_at: string | null;
   decision_notes: string | null; created_at: string; qr_mode: "static" | "dynamic"; qr_payload: string | null;
-  purpose?: "wallet" | "gift"; source?: "qr" | "counter"; payment_method?: string | null;
+  purpose?: "wallet" | "gift"; source?: "qr" | "counter"; payment_method?: string | null; bonus_credits?: string | number | null;
 }
 
 function toDto(r: Row): ManualTopup {
   const iso = (v: string | null) => (v ? new Date(v).toISOString() : null);
   return {
-    id: r.id, reference: r.reference, amountNpr: Number(r.amount_paisa) / 100, credits: Number(r.credits), status: r.status,
+    id: r.id, reference: r.reference, amountNpr: Number(r.amount_paisa) / 100, credits: Number(r.credits), bonusCredits: Number(r.bonus_credits ?? 0), status: r.status,
     payerTxnRef: r.payer_txn_ref, payerNote: r.payer_note, hasReceipt: r.has_receipt, submittedAt: iso(r.submitted_at),
     decidedAt: iso(r.decided_at), decisionNotes: r.decision_notes, createdAt: new Date(r.created_at).toISOString(),
     qrMode: r.qr_mode ?? "static", qrPayload: r.qr_payload ?? null,
