@@ -1,4 +1,5 @@
 import { getDb, type Db } from "../db";
+import { retryAwaitingCredits } from "../core/wallet";
 import { HttpError } from "../core/errors";
 import { audit } from "../core/audit";
 import { readWallet } from "../core/wallet";
@@ -35,6 +36,10 @@ export interface PlanState {
   /** A paid/grant plan that starts when the current one ends. */
   queuedUntil: string | null;
   allowances: AllowanceView[];
+  /** Credits this plan gives every plan month (0 for a trial). */
+  monthlyCredits: number;
+  /** The current plan month's credits and when unused ones expire. */
+  monthGrant: { credits: number; expiresAt: string } | null;
   offer: ProSettings;
 }
 
@@ -71,10 +76,22 @@ export async function getPlanState(userId: string, db: Db = getDb(), now: Date =
       "select channel, granted, reserved, used from plan_allowances where user_plan_id = $1",
       [current.id],
     );
+    // Only channels with included messages (older plans); monthly-credit plans have none.
     allowances = PLAN_CHANNELS.map((ch) => {
       const r = rows.find((x) => x.channel === ch) ?? { granted: 0, reserved: 0, used: 0 };
       return { channel: ch, granted: r.granted, reserved: r.reserved, used: r.used, left: Math.max(0, r.granted - r.reserved - r.used) };
-    });
+    }).filter((a) => a.granted > 0);
+  }
+  let monthlyCredits = 0;
+  let monthGrant: PlanState["monthGrant"] = null;
+  if (current && current.kind !== "trial") {
+    const { rows: mc } = await db.query<{ m: string }>("select monthly_credits::text as m from user_plans where id = $1", [current.id]);
+    monthlyCredits = Number(mc[0]?.m ?? 0);
+    const { rows: g } = await db.query<{ credits: string; period_end: string }>(
+      "select credits::text, period_end from pro_credit_grants where user_plan_id = $1 and expired_at is null and period_start <= $2 and period_end > $2 order by period_no desc limit 1",
+      [current.id, now.toISOString()],
+    );
+    if (g[0]) monthGrant = { credits: Number(g[0].credits), expiresAt: new Date(g[0].period_end).toISOString() };
   }
   return {
     tier: current ? "pro" : "basic",
@@ -86,6 +103,8 @@ export async function getPlanState(userId: string, db: Db = getDb(), now: Date =
     trialUsed: Boolean(trial.rows[0]),
     queuedUntil: later.length ? new Date(later[later.length - 1].ends_at).toISOString() : null,
     allowances,
+    monthlyCredits,
+    monthGrant,
     offer,
   };
 }
@@ -148,13 +167,14 @@ async function refundIntoAllowance(tx: Db, userId: string): Promise<number> {
   return moved;
 }
 
-async function insertPaidPlan(tx: Db, userId: string, kind: "paid" | "grant", start: Date, days: number, price: number, allowances: Record<PlanChannel, number>, by: string | null, note: string | null): Promise<string> {
+async function insertPaidPlan(tx: Db, userId: string, kind: "paid" | "grant", start: Date, days: number, price: number, allowances: Record<PlanChannel, number>, by: string | null, note: string | null, monthlyCredits = 0): Promise<string> {
   const { rows } = await tx.query<{ id: string }>(
-    "insert into user_plans (user_id, kind, starts_at, ends_at, price_credits, created_by, note) values ($1,$2,$3,$4,$5,$6,$7) returning id",
-    [userId, kind, start.toISOString(), new Date(start.getTime() + days * DAY).toISOString(), price, by, note],
+    "insert into user_plans (user_id, kind, starts_at, ends_at, price_credits, created_by, note, monthly_credits) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",
+    [userId, kind, start.toISOString(), new Date(start.getTime() + days * DAY).toISOString(), price, by, note, monthlyCredits],
   );
   for (const ch of PLAN_CHANNELS) {
-    await tx.query("insert into plan_allowances (user_plan_id, channel, granted) values ($1,$2,$3)", [rows[0].id, ch, allowances[ch]]);
+    // Only channels with included messages get a row (the monthly-credits model has none).
+    if (allowances[ch] > 0) await tx.query("insert into plan_allowances (user_plan_id, channel, granted) values ($1,$2,$3)", [rows[0].id, ch, allowances[ch]]);
   }
   return rows[0].id;
 }
@@ -203,12 +223,13 @@ export async function buyPro(userId: string, idempotencyKey: string, db: Db = ge
       });
     }
     const start = await nextStart(tx, userId, now);
-    const planId = await insertPaidPlan(tx, userId, "paid", start, offer.duration_days, offer.price_npr, allowancesFrom(offer), userId, `key:${idempotencyKey}`);
+    const planId = await insertPaidPlan(tx, userId, "paid", start, offer.duration_days, offer.price_npr, allowancesFrom(offer), userId, `key:${idempotencyKey}`, offer.monthly_credits);
     await tx.query("select wallet_buy_plan($1, $2, $3)", [userId, offer.price_npr, planId]);
     const moved = start.getTime() <= now.getTime() ? await refundIntoAllowance(tx, userId) : 0;
     await audit(tx, who(userId), "plan.purchased", { type: "user_plan", id: planId }, { credits: offer.price_npr, starts: start.toISOString(), days: offer.duration_days, movedToAllowance: moved });
     return { planId, replayed: false };
   });
+  await runProCredits(db, now).catch((e) => console.warn(`[pro] monthly credits: ${(e as Error).message}`));
   return { ...result, state: await getPlanState(userId, db, now) };
 }
 
@@ -222,10 +243,11 @@ export async function grantPro(admin: { id: string }, userId: string, opts: { da
     if (!u[0]) throw new HttpError(404, "User not found", "not_found");
     const start = await nextStart(tx, userId, now);
     const allowances = opts.withAllowances ? allowancesFrom(offer) : { sms: 0, whatsapp: 0, email: 0 };
-    const planId = await insertPaidPlan(tx, userId, "grant", start, opts.days, 0, allowances, admin.id, opts.note.slice(0, 200) || null);
+    const planId = await insertPaidPlan(tx, userId, "grant", start, opts.days, 0, allowances, admin.id, opts.note.slice(0, 200) || null, opts.withAllowances ? offer.monthly_credits : 0);
     if (start.getTime() <= now.getTime()) await refundIntoAllowance(tx, userId);
     await audit(tx, who(admin.id), "plan.granted", { type: "user", id: userId }, { planId, days: opts.days, withAllowances: opts.withAllowances, note: opts.note });
   });
+  await runProCredits(db, now).catch((e) => console.warn(`[pro] monthly credits: ${(e as Error).message}`));
   return getPlanState(userId, db, now);
 }
 
@@ -342,4 +364,52 @@ export async function setProPrefs(userId: string, prefs: Partial<ProPrefs>, db: 
   if (prefs.digest !== undefined) await db.query("update users set digest_frequency = $2, updated_at = now() where id = $1", [userId, prefs.digest]);
   await audit(db, who(userId), "plan.prefs_updated", { type: "user", id: userId }, prefs as Record<string, unknown>);
   return getProPrefs(userId, db);
+}
+
+/** Calendar-safe "add N months" (31 Jan + 1 month = 28/29 Feb). */
+function addMonths(d: Date, n: number): Date {
+  const x = new Date(d.getTime());
+  const day = x.getUTCDate();
+  x.setUTCDate(1);
+  x.setUTCMonth(x.getUTCMonth() + n);
+  const last = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate();
+  x.setUTCDate(Math.min(day, last));
+  return x;
+}
+
+/**
+ * Reconciler (and right after a purchase/grant): give each active paid/grant
+ * plan its credits for the current plan month, and expire the unused part of
+ * months that have ended. Idempotent.
+ */
+export async function runProCredits(db: Db = getDb(), now: Date = new Date()): Promise<{ granted: number; expired: number }> {
+  let granted = 0;
+  let expired = 0;
+  const { rows: plans } = await db.query<{ id: string; starts_at: string; ends_at: string }>(
+    "select id, starts_at, ends_at from user_plans where status = 'active' and kind in ('paid','grant') and monthly_credits > 0 and starts_at <= $1 and ends_at > $1 limit 1000",
+    [now.toISOString()],
+  );
+  for (const p of plans) {
+    const start = new Date(p.starts_at);
+    const end = new Date(p.ends_at);
+    let n = 0;
+    while (addMonths(start, n + 1).getTime() <= now.getTime()) n++;
+    const periodStart = addMonths(start, n);
+    const periodEnd = new Date(Math.min(addMonths(start, n + 1).getTime(), end.getTime()));
+    const { rows } = await db.query<{ ok: boolean }>("select pro_grant_monthly($1, $2, $3, $4) as ok", [p.id, n, periodStart.toISOString(), periodEnd.toISOString()]);
+    if (rows[0]?.ok) granted++;
+  }
+  const { rows: due } = await db.query<{ id: string; user_id: string }>("select id, user_id from pro_credit_grants where expired_at is null and period_end <= $1 order by period_end limit 1000", [now.toISOString()]);
+  for (const g of due) {
+    await db.tx(async (tx) => {
+      const { rows } = await tx.query<{ n: string }>("select pro_expire_grant($1)::text as n", [g.id]);
+      if (Number(rows[0]?.n ?? 0) > 0) expired++;
+    });
+  }
+  if (granted) {
+    // New credits may fund messages that were waiting.
+    const { rows: users } = await db.query<{ user_id: string }>("select distinct user_id from pro_credit_grants where created_at > now() - interval '5 minutes'");
+    for (const u of users) await retryAwaitingCredits(u.user_id, db).catch(() => 0);
+  }
+  return { granted, expired };
 }

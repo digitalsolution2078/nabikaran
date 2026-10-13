@@ -20,7 +20,7 @@ let admin: string;
 const sms = new MockSmsProvider();
 const mail = new MockEmailProvider();
 const base = { notes: null, familyMemberLabel: null, localTime: "09:00" } as const;
-const PRO = { enabled: true, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 500 };
+const PRO = { enabled: true, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 100, allowance_whatsapp: 100, allowance_email: 500, monthly_credits: 0 };
 
 beforeAll(async () => {
   ({ db, close } = await createTestDb());

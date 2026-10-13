@@ -990,3 +990,5 @@ a.chip { text-decoration: none !important; }
 .usage-row { display: flex; align-items: center; gap: 10px; }
 .bonus-box { margin: 4px 0 14px; padding: 12px 14px; border-radius: 14px; border: 1px dashed var(--accent-border); background: var(--accent-soft); }
 :root[data-theme="dark"] .bonus-box { background: #2b1a0c; border-color: #7c2d12; }
+.flex-credits { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--pro-bg); border: 1px dashed var(--pro-line); }
+.pro-credit-stat .value { color: var(--pro); }

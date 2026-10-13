@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
+import { channelPrices } from "@/lib/services/pricing";
 import { getPlanState, getProPrefs } from "@/lib/services/plans";
 import { ProPrefs } from "@/components/ProPrefs";
 import { ProBadge } from "@/components/Shell";
@@ -22,9 +23,12 @@ export default async function ProPage() {
   if (st.tier === "basic" && !o.enabled) {
     return <div className="stack"><h1>{t("pro.title")}</h1><div className="card"><p className="mb-0">{t("pro.comingSoon")}</p></div></div>;
   }
+  const prices = await channelPrices();
   const benefits = [
     t("pro.benefit.subs"),
-    t("pro.benefit.messages", { sms: n(o.allowance_sms), wa: n(o.allowance_whatsapp), email: n(o.allowance_email) }),
+    o.monthly_credits > 0
+      ? t("pro.credits.benefit", { n: n(o.monthly_credits), sms: n(Math.floor(o.monthly_credits / prices.sms)) })
+      : t("pro.benefit.messages", { sms: n(o.allowance_sms), wa: n(o.allowance_whatsapp), email: n(o.allowance_email) }),
     t("pro.benefit.email"),
     t("pro.benefit.monthly"),
     t("pro.benefit.calendar"),
@@ -43,7 +47,18 @@ export default async function ProPage() {
           </div>
           {st.queuedUntil && <p className="hint">{t("pro.nextYearQueued", { date: formatDate(st.queuedUntil, prefs) })}</p>}
           {st.kind === "trial" ? (
-            <p className="muted">{t("pro.trialNoAllowance", { sms: n(o.allowance_sms), wa: n(o.allowance_whatsapp), email: n(o.allowance_email) })}</p>
+            <p className="muted">{o.monthly_credits > 0 ? t("pro.credits.trial", { n: n(o.monthly_credits) }) : t("pro.trialNoAllowance", { sms: n(o.allowance_sms), wa: n(o.allowance_whatsapp), email: n(o.allowance_email) })}</p>
+          ) : st.allowances.length === 0 ? (
+            <>
+              <h3 className="mt">{t("pro.credits.title")}</h3>
+              {st.monthGrant ? (
+                <div className="stat pro-credit-stat">
+                  <div className="value">{n(st.monthGrant.credits)}</div>
+                  <div className="sub">{t("pro.credits.left", { n: n(st.monthGrant.credits), date: formatDate(st.monthGrant.expiresAt, prefs) })}</div>
+                </div>
+              ) : <p className="muted">{t("pro.credits.hint", { n: n(st.monthlyCredits) })}</p>}
+              <p className="hint">{t("pro.credits.hint", { n: n(st.monthlyCredits) })} {t("plan.credits")}: <strong>{n(wallet.available)}</strong></p>
+            </>
           ) : (
             <>
               <h3 className="mt">{t("pro.allowance")}</h3>

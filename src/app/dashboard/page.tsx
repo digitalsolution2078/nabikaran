@@ -95,7 +95,7 @@ export default async function Dashboard() {
       <InstallApp variant="banner" />
       {showUpgrade && offer && (
         <section className="card upgrade-card row between" style={{ flexWrap: "wrap", gap: 10 }}>
-          <span className="grow" style={{ minWidth: 220 }}><strong><Icon name="star" size={16} /> {t("pro.upgradeTitle")}</strong><br /><span className="small muted">{t("pro.upgradeText", { sms: localizeNumber(offer.allowance_sms, prefs.lang) })}</span></span>
+          <span className="grow" style={{ minWidth: 220 }}><strong><Icon name="star" size={16} /> {t("pro.upgradeTitle")}</strong><br /><span className="small muted">{offer.monthly_credits > 0 ? t("pro.upgradeCredits", { n: localizeNumber(offer.monthly_credits, prefs.lang) }) : t("pro.upgradeText", { sms: localizeNumber(offer.allowance_sms, prefs.lang) })}</span></span>
           <Link href="/pro" className="btn btn-primary btn-sm">{t("pro.seePro")}</Link>
         </section>
       )}

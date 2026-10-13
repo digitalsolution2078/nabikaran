@@ -89,7 +89,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
               <div className="list">
                 {ledger.map((l) => (
                   <div key={l.id} className="list-item">
-                    <span className="grow"><span className="title" style={{ display: "block", textTransform: "capitalize" }}>{l.type === "fee" ? t("ledger.fee") : l.type === "referral" ? t("ledger.bonus") : l.type === "bonus" ? t("ledger.topupBonus") : l.type === "plan" ? t("ledger.plan") : l.type === "coupon" || l.type === "gift" ? `${t("ledger.coupon")}${l.memo ? ` · ${l.memo}` : ""}` : `${l.type}${l.memo ? ` · ${l.memo}` : ""}`}</span><span className="meta">{formatDateTime(l.createdAt, prefs)}</span></span>
+                    <span className="grow"><span className="title" style={{ display: "block", textTransform: "capitalize" }}>{l.type === "fee" ? t("ledger.fee") : l.type === "referral" ? t("ledger.bonus") : l.type === "bonus" ? t("ledger.topupBonus") : l.type === "pro_credit" ? t("ledger.proCredit") : l.type === "pro_expiry" ? t("ledger.proExpiry") : l.type === "plan" ? t("ledger.plan") : l.type === "coupon" || l.type === "gift" ? `${t("ledger.coupon")}${l.memo ? ` · ${l.memo}` : ""}` : `${l.type}${l.memo ? ` · ${l.memo}` : ""}`}</span><span className="meta">{formatDateTime(l.createdAt, prefs)}</span></span>
                     <span className={l.signedCredits >= 0 ? "plus" : "minus"}>{l.signedCredits > 0 ? "+" : ""}{n(l.signedCredits)}</span>
                   </div>
                 ))}

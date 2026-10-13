@@ -363,7 +363,9 @@ export function createMcpServer(): McpServer {
         return ok(summary, {
           tier: s.tier, kind: s.kind, starts_at: s.startsAt, ends_at: s.endsAt, days_left: s.daysLeft, renewed_until: s.queuedUntil,
           included_messages: s.allowances.map((a) => ({ channel: a.channel, included: a.granted, used: a.used, held: a.reserved, left: a.left })),
-          offer: s.offer.enabled ? { price_npr: s.offer.price_npr, duration_days: s.offer.duration_days, included: { sms: s.offer.allowance_sms, whatsapp: s.offer.allowance_whatsapp, email: s.offer.allowance_email }, trial_days: s.offer.trial_enabled ? s.offer.trial_days : 0 } : null,
+          monthly_credits: s.monthlyCredits,
+          this_month_credits: s.monthGrant ? { credits: s.monthGrant.credits, unused_expire_at: s.monthGrant.expiresAt } : null,
+          offer: s.offer.enabled ? { price_npr: s.offer.price_npr, duration_days: s.offer.duration_days, included: { sms: s.offer.allowance_sms, whatsapp: s.offer.allowance_whatsapp, email: s.offer.allowance_email }, monthly_credits: s.offer.monthly_credits, trial_days: s.offer.trial_enabled ? s.offer.trial_days : 0 } : null,
           trial_available: s.offer.enabled && s.offer.trial_enabled && !s.trialUsed && s.tier === "basic",
           pricing_url: `${base}/pricing`, manage_url: `${base}/pro`,
           note: "Purchases are made on the website with wallet credits and are final (no refunds). Nothing renews automatically.",

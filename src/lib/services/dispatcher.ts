@@ -18,6 +18,7 @@ import { pushReminders, type ReminderPush } from "./push";
 import { getEmailProvider, textToHtml } from "../providers/email";
 import { runDigests, runProNotices } from "./digest";
 import { liftExpiredBans } from "./bans";
+import { runProCredits } from "./plans";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -236,6 +237,8 @@ export interface ReconcileSummary {
   digests?: number;
   proNotices?: number;
   bansLifted?: number;
+  proCreditsGranted?: number;
+  proCreditsExpired?: number;
 }
 
 /**
@@ -359,6 +362,9 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   out.proNotices = await runProNotices(db, now).catch((e) => { console.warn(`[pro-notice] ${(e as Error).message}`); return 0; });
   // 6. Time-limited bans that have ended.
   out.bansLifted = await liftExpiredBans(db, now).catch((e) => { console.warn(`[ban] ${(e as Error).message}`); return 0; });
+  const pc = await runProCredits(db, now).catch((e) => { console.warn(`[pro-credits] ${(e as Error).message}`); return { granted: 0, expired: 0 }; });
+  out.proCreditsGranted = pc.granted;
+  out.proCreditsExpired = pc.expired;
   return out;
 }
 

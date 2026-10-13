@@ -946,6 +946,20 @@ const en = {
   "wallet.esewaRedirect": "Taking you to eSewa to pay. Credits are added automatically as soon as eSewa confirms.",
   "wallet.esewad": "Pay from your eSewa wallet. Credits are added automatically.",
   "wallet.instant": "Instant",
+  "pro.credits.benefit": "{n} credits every month — use them as SMS, WhatsApp or email (≈ {sms} SMS)",
+  "pro.credits.title": "Monthly Pro credits",
+  "pro.credits.left": "{n} credits this month · unused ones expire on {date}",
+  "pro.credits.hint": "Pro credits are used before your paid credits. A fresh {n} arrive every plan month.",
+  "pro.credits.trial": "The trial includes every Pro feature. Your {n} monthly credits start when you buy Pro.",
+  "pro.credits.flex": "Why credits beat fixed SMS",
+  "pro.credits.flexText": "{n} credits = {sms} SMS, or {wa} WhatsApp messages, or {email} emails — or any mix. You decide every month.",
+  "price.p1credits": "{n} credits every month (≈ {sms} SMS)",
+  "price.includedCredits": "{n} credits / month",
+  "price.row.monthlyCredits": "Credits included every month",
+  "pro.dash.credits": "Pro credits this month",
+  "pro.upgradeCredits": "Upgrade to Pro: {n} credits every month, subscription tracking, cancellation alerts and email reminders.",
+  "ledger.proCredit": "Pro monthly credits",
+  "ledger.proExpiry": "Unused Pro credits expired",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1893,6 +1907,20 @@ const ne: Record<MessageKey, string> = {
   "wallet.esewaRedirect": "भुक्तानीका लागि eSewa मा लगिँदैछ। eSewa ले पुष्टि गर्नेबित्तिकै क्रेडिट आफैं थपिन्छ।",
   "wallet.esewad": "आफ्नो eSewa वालेटबाट तिर्नुहोस्। क्रेडिट आफैं थपिन्छ।",
   "wallet.instant": "तुरुन्तै",
+  "pro.credits.benefit": "हरेक महिना {n} क्रेडिट — SMS, WhatsApp वा इमेलमा जसरी चाहनुहुन्छ प्रयोग गर्नुहोस् (≈ {sms} SMS)",
+  "pro.credits.title": "मासिक Pro क्रेडिट",
+  "pro.credits.left": "यो महिना {n} क्रेडिट · प्रयोग नभएका {date} मा सकिन्छन्",
+  "pro.credits.hint": "Pro क्रेडिट तपाईंको किनेको क्रेडिटभन्दा पहिले प्रयोग हुन्छ। हरेक प्लान महिना नयाँ {n} आउँछ।",
+  "pro.credits.trial": "ट्रायलमा Pro का सबै सुविधा छन्। Pro किनेपछि मासिक {n} क्रेडिट सुरु हुन्छ।",
+  "pro.credits.flex": "किन फिक्स SMS भन्दा क्रेडिट राम्रो",
+  "pro.credits.flexText": "{n} क्रेडिट = {sms} SMS, वा {wa} WhatsApp सन्देश, वा {email} इमेल — वा जुनसुकै मिश्रण। हरेक महिना तपाईं आफैं छान्नुहुन्छ।",
+  "price.p1credits": "हरेक महिना {n} क्रेडिट (≈ {sms} SMS)",
+  "price.includedCredits": "{n} क्रेडिट / महिना",
+  "price.row.monthlyCredits": "हरेक महिना समावेश क्रेडिट",
+  "pro.dash.credits": "यो महिनाको Pro क्रेडिट",
+  "pro.upgradeCredits": "Pro मा अपग्रेड गर्नुहोस्: हरेक महिना {n} क्रेडिट, सब्स्क्रिप्सन ट्र्याकिङ, रद्द गर्ने अलर्ट र इमेल रिमाइन्डर।",
+  "ledger.proCredit": "Pro मासिक क्रेडिट",
+  "ledger.proExpiry": "प्रयोग नभएका Pro क्रेडिट सकिए",
 };
 
 export const DICTS = { en: en as Record<MessageKey, string>, ne } as const;
