@@ -28,7 +28,7 @@ Scope: UI/UX redesign, localization and calendar, live Nepal clock, document tem
 - **Brand:** purple primary, white surfaces, yellow and orange accents, inspired by Digital Solution. The reference site was not reachable from the build environment, so this is **not** a pixel match. Send the URL or screenshots to align it.
 - **Fonts:** Inter (Latin), Mukta (Devanagari), Poppins (headings).
 - **Layout:** sidebar on desktop; top bar plus bottom navigation with a central *Add* button on mobile; no horizontal scroll at 390 px (tested).
-- **States:** every list has an empty state with a call to action; forms show inline errors; confirm dialogs for money actions; dark mode via system setting.
+- **States:** every list has an empty state with a call to action; forms show inline errors; confirm dialogs for money actions; light brand theme only (dark mode was removed).
 - **Landing page:** value proposition, sample SMS bubbles, how-it-works, pricing explanation.
 
 ## 4. New pages and components

@@ -142,7 +142,9 @@ describe("MCP tools", () => {
     const token = await tokenFor(alice);
     const c = await connect(token);
     let limited: ToolResult | null = null;
-    for (let i = 0; i < TOOL_RATE_LIMIT.limit + 1; i++) {
+    // The limiter counts per fixed window. On a slow runner the calls can cross into the
+    // next window, which restarts the count; with 2 × limit + 1 calls one window must go over.
+    for (let i = 0; i < 2 * TOOL_RATE_LIMIT.limit + 1; i++) {
       const r = await call(c, "get_account");
       if (r.isError) { limited = r; break; }
     }
