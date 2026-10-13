@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { confirmPaymentByRef } from "@/lib/services/payments";
 import { env } from "@/lib/env";
+import { EsewaGateway } from "@/lib/payments/esewa";
 
 type Ctx = { params: Promise<{ gateway: string }> };
 
@@ -13,7 +14,8 @@ type Ctx = { params: Promise<{ gateway: string }> };
 export async function GET(req: Request, ctx: Ctx) {
   const { gateway } = await ctx.params;
   const url = new URL(req.url);
-  const ref = url.searchParams.get("pidx") ?? url.searchParams.get("ref");
+  // Khalti: ?pidx= · eSewa success: ?data=<base64 JSON> · eSewa failure: ?ref=…&failed=1 (our own URL).
+  const ref = url.searchParams.get("pidx") ?? EsewaGateway.refFromReturnData(url.searchParams.get("data")) ?? url.searchParams.get("ref");
   const parsed = z.object({ gateway: z.enum(["khalti", "esewa", "mock"]), ref: z.string().min(1).max(200) }).safeParse({ gateway, ref });
   const wallet = new URL("/wallet", env.appUrl);
   if (!parsed.success) {

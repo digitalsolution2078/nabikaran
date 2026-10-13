@@ -7,11 +7,11 @@ import { Icon } from "./Icon";
 import { localizeNumber } from "@/lib/i18n/format";
 import { bonusFor, nextTier, type BonusTier } from "@/lib/bonus";
 
-export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled, initialAmount, qrAutomatic = false, tiers = [] }: { min: number; max: number; quick: number[]; qrEnabled: boolean; khaltiEnabled: boolean; initialAmount?: number; qrAutomatic?: boolean; tiers?: BonusTier[] }) {
+export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled, esewaEnabled = false, initialAmount, qrAutomatic = false, tiers = [] }: { min: number; max: number; quick: number[]; qrEnabled: boolean; khaltiEnabled: boolean; esewaEnabled?: boolean; initialAmount?: number; qrAutomatic?: boolean; tiers?: BonusTier[] }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const [amount, setAmount] = useState<string>(String(initialAmount ?? quick[1] ?? quick[0] ?? min));
-  const [method, setMethod] = useState<"qr" | "khalti">(qrEnabled ? "qr" : "khalti");
+  const [method, setMethod] = useState<"qr" | "khalti" | "esewa">(khaltiEnabled ? "khalti" : esewaEnabled ? "esewa" : "qr");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const n = Number(amount);
@@ -66,7 +66,10 @@ export function AddCredits({ min, max, quick, qrEnabled, khaltiEnabled, initialA
             <label className="choice"><input type="radio" name="method" checked={method === "qr"} onChange={() => setMethod("qr")} /><span><strong><Icon name="qr" size={16} /> {t("wallet.qr")}</strong><br /><span className="small muted">{qrAutomatic ? t("wallet.qrAuto") : t("wallet.qrd")}</span></span></label>
           )}
           {khaltiEnabled && (
-            <label className="choice"><input type="radio" name="method" checked={method === "khalti"} onChange={() => setMethod("khalti")} /><span><strong><Icon name="wallet" size={16} /> {t("wallet.khalti")}</strong><br /><span className="small muted">{t("wallet.khaltid")}</span></span></label>
+            <label className="choice"><input type="radio" name="method" checked={method === "khalti"} onChange={() => setMethod("khalti")} /><span><strong><Icon name="wallet" size={16} /> {t("wallet.khalti")}</strong> <span className="badge ok">{t("wallet.instant")}</span><br /><span className="small muted">{t("wallet.khaltid")}</span></span></label>
+          )}
+          {esewaEnabled && (
+            <label className="choice"><input type="radio" name="method" checked={method === "esewa"} onChange={() => setMethod("esewa")} /><span><strong><Icon name="wallet" size={16} /> eSewa</strong> <span className="badge ok">{t("wallet.instant")}</span><br /><span className="small muted">{t("wallet.esewad")}</span></span></label>
           )}
         </div>
       </fieldset>

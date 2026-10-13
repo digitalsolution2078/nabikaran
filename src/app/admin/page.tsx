@@ -9,6 +9,7 @@ import { Icon } from "@/components/Icon";
 import { env } from "@/lib/env";
 import { getCurrentUser } from "@/lib/auth/session";
 import { supportCounts } from "@/lib/services/support";
+import { enabledGateways } from "@/lib/payments";
 import { can } from "@/lib/auth/rbac";
 import { formatPhoneLocal } from "@/lib/phone";
 
@@ -111,7 +112,7 @@ export default async function AdminOverview() {
             <dt>WhatsApp</dt><dd>{wa.enabled ? "enabled" : "disabled"} · provider {wa.providerMode} · token {wa.tokenConfigured ? "configured" : "not set"}</dd>
             <dt>WhatsApp webhook</dt><dd>verified {when(wa.webhookVerifiedAt)} · last event {when(wa.lastWebhookAt)}{wa.lastWebhookSignatureOk === false ? " (signature FAILED)" : ""}</dd>
             <dt>Last WhatsApp send</dt><dd>{when(wa.lastAttemptAt)} · {wa.lastAttemptState ?? "—"}{wa.lastError ? ` · ${wa.lastError.slice(0, 80)}` : ""}</dd>
-            <dt>Payment gateway</dt><dd>{env.paymentGateway}</dd>
+            <dt>Online payments</dt><dd>{enabledGateways().join(", ") || "off"}</dd>
           </dl>
           <p className="hint mt mb-0">Secrets live only in the server environment and are never shown here.</p>
         </section>

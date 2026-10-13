@@ -9,7 +9,7 @@ import type { ProviderStatus } from "@/lib/services/integrations";
 
 interface State { settings: IntegrationSettings; secrets: Record<AdminSecret, SecretStatus>; providers: ProviderStatus[] }
 
-const MODE_LABEL: Record<string, string> = { env: "Use server .env", aakash: "Aakash SMS (live)", mock: "Mock (testing only)", khalti: "Khalti", none: "Off", off: "Off", live: "Live", test: "Test (dev.khalti.com)", meta: "Meta Cloud API" };
+const MODE_LABEL: Record<string, string> = { env: "Use server .env", aakash: "Aakash SMS (live)", mock: "Mock (testing only)", khalti: "Khalti", none: "Off", off: "Off", live: "Live", test: "Test / sandbox", meta: "Meta Cloud API" };
 
 /** Super admin: provider API keys and modes. Keys are write-only and stored encrypted on the server. */
 export function IntegrationsAdmin({ initial, isProd, webhookUrl, khaltiReturnUrl }: { initial: State; isProd: boolean; webhookUrl: string; khaltiReturnUrl: string }) {
@@ -99,6 +99,19 @@ export function IntegrationsAdmin({ initial, isProd, webhookUrl, khaltiReturnUrl
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
           <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveModes("Khalti settings")}>Save Khalti settings</button>
           <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => test("khalti")}>Check key</button>
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="row between" style={{ flexWrap: "wrap", gap: 8 }}><h2 style={{ margin: 0 }}>eSewa</h2>{statusBadge("esewa")}</div>
+        <p className="small muted">Online top-ups from the eSewa wallet (ePay v2), shown next to Khalti. Credits are added automatically after eSewa confirms the payment on its status API. &quot;Test&quot; uses eSewa&apos;s public test merchant (EPAYTEST) unless you enter your own code and key. Success/failure URL: <span className="mono">{khaltiReturnUrl.replace(/\/wallet$/, "")}/api/payments/esewa/return</span></p>
+        <div className="grid grid-2">
+          {select("int-es", "esewa_mode", ["env", "off", "test", "live"], "Mode")}
+          <div className="field"><label htmlFor="int-esp">Product (merchant) code</label><input id="int-esp" type="text" value={s.esewa_product_code ?? ""} onChange={(e) => setS({ ...s, esewa_product_code: e.target.value })} placeholder="e.g. EPAYTEST — empty uses the server value" /></div>
+          <SecretField k="esewa_secret_key" label="Secret key" st={st.secrets.esewa_secret_key} onSaved={reload} setMsg={setMsg} />
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveModes("eSewa settings")}>Save eSewa settings</button>
         </div>
       </section>
 

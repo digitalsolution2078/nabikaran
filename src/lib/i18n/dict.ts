@@ -929,7 +929,7 @@ const en = {
   "sup.q2": "I did not get the reminder SMS",
   "sup.a2": "Open the reminder and check its message list. A failed SMS returns its credits automatically.",
   "wallet.bonusIncl": "includes {bonus} bonus",
-  "wallet.bonusNudge": "Add NPR {more} more to get a {pct}% bonus",
+  "wallet.bonusNudge": "Add NPR {more} more → {pct}% bonus",
   "wallet.usageTitle": "Credits used",
   "wallet.usageMonth": "This month",
   "wallet.usageAll": "All time",
@@ -942,6 +942,10 @@ const en = {
   "price.bonusTitle": "Top up more, get more",
   "price.bonusText": "Bigger top-ups earn bonus credits on QR, Khalti, eSewa, Fonepay and at our counter.",
   "price.appFree": "App notification",
+  "wallet.payEsewa": "Continue to eSewa",
+  "wallet.esewaRedirect": "Taking you to eSewa to pay. Credits are added automatically as soon as eSewa confirms.",
+  "wallet.esewad": "Pay from your eSewa wallet. Credits are added automatically.",
+  "wallet.instant": "Instant",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1885,6 +1889,10 @@ const ne: Record<MessageKey, string> = {
   "price.bonusTitle": "धेरै टप-अप, धेरै फाइदा",
   "price.bonusText": "QR, Khalti, eSewa, Fonepay र काउन्टरमा ठूलो टप-अप गर्दा बोनस क्रेडिट पाइन्छ।",
   "price.appFree": "एप नोटिफिकेसन",
+  "wallet.payEsewa": "eSewa मा जानुहोस्",
+  "wallet.esewaRedirect": "भुक्तानीका लागि eSewa मा लगिँदैछ। eSewa ले पुष्टि गर्नेबित्तिकै क्रेडिट आफैं थपिन्छ।",
+  "wallet.esewad": "आफ्नो eSewa वालेटबाट तिर्नुहोस्। क्रेडिट आफैं थपिन्छ।",
+  "wallet.instant": "तुरुन्तै",
 };
 
 export const DICTS = { en: en as Record<MessageKey, string>, ne } as const;

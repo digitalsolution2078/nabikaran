@@ -11,6 +11,9 @@ export interface IntegrationOverrides {
   paymentGateway?: string;
   khaltiSecretKey?: string;
   khaltiBaseUrl?: string;
+  esewaMode?: string;
+  esewaProductCode?: string;
+  esewaSecretKey?: string;
   fonepayMode?: string;
   fonepayMerchantCode?: string;
   fonepayUsername?: string;
