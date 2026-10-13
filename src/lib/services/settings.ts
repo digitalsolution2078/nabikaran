@@ -114,6 +114,15 @@ export const codesSettingsSchema = z.object({
   counter_daily_limit_npr: z.number().int().min(0).max(10000000),
 }).refine((v) => v.gift_min_npr <= v.gift_max_npr, "gift minimum must be ≤ maximum");
 
+/** "Your reminders can't be sent" alerts to customers who are short of credits. */
+export const lowCreditSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** Also send one SMS at the last call (free for the customer; costs the business one SMS). */
+  sms_last_call: z.boolean(),
+  /** The last call goes this many days before the first waiting reminder is due. */
+  last_call_days: z.number().int().min(1).max(6),
+});
+
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
 export type ManualQrSettings = z.infer<typeof manualQrSettingsSchema>;
 export type SigninSettings = z.infer<typeof signinSettingsSchema>;
@@ -124,11 +133,12 @@ export type ProSettings = z.infer<typeof proSettingsSchema>;
 export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 export type IntegrationSettings = z.infer<typeof integrationSettingsSchema>;
 export type CodesSettings = z.infer<typeof codesSettingsSchema>;
+export type LowCreditSettings = z.infer<typeof lowCreditSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
@@ -140,6 +150,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
   integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", esewa_mode: "env", esewa_product_code: "", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
   codes: { gifts_enabled: true, gift_min_npr: 50, gift_max_npr: 5000, counter_daily_limit_npr: 50000 },
+  low_credit: { enabled: true, sms_last_call: true, last_call_days: 2 },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

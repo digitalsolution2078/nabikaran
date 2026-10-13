@@ -12,6 +12,7 @@ import { supportCounts } from "@/lib/services/support";
 import { enabledGateways } from "@/lib/payments";
 import { can } from "@/lib/auth/rbac";
 import { formatPhoneLocal } from "@/lib/phone";
+import { lastLowCreditAlerts } from "@/lib/services/low-credit";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,7 @@ function ChannelRow({ name, c, extra }: { name: string; c: ChannelOps; extra?: R
 export default async function AdminOverview() {
   await requireAdminPage();
   const [o, m, ops, clients, me, tickets] = await Promise.all([getOverview(), getMetrics(), getOps(), listClientsForAdmin(), getCurrentUser(), supportCounts().catch(() => ({ open: 0, waiting: 0 }))]);
+  const alerts = await lastLowCreditAlerts(ops.lowBalance.map((u) => u.id)).catch(() => new Map<string, { at: string; stage: string }>());
   const stale = ops.dispatcher.minutesSinceDispatch === null || ops.dispatcher.minutesSinceDispatch >= 3;
   const npr = (paisa: number) => `NPR ${(paisa / 100).toLocaleString("en-IN")}`;
   const wa = ops.whatsapp;
@@ -122,7 +124,7 @@ export default async function AdminOverview() {
             <div className="list">
               {ops.lowBalance.map((u) => (
                 <Link key={u.id} href={`/admin/users/${u.id}`} className="list-item" style={{ color: "inherit", textDecoration: "none" }}>
-                  <span className="grow"><span className="title" style={{ display: "block" }}>{u.name ?? formatPhoneLocal(u.phone)}</span><span className="meta">{u.pending ? `${u.pending} message(s) awaiting credits` : "reminders funded"}</span></span>
+                  <span className="grow"><span className="title" style={{ display: "block" }}>{u.name ?? formatPhoneLocal(u.phone)}</span><span className="meta">{u.pending ? `${u.pending} message(s) awaiting credits` : "reminders funded"}{alerts.get(u.id) ? ` · alerted ${alerts.get(u.id)!.at.slice(0, 10)} (${alerts.get(u.id)!.stage})` : ""}</span></span>
                   <strong className={u.available < 0 ? "text-bad" : ""}>{u.available}</strong>
                 </Link>
               ))}
