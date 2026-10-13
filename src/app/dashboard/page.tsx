@@ -13,6 +13,7 @@ import { emailStatus } from "@/lib/services/email-auth";
 import { ProOverview } from "@/components/ProOverview";
 import { getDb } from "@/lib/db";
 import { getSetting } from "@/lib/services/settings";
+import { findShortfalls } from "@/lib/services/low-credit";
 import { AppBadge } from "@/components/AppBadge";
 import { CountUp } from "@/components/motion/CountUp";
 import { formatDate, formatDateTime, daysUntil, localizeNumber, offsetLabel } from "@/lib/i18n/format";
@@ -29,7 +30,10 @@ export const metadata = { title: "Dashboard" };
 export default async function Dashboard() {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login");
-  const [summaryR, lockR, planR, offerR] = await Promise.allSettled([getCustomerSummary(user.id), getLockState(user.id), getPlanState(user.id), getSetting("pro")]);
+  const [summaryR, lockR, planR, offerR, shortR] = await Promise.allSettled([
+    getCustomerSummary(user.id), getLockState(user.id), getPlanState(user.id), getSetting("pro"), findShortfalls(getDb(), new Date(), user.id),
+  ]);
+  const short = shortR.status === "fulfilled" ? shortR.value[0] ?? null : null;
   const plan = planR.status === "fulfilled" ? planR.value : null;
   const isPro = plan?.tier === "pro";
   const showUpgrade = plan !== null && !isPro && offerR.status === "fulfilled" && offerR.value.enabled;
@@ -85,7 +89,16 @@ export default async function Dashboard() {
       {!lock?.locked && s && s.wallet.available < 0 && (
         <div className="alert info"><Icon name="info" /> <span>{t("wallet.negative")} <Link href="/wallet">{t("dash.topUp")} →</Link></span></div>
       )}
-      {s && s.counts.awaitingCredits > 0 && (
+      {short ? (
+        <div className="alert warn low-credit-alert" role="status">
+          <Icon name="alert" />
+          <span className="grow">
+            <strong>{t("dash.shortTitle", { n: n(short.waiting) })}</strong>{" "}
+            {t("dash.shortBody", { need: n(short.needed), have: n(Math.max(short.available, 0)), date: formatDate(short.firstDueAt, prefs) })}
+          </span>
+          <Link className="btn btn-primary btn-sm" href={`/wallet?amount=${short.topUpNpr}`}>{t("dash.shortCta", { amount: n(short.topUpNpr) })}</Link>
+        </div>
+      ) : s && s.counts.awaitingCredits > 0 && (
         <div className="alert warn"><Icon name="alert" /> <span>{t("dash.awaitingCredits")} <Link href="/wallet">{t("lock.cta")} →</Link></span></div>
       )}
       {isPro && pro && plan && (

@@ -17,7 +17,7 @@ export default async function AdminSettings() {
   await requireAdminPage();
   const me = await getCurrentUser();
   if (!can(me?.role, "settings.manage")) redirect("/admin");
-  const [topup, qr, signin, referral, pin, report, admins] = await Promise.all([
+  const [topup, qr, signin, referral, pin, report, admins, lowCredit] = await Promise.all([
     getSetting("topup"),
     getSetting("manual_qr"),
     getSetting("signin"),
@@ -25,11 +25,12 @@ export default async function AdminSettings() {
     getSetting("pin"),
     referralReport(),
     getDb().query<{ id: string; phone_e164: string; display_name: string | null; role: string }>("select id, phone_e164, display_name, role from users where role <> 'user' order by role desc, created_at"),
+    getSetting("low_credit"),
   ]);
   return (
     <div className="stack">
       <SettingsEditor topup={topup} qr={qr} signin={signin} dynamicQr={fonepayEnabled()} />
-      <GrowthSettings referral={referral} pin={pin} />
+      <GrowthSettings referral={referral} pin={pin} lowCredit={lowCredit} />
       <section className="card">
         <h2>Referral results</h2>
         <div className="grid grid-3">

@@ -19,6 +19,7 @@ import { getEmailProvider, textToHtml } from "../providers/email";
 import { runDigests, runProNotices } from "./digest";
 import { liftExpiredBans } from "./bans";
 import { runProCredits } from "./plans";
+import { runLowCreditAlerts } from "./low-credit";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -239,6 +240,7 @@ export interface ReconcileSummary {
   bansLifted?: number;
   proCreditsGranted?: number;
   proCreditsExpired?: number;
+  lowCreditAlerts?: number;
 }
 
 /**
@@ -365,6 +367,8 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   const pc = await runProCredits(db, now).catch((e) => { console.warn(`[pro-credits] ${(e as Error).message}`); return { granted: 0, expired: 0 }; });
   out.proCreditsGranted = pc.granted;
   out.proCreditsExpired = pc.expired;
+  // 7. "Your reminders can't be sent" alerts (after Pro credits, which may cover the gap).
+  out.lowCreditAlerts = await runLowCreditAlerts(db, now).catch((e) => { console.warn(`[low-credit] ${(e as Error).message}`); return 0; });
   return out;
 }
 

@@ -1000,3 +1000,8 @@ a.chip { text-decoration: none !important; }
 .rev-bar { display: block; width: 100%; border-radius: 4px 4px 0 0; background: var(--brand-500); transition: background var(--dur-2) ease; }
 :root[data-theme="dark"] .rev-bar { background: var(--brand-300); }
 @media (prefers-color-scheme: dark) { :root[data-theme="system"] .rev-bar { background: var(--brand-300); } }
+
+/* Low-credit banner: message on the left, a clear top-up button on the right. */
+.low-credit-alert { align-items: center; flex-wrap: wrap; gap: 10px; }
+.low-credit-alert .btn { white-space: nowrap; }
+@media (max-width: 560px) { .low-credit-alert .btn { width: 100%; justify-content: center; } }

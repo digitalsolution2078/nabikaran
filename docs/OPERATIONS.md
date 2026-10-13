@@ -558,3 +558,20 @@ Customers are not forced; for them the app stays optional.
 **Admin → Revenue** (`revenue.view`: finance, admin, super admin, auditor). For a preset or custom range (Nepal days): money in (QR, Fonepay, counter by method, Khalti, eSewa, gift-card sales, minus refunds), money in per day, payment-method split, messages and credits used per channel, promotions given (top-up bonus, referrals, coupons, Pro monthly credits net of expiry, adjustments), sign-in fees, Pro sold/trials/paying, new and paying customers, and the credits customers hold (prepaid liability). "Download CSV" exports the same range.
 
 **Log out all devices.** Customers: Settings → Signed-in devices → "Log out all other devices" (this device stays signed in). Admins with `users.ban`: customer page → Account access → "Log out all devices". Sessions issued before `users.sessions_valid_after` are refused.
+
+## 25. Low-credit alerts
+
+Every message is funded when it is saved, so a reminder shows **Waiting for credits** only when its next cycle (yearly or repeating reminders, re-planned dates) could not be funded. Without a top-up it will not be sent. The reconciler tells the customer, keyed on the earliest waiting message:
+
+| Step | When | Channels |
+|---|---|---|
+| New | first noticed | app notification + email (if verified) |
+| Soon | 7 days before it is due | app notification + email |
+| Last call | `last_call_days` (default 2) before it is due | app notification + email + one SMS (if on) |
+
+- Each step goes once per waiting message, at most one alert per customer per 20 hours, 8 am–8 pm Nepal time.
+- The message names the credits needed, the credits free and a top-up amount (the shortfall, at least the minimum top-up) with a `/wallet?amount=` link.
+- Messages waiting for Pro permission ("use wallet credits") are not included.
+- The dashboard shows the same banner with a **Top up NPR X** button.
+- Settings: Admin → Settings → **Low-credit alerts** (on/off, last-call SMS, last-call days). The SMS is free for the customer and costs the business one SMS.
+- Each alert is in the audit log as `low_credit.alert` (stage, amount, channels used). Admin home → Low balance shows the last alert per customer.

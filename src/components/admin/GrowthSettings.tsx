@@ -2,19 +2,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../api";
-import type { ReferralSettings, PinSettings } from "@/lib/services/settings";
+import type { ReferralSettings, PinSettings, LowCreditSettings } from "@/lib/services/settings";
 
-export function GrowthSettings({ referral, pin }: { referral: ReferralSettings; pin: PinSettings }) {
+export function GrowthSettings({ referral, pin, lowCredit }: { referral: ReferralSettings; pin: PinSettings; lowCredit: LowCreditSettings }) {
   const router = useRouter();
   const [r, setR] = useState({ ...referral, rc: String(referral.referrer_credits), ec: String(referral.referee_credits), min: String(referral.min_topup_npr), cap: String(referral.max_rewards_per_referrer) });
   const [p, setP] = useState({ enabled: pin.enabled, attempts: String(pin.max_attempts) });
+  const [lc, setLc] = useState({ enabled: lowCredit.enabled, sms: lowCredit.sms_last_call, days: String(lowCredit.last_call_days) });
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
 
-  async function save(key: "referral" | "pin") {
+  async function save(key: "referral" | "pin" | "low_credit") {
     setMsg(null);
     const value = key === "referral"
       ? { enabled: r.enabled, referrer_credits: Number(r.rc), referee_credits: Number(r.ec), min_topup_npr: Number(r.min), max_rewards_per_referrer: Number(r.cap), message: r.message }
-      : { enabled: p.enabled, max_attempts: Number(p.attempts) };
+      : key === "pin"
+        ? { enabled: p.enabled, max_attempts: Number(p.attempts) }
+        : { enabled: lc.enabled, sms_last_call: lc.sms, last_call_days: Number(lc.days) };
     try {
       await api("/api/admin/settings", { method: "POST", json: { key, value } });
       setMsg({ tone: "ok", text: "Saved and recorded in the audit log." });
@@ -50,6 +53,16 @@ export function GrowthSettings({ referral, pin }: { referral: ReferralSettings; 
           <div className="field"><label htmlFor="p-max">Wrong tries before lock</label><input id="p-max" type="number" min={3} max={10} value={p.attempts} onChange={(e) => setP({ ...p, attempts: e.target.value })} /></div>
         </div>
         <button className="btn btn-primary" onClick={() => save("pin")}>Save PIN settings</button>
+      </section>
+      <section className="card">
+        <h2>Low-credit alerts</h2>
+        <p className="small muted">When a customer&apos;s reminders cannot be sent for lack of credits, they are told with the exact top-up amount: when it is first noticed, 7 days before the first waiting reminder, and a last call. App notifications and email are free; the optional SMS at the last call costs you one SMS. At most one alert per customer per day, between 8 am and 8 pm Nepal time.</p>
+        <div className="grid grid-2">
+          <div className="field"><span className="label">Alerts</span><label className="row small"><input type="checkbox" checked={lc.enabled} onChange={(e) => setLc({ ...lc, enabled: e.target.checked })} /> Send low-credit alerts</label></div>
+          <div className="field"><span className="label">Last call by SMS</span><label className="row small"><input type="checkbox" checked={lc.sms} onChange={(e) => setLc({ ...lc, sms: e.target.checked })} /> Also send one SMS at the last call</label></div>
+          <div className="field"><label htmlFor="lc-days">Last call (days before the first waiting reminder)</label><input id="lc-days" type="number" min={1} max={6} value={lc.days} onChange={(e) => setLc({ ...lc, days: e.target.value })} /></div>
+        </div>
+        <button className="btn btn-primary" onClick={() => save("low_credit")}>Save alert settings</button>
       </section>
     </>
   );
