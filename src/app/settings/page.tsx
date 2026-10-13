@@ -15,9 +15,6 @@ import { PushManager } from "@/components/PushManager";
 import { EmailManager } from "@/components/EmailManager";
 import { CalendarSync } from "@/components/CalendarSync";
 import { getCalendarLink } from "@/lib/services/calendar";
-import { ThemePicker } from "@/components/ThemePicker";
-import { cookies } from "next/headers";
-import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 import { getProPrefs, isPro } from "@/lib/services/plans";
 import { emailStatus } from "@/lib/services/email-auth";
 import { referralSummary } from "@/lib/services/referrals";
@@ -53,7 +50,6 @@ export default async function SettingsPage() {
       )}
       {pro && <EmailManager initial={email} digest={proPrefs.digest} />}
       {calendar && <CalendarSync initial={calendar} />}
-      <ThemePicker initial={parseTheme((await cookies()).get(THEME_COOKIE)?.value)} />
       <PushManager />
       {staffMust && <TwoFactorManager initial={tfa} />}
       <PinManager initial={pin} />
