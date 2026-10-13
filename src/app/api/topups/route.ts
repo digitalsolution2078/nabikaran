@@ -20,7 +20,7 @@ export async function GET(req: Request) {
 
 const schema = z.union([
   z.object({ packCode: z.string().min(1).max(20) }),
-  z.object({ amountNpr: z.number().int().positive(), method: z.enum(["khalti", "esewa", "qr"]) }),
+  z.object({ amountNpr: z.number().int().positive(), method: z.enum(["khalti", "esewa", "fonepay", "qr"]) }),
 ]);
 
 /**
@@ -35,6 +35,7 @@ export async function POST(req: Request) {
     const body = await parseBody(req, schema);
     if ("packCode" in body) return json(await createTopupOrder(user, body.packCode), { status: 201 });
     if (body.method === "esewa") return json(await createCustomTopupOrder(user, body.amountNpr, undefined, "esewa"), { status: 201 });
+    if (body.method === "fonepay") return json(await createCustomTopupOrder(user, body.amountNpr, undefined, "fonepay"), { status: 201 });
     // "khalti" is the card/wallet checkout; in development it is the mock gateway.
     if (body.method === "khalti") return json(await createCustomTopupOrder(user, body.amountNpr, undefined, enabledGateways().includes("khalti") ? "khalti" : "mock"), { status: 201 });
     const { request } = await startManualTopup(user.id, body.amountNpr);

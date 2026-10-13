@@ -84,7 +84,8 @@ async function createOrder(user: { id: string; phoneE164: string }, amountPaisa:
     await db.query("insert into audit_events (action, target_type, target_id, json_detail_redacted) values ('payment.initiate_failed','payment_order',$1,$2)", [
       order.id, JSON.stringify({ gateway: gateway.name, error: (e as Error).message.slice(0, 300) }),
     ]);
-    throw new HttpError(502, `${gateway.name === "esewa" ? "eSewa" : "Khalti"} could not start the payment right now. Please try again in a moment, or pay by QR.`, "payment_start_failed");
+    const label = gateway.name === "esewa" ? "eSewa" : gateway.name === "fonepay" ? "Fonepay" : "Khalti";
+    throw new HttpError(502, `${label} could not start the payment right now. Please try again in a moment, or pay by QR.`, "payment_start_failed");
   }
   await db.query("update payment_orders set gateway_ref = $2, payment_url = $3, status = 'pending', updated_at = now() where id = $1", [
     order.id, init.gatewayRef, init.paymentUrl,
@@ -102,8 +103,11 @@ export type ConfirmOutcome =
  * Confirm a payment by gateway reference. Safe to call any number of times
  * (return URL, webhook, reconciliation). Credits are issued exactly once and
  * only when lookup says Completed AND amount/order match our record.
+ * `transactionHint` is the gateway's transaction id from the return redirect
+ * (Fonepay's UID, needed for its verification call); it is kept with the order
+ * so the reconciler can verify later if the first attempt could not.
  */
-export async function confirmPaymentByRef(gatewayName: string, gatewayRef: string, db: Db = getDb()): Promise<ConfirmOutcome> {
+export async function confirmPaymentByRef(gatewayName: string, gatewayRef: string, db: Db = getDb(), transactionHint?: string): Promise<ConfirmOutcome> {
   const { rows } = await db.query<OrderRow>("select * from payment_orders where gateway = $1 and gateway_ref = $2", [gatewayName, gatewayRef]);
   const order = rows[0];
   if (!order) throw new HttpError(404, "Unknown payment reference", "unknown_order");
@@ -115,7 +119,21 @@ export async function confirmPaymentByRef(gatewayName: string, gatewayRef: strin
     throw new HttpError(400, "Gateway not available", "gateway_disabled");
   }
 
-  const lookup = await gateway.lookup(gatewayRef, { amountPaisa: Number(order.amount_paisa), orderReference: order.order_reference });
+  let hint = transactionHint;
+  if (hint) {
+    await db.query(
+      `insert into payment_events (payment_order_id, gateway_event_id, payload_hash, event_type, payload)
+       values ($1, $2, $3, 'return.hint', $4) on conflict (gateway_event_id) do nothing`,
+      [order.id, `${gatewayName}:return:${order.id}:${hint}`, createHash("sha256").update(hint).digest("hex"), JSON.stringify({ hint })],
+    );
+  } else {
+    const { rows: h } = await db.query<{ hint: string }>(
+      "select payload->>'hint' as hint from payment_events where payment_order_id = $1 and event_type = 'return.hint' order by id desc limit 1",
+      [order.id],
+    );
+    hint = h[0]?.hint ?? undefined;
+  }
+  const lookup = await gateway.lookup(gatewayRef, { amountPaisa: Number(order.amount_paisa), orderReference: order.order_reference, transactionHint: hint });
   const payloadHash = createHash("sha256").update(JSON.stringify(lookup.raw ?? lookup)).digest("hex");
   await db.query(
     `insert into payment_events (payment_order_id, gateway_event_id, payload_hash, event_type, payload)

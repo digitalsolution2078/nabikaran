@@ -84,14 +84,20 @@ export const env = {
   },
 
   /**
-   * Fonepay dynamic QR (merchant API). "live" needs all four credentials from
-   * Fonepay / the acquiring bank; "mock" is for development and tests; "off"
-   * (default) keeps the static QR + admin verification flow.
+   * Fonepay. The merchant product is "Checkout by Fonepay" (web checkout):
+   * "live" / "test" need the merchant code (PID) and secret key; "test" uses
+   * Fonepay's dev server. The older dynamic-QR merchant API is used only when
+   * its API username and password are also set (or in "mock", for tests).
+   * "off" (default) hides Fonepay checkout and keeps the static QR flow.
    */
   get fonepay() {
+    const mode = pick(o().fonepayMode, process.env.FONEPAY_MODE ?? "off") as "off" | "live" | "test" | "mock";
+    const checkoutBase = process.env.FONEPAY_CHECKOUT_BASE ?? (mode === "test" ? "https://dev-clientapi.fonepay.com/api/merchantRequest" : "https://clientapi.fonepay.com/api/merchantRequest");
     return {
-      mode: pick(o().fonepayMode, process.env.FONEPAY_MODE ?? "off") as "off" | "live" | "mock",
+      mode,
       apiBase: process.env.FONEPAY_API_BASE ?? "https://merchantapi.fonepay.com/api/merchant/merchantDetailsForThirdParty",
+      checkoutUrl: checkoutBase,
+      verifyUrl: `${checkoutBase}/verificationMerchant`,
       merchantCode: pick(o().fonepayMerchantCode, process.env.FONEPAY_MERCHANT_CODE ?? ""),
       username: pick(o().fonepayUsername, process.env.FONEPAY_USERNAME ?? ""),
       password: pick(o().fonepayPassword, process.env.FONEPAY_PASSWORD ?? ""),

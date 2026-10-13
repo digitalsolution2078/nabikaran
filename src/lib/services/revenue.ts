@@ -143,7 +143,7 @@ export async function revenueReport(range: RevenueRange, db: Db = getDb()): Prom
     payments += r.n;
   }
   for (const r of orders.rows) {
-    const label = r.gateway === "esewa" ? "eSewa" : r.gateway === "khalti" ? "Khalti" : r.gateway;
+    const label = r.gateway === "esewa" ? "eSewa" : r.gateway === "khalti" ? "Khalti" : r.gateway === "fonepay" ? "Fonepay checkout" : r.gateway;
     const cur = byMethod.get(label) ?? { method: label, npr: 0, count: 0 };
     cur.npr += Number(r.npr);
     cur.count += r.n;

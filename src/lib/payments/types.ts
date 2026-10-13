@@ -32,12 +32,14 @@ export interface LookupResult {
   raw?: unknown;
 }
 
-export type GatewayName = "khalti" | "esewa" | "mock";
+export type GatewayName = "khalti" | "esewa" | "fonepay" | "mock";
 
 /** What we know about the order when looking it up (eSewa's status API needs the amount). */
 export interface LookupContext {
   amountPaisa: number;
   orderReference: string;
+  /** Gateway transaction id seen on the return redirect (Fonepay needs its UID to verify). */
+  transactionHint?: string;
 }
 
 export interface PaymentGateway {

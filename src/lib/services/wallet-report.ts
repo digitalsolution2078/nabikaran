@@ -1,6 +1,8 @@
 import { getDb, type Db } from "../db";
 import { readWallet, type WalletView } from "../core/wallet";
 
+const gatewayLabel = (g: string) => (g === "khalti" ? "Khalti" : g === "esewa" ? "eSewa" : g === "fonepay" ? "Fonepay" : g);
+
 /**
  * Finance-grade view of the append-only ledger. Every row is classified:
  *   purchased       top-up credited (Khalti or QR)
@@ -116,7 +118,7 @@ export async function listTopups(userId: string, db: Db = getDb()): Promise<Topu
   ]);
   const rows: TopupRow[] = [
     ...orders.rows.map((o) => ({
-      kind: "khalti" as const, id: o.id, method: o.gateway === "khalti" ? "Khalti (automatic)" : `${o.gateway} (automatic)`,
+      kind: "khalti" as const, id: o.id, method: `${gatewayLabel(o.gateway)} (automatic)`,
       amountNpr: Number(o.amount_paisa) / 100, credits: Number(o.credits), reference: o.order_reference, status: o.status,
       createdAt: iso(o.created_at), paidAt: o.paid_at ? iso(o.paid_at) : null, receipt: o.status === "paid",
     })),
@@ -153,7 +155,7 @@ export async function getReceipt(kind: "khalti" | "qr", id: string, ownerId: str
     if (!r || (ownerId && r.user_id !== ownerId)) return null;
     return {
       number: `NBR-${r.order_reference}`, issuedAt: iso(r.paid_at ?? new Date()), customerPhone: r.phone_e164, customerName: r.display_name,
-      method: r.gateway === "khalti" ? "Khalti" : r.gateway, amountNpr: Number(r.amount_paisa) / 100, credits: Number(r.credits), reference: r.order_reference, bankReference: r.verified_transaction_id,
+      method: gatewayLabel(r.gateway), amountNpr: Number(r.amount_paisa) / 100, credits: Number(r.credits), reference: r.order_reference, bankReference: r.verified_transaction_id,
     };
   }
   const { rows } = await db.query<{ reference: string; decided_at: unknown; amount_paisa: string; credits: string; verified_bank_ref: string | null; qr_mode: string; phone_e164: string; display_name: string | null; user_id: string }>(

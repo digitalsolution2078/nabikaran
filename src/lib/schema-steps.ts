@@ -110,4 +110,10 @@ export const ENSURE_STEPS: EnsureStep[] = [
       "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'sessions_valid_after') as ok",
     sql: "-- 0022: \"Log out all devices\". A session cookie issued before\n-- users.sessions_valid_after is no longer accepted. Additive, re-runnable.\nalter table users add column if not exists sessions_valid_after timestamptz;\n",
   },
+  {
+    name: "0023_fonepay_checkout_nudges",
+    check:
+      "select (exists (select 1 from pg_constraint where conname = 'payment_orders_gateway_check' and pg_get_constraintdef(oid) like '%fonepay%') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'nudges_opt_out')) as ok",
+    sql: "-- 0023: \"Checkout by Fonepay\" as an online payment gateway next to Khalti and\n-- eSewa, and the opt-out for \"set your first reminder\" nudges. Additive, re-runnable.\n\n-- 1. Payment orders may now come from Fonepay checkout.\ndo $$\ndeclare c record;\nbegin\n  for c in select conname from pg_constraint\n            where conrelid = 'payment_orders'::regclass and contype = 'c' and pg_get_constraintdef(oid) ~ '\\(gateway = ANY'\n  loop\n    execute format('alter table payment_orders drop constraint %I', c.conname);\n  end loop;\n  alter table payment_orders add constraint payment_orders_gateway_check check (gateway in ('khalti','esewa','fonepay','mock'));\nend $$;\n\n-- 2. Customers can turn off the \"set your first reminder\" nudges (Settings).\nalter table users add column if not exists nudges_opt_out boolean not null default false;\n",
+  },
 ];
