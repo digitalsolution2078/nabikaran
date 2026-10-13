@@ -11,14 +11,15 @@ export async function GET(req: Request) {
   });
 }
 
-/** Profile: verified phone is read-only (FR-02); only display name and locale change here. */
+/** Profile: verified phone is read-only (FR-02); display name, locale and the "tips" opt-out change here. */
 export async function PATCH(req: Request) {
   return handle(async () => {
     const user = await requireUser(req);
-    const body = await parseBody(req, z.object({ displayName: z.string().trim().max(60).optional(), locale: z.enum(["ne-NP", "en-NP"]).optional() }));
-    await getDb().query("update users set display_name = coalesce($2, display_name), locale = coalesce($3, locale), updated_at = now() where id = $1", [
-      user.id, body.displayName ?? null, body.locale ?? null,
-    ]);
+    const body = await parseBody(req, z.object({ displayName: z.string().trim().max(60).optional(), locale: z.enum(["ne-NP", "en-NP"]).optional(), nudges: z.boolean().optional() }));
+    await getDb().query(
+      "update users set display_name = coalesce($2, display_name), locale = coalesce($3, locale), nudges_opt_out = coalesce($4, nudges_opt_out), updated_at = now() where id = $1",
+      [user.id, body.displayName ?? null, body.locale ?? null, body.nudges === undefined ? null : !body.nudges],
+    );
     return json({ ok: true });
   });
 }

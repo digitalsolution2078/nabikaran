@@ -116,15 +116,21 @@ export function IntegrationsAdmin({ initial, isProd, webhookUrl, khaltiReturnUrl
       </section>
 
       <section className="card">
-        <div className="row between" style={{ flexWrap: "wrap", gap: 8 }}><h2 style={{ margin: 0 }}>Fonepay dynamic QR</h2>{statusBadge("fonepay")}</div>
-        <p className="small muted">Automatic QR top-ups (no manual verification). Credentials come from Fonepay or your acquiring bank. With &quot;Off&quot;, the static QR and admin verification keep working.</p>
+        <div className="row between" style={{ flexWrap: "wrap", gap: 8 }}><h2 style={{ margin: 0 }}>Checkout by Fonepay</h2>{statusBadge("fonepay")}</div>
+        <p className="small muted">Customers pay on Fonepay&apos;s checkout page (scan the QR or use mobile banking) and credits are added automatically after Fonepay confirms. You need the <strong>merchant code (PID)</strong> and <strong>secret key</strong> from Fonepay. Use &quot;test&quot; with Fonepay&apos;s test credentials first, then &quot;live&quot;. Return URL to give Fonepay: <code>https://nabikaran.org/api/payments/fonepay/return</code>. With &quot;Off&quot;, the static QR and admin verification keep working.</p>
         <div className="grid grid-2">
-          {select("int-fp", "fonepay_mode", ["env", "off", "live", "mock"], "Mode")}
-          <div className="field"><label htmlFor="int-fpm">Merchant code</label><input id="int-fpm" type="text" value={s.fonepay_merchant_code} onChange={(e) => setS({ ...s, fonepay_merchant_code: e.target.value })} placeholder="Leave empty to use the server value" /></div>
-          <SecretField k="fonepay_username" label="API username" st={st.secrets.fonepay_username} onSaved={reload} setMsg={setMsg} />
-          <SecretField k="fonepay_password" label="API password" st={st.secrets.fonepay_password} onSaved={reload} setMsg={setMsg} />
-          <SecretField k="fonepay_secret_key" label="Secret key (HMAC)" st={st.secrets.fonepay_secret_key} onSaved={reload} setMsg={setMsg} />
+          {select("int-fp", "fonepay_mode", ["env", "off", "test", "live", "mock"], "Mode")}
+          <div className="field"><label htmlFor="int-fpm">Merchant code (PID)</label><input id="int-fpm" type="text" value={s.fonepay_merchant_code} onChange={(e) => setS({ ...s, fonepay_merchant_code: e.target.value })} placeholder="Leave empty to use the server value" /></div>
+          <SecretField k="fonepay_secret_key" label="Secret key" st={st.secrets.fonepay_secret_key} onSaved={reload} setMsg={setMsg} />
         </div>
+        <details className="mt">
+          <summary className="small muted">Older Fonepay dynamic-QR API (optional)</summary>
+          <p className="small muted">Only if your bank gave you a separate API username and password for dynamic QR. Checkout by Fonepay does not need them.</p>
+          <div className="grid grid-2">
+            <SecretField k="fonepay_username" label="API username" st={st.secrets.fonepay_username} onSaved={reload} setMsg={setMsg} />
+            <SecretField k="fonepay_password" label="API password" st={st.secrets.fonepay_password} onSaved={reload} setMsg={setMsg} />
+          </div>
+        </details>
         <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveModes("Fonepay settings")}>Save Fonepay settings</button>
       </section>
 

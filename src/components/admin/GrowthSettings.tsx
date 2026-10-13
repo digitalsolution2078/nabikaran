@@ -2,22 +2,27 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "../api";
-import type { ReferralSettings, PinSettings, LowCreditSettings } from "@/lib/services/settings";
+import type { ReferralSettings, PinSettings, LowCreditSettings, NudgeSettings } from "@/lib/services/settings";
 
-export function GrowthSettings({ referral, pin, lowCredit }: { referral: ReferralSettings; pin: PinSettings; lowCredit: LowCreditSettings }) {
+export interface NudgeStats { nudged: number; converted: number; byStage: { first: number; sms: number; last: number }; smsSent: number }
+
+export function GrowthSettings({ referral, pin, lowCredit, nudges, nudgeStats }: { referral: ReferralSettings; pin: PinSettings; lowCredit: LowCreditSettings; nudges: NudgeSettings; nudgeStats: NudgeStats }) {
   const router = useRouter();
   const [r, setR] = useState({ ...referral, rc: String(referral.referrer_credits), ec: String(referral.referee_credits), min: String(referral.min_topup_npr), cap: String(referral.max_rewards_per_referrer) });
   const [p, setP] = useState({ enabled: pin.enabled, attempts: String(pin.max_attempts) });
   const [lc, setLc] = useState({ enabled: lowCredit.enabled, sms: lowCredit.sms_last_call, days: String(lowCredit.last_call_days) });
+  const [nu, setNu] = useState({ ...nudges, first: String(nudges.first_days), smsd: String(nudges.sms_days), last: String(nudges.last_days), win: String(nudges.window_days) });
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
 
-  async function save(key: "referral" | "pin" | "low_credit") {
+  async function save(key: "referral" | "pin" | "low_credit" | "nudges") {
     setMsg(null);
     const value = key === "referral"
       ? { enabled: r.enabled, referrer_credits: Number(r.rc), referee_credits: Number(r.ec), min_topup_npr: Number(r.min), max_rewards_per_referrer: Number(r.cap), message: r.message }
       : key === "pin"
         ? { enabled: p.enabled, max_attempts: Number(p.attempts) }
-        : { enabled: lc.enabled, sms_last_call: lc.sms, last_call_days: Number(lc.days) };
+        : key === "low_credit"
+          ? { enabled: lc.enabled, sms_last_call: lc.sms, last_call_days: Number(lc.days) }
+          : { enabled: nu.enabled, first_days: Number(nu.first), sms_days: Number(nu.smsd), last_days: Number(nu.last), sms: nu.sms, sms_text: nu.sms_text, window_days: Number(nu.win) };
     try {
       await api("/api/admin/settings", { method: "POST", json: { key, value } });
       setMsg({ tone: "ok", text: "Saved and recorded in the audit log." });
@@ -63,6 +68,25 @@ export function GrowthSettings({ referral, pin, lowCredit }: { referral: Referra
           <div className="field"><label htmlFor="lc-days">Last call (days before the first waiting reminder)</label><input id="lc-days" type="number" min={1} max={6} value={lc.days} onChange={(e) => setLc({ ...lc, days: e.target.value })} /></div>
         </div>
         <button className="btn btn-primary" onClick={() => save("low_credit")}>Save alert settings</button>
+      </section>
+      <section className="card">
+        <h2>First-reminder nudges</h2>
+        <p className="small muted">People who signed up but never added a reminder get: a free app notification + email, then one SMS, then a last free reminder. Each goes once, at most one a day, 10 am–7 pm Nepal time, only to accounts younger than the window. Customers can turn these off in Settings. Adding a free app reminder needs no credits, so nobody is asked to pay first.</p>
+        <div className="grid grid-3">
+          <div className="stat"><div className="label">Nudged (30 days)</div><div className="value">{nudgeStats.nudged}</div><div className="sub">{nudgeStats.byStage.first} first · {nudgeStats.byStage.sms} SMS · {nudgeStats.byStage.last} last</div></div>
+          <div className="stat"><div className="label">Added a reminder after</div><div className="value">{nudgeStats.converted}</div><div className="sub">{nudgeStats.nudged ? Math.round((nudgeStats.converted / nudgeStats.nudged) * 100) : 0}% of nudged people</div></div>
+          <div className="stat"><div className="label">SMS cost (30 days)</div><div className="value">{nudgeStats.smsSent}</div><div className="sub">SMS sent by you</div></div>
+        </div>
+        <div className="grid grid-2 mt">
+          <div className="field"><span className="label">Nudges</span><label className="row small"><input type="checkbox" checked={nu.enabled} onChange={(e) => setNu({ ...nu, enabled: e.target.checked })} /> Send first-reminder nudges</label></div>
+          <div className="field"><span className="label">SMS step</span><label className="row small"><input type="checkbox" checked={nu.sms} onChange={(e) => setNu({ ...nu, sms: e.target.checked })} /> Include one SMS</label></div>
+          <div className="field"><label htmlFor="nu-first">First nudge (days after sign-up)</label><input id="nu-first" type="number" min={1} max={30} value={nu.first} onChange={(e) => setNu({ ...nu, first: e.target.value })} /></div>
+          <div className="field"><label htmlFor="nu-sms">SMS (days after sign-up)</label><input id="nu-sms" type="number" min={1} max={60} value={nu.smsd} onChange={(e) => setNu({ ...nu, smsd: e.target.value })} /></div>
+          <div className="field"><label htmlFor="nu-last">Last nudge (days after sign-up)</label><input id="nu-last" type="number" min={2} max={90} value={nu.last} onChange={(e) => setNu({ ...nu, last: e.target.value })} /></div>
+          <div className="field"><label htmlFor="nu-win">Only accounts younger than (days)</label><input id="nu-win" type="number" min={7} max={365} value={nu.win} onChange={(e) => setNu({ ...nu, win: e.target.value })} /></div>
+        </div>
+        <div className="field"><label htmlFor="nu-text">SMS text</label><textarea id="nu-text" rows={3} maxLength={200} value={nu.sms_text} onChange={(e) => setNu({ ...nu, sms_text: e.target.value })} /><span className="hint">Plain English letters only (Romanized Nepali is fine). {"{link}"} becomes nabikaran.org/renewals/new. Length with link: {nu.sms_text.replace("{link}", "nabikaran.org/renewals/new").length}/160.</span></div>
+        <button className="btn btn-primary" onClick={() => save("nudges")}>Save nudge settings</button>
       </section>
     </>
   );

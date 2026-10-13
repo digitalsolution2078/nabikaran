@@ -2,13 +2,14 @@ import { env } from "../env";
 import { integrationsVersion } from "../integrations";
 import { KhaltiGateway } from "./khalti";
 import { EsewaGateway } from "./esewa";
+import { FonepayCheckoutGateway } from "./fonepay";
 import { MockGateway } from "./mock";
 import type { GatewayName, PaymentGateway } from "./types";
 
 /**
  * Online payment gateways. Khalti (or the mock in development) comes from
- * PAYMENT_GATEWAY / Admin → Integrations; eSewa is switched on separately, so
- * customers can pick either at checkout.
+ * PAYMENT_GATEWAY / Admin → Integrations; eSewa and Checkout by Fonepay are
+ * switched on separately, so customers can pick any of them at checkout.
  */
 let cache: Partial<Record<GatewayName, PaymentGateway>> = {};
 let forced: Partial<Record<GatewayName, PaymentGateway>> = {};
@@ -32,12 +33,23 @@ export function enabledGateways(): GatewayName[] {
   if (env.paymentGateway === "khalti") out.push("khalti");
   if (env.paymentGateway === "mock") out.push("mock");
   if (env.esewa.mode === "live" || env.esewa.mode === "test") out.push("esewa");
+  if (fonepayCheckoutReady()) out.push("fonepay");
   return out;
+}
+
+/** Checkout by Fonepay: on (live or test) with a merchant code and secret key. */
+function fonepayCheckoutReady(): boolean {
+  const f = env.fonepay;
+  return (f.mode === "live" || f.mode === "test") && Boolean(f.merchantCode && f.secretKey);
 }
 
 function build(name: GatewayName): PaymentGateway | undefined {
   if (name === "khalti") return env.paymentGateway === "khalti" ? new KhaltiGateway(env.khalti) : undefined;
   if (name === "mock") return env.paymentGateway === "mock" ? new MockGateway(env.appUrl) : undefined;
+  if (name === "fonepay") {
+    const f = env.fonepay;
+    return fonepayCheckoutReady() ? new FonepayCheckoutGateway({ merchantCode: f.merchantCode, secretKey: f.secretKey, checkoutUrl: f.checkoutUrl, verifyUrl: f.verifyUrl, appUrl: env.appUrl }) : undefined;
+  }
   const e = env.esewa;
   return e.mode === "off" ? undefined : new EsewaGateway({ ...e, appUrl: env.appUrl });
 }

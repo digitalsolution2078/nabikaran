@@ -575,3 +575,33 @@ Every message is funded when it is saved, so a reminder shows **Waiting for cred
 - The dashboard shows the same banner with a **Top up NPR X** button.
 - Settings: Admin → Settings → **Low-credit alerts** (on/off, last-call SMS, last-call days). The SMS is free for the customer and costs the business one SMS.
 - Each alert is in the audit log as `low_credit.alert` (stage, amount, channels used). Admin home → Low balance shows the last alert per customer.
+
+## 26. Checkout by Fonepay (migration `0023`)
+
+Fonepay is an online payment method next to Khalti and eSewa. The customer picks **Fonepay** on the wallet page, pays on Fonepay's checkout page (QR or mobile banking) and is sent back to `/api/payments/fonepay/return`.
+
+- **Setup:** Admin → Integrations → **Checkout by Fonepay**. Enter the merchant code (PID) and the secret key, choose **test** (Fonepay dev server) and make a test payment, then switch to **live**. Give Fonepay the return URL `https://nabikaran.org/api/payments/fonepay/return`.
+- **Request:** `GET clientapi.fonepay.com/api/merchantRequest` with PID, MD=P, PRN (our order reference), AMT, CRN=NPR, DT (MM/DD/YYYY), R1, R2, RU and `DV = HMAC-SHA512(secret, "PID,MD,PRN,AMT,CRN,DT,R1,R2,RU")`.
+- **Crediting:** the return redirect is untrusted. We take its PRN and UID and call `…/merchantRequest/verificationMerchant` (`DV = HMAC-SHA512(secret, "PID,AMT,PRN,BID,UID")`). Credits are added only when Fonepay answers success for our PRN and amount, exactly once.
+  - The UID is saved with the order, so if Fonepay was unreachable at return time, the reconciler finishes the payment later.
+  - A customer who closes the browser before returning has no UID. That order stays pending; if they paid, credit it from Fonepay's merchant portal with an admin adjustment.
+- **Return signature:** the return's own `DV` is checked and a mismatch is logged, but crediting depends only on the verification call.
+- **Older dynamic-QR API:** used only when its API username and password are also set. Checkout-only merchants leave them empty and keep the static QR as a fallback.
+- **Env fallback:** `FONEPAY_MODE=test|live`, `FONEPAY_MERCHANT_CODE`, `FONEPAY_SECRET_KEY`, optional `FONEPAY_CHECKOUT_BASE`.
+
+## 27. First-reminder nudges (migration `0023`)
+
+People who signed up but never added a reminder get, by account age:
+
+| Step | Default day | Channels |
+|---|---|---|
+| First | 1 | app notification + email (free) |
+| SMS | 3 | one SMS with `nabikaran.org/renewals/new` (costs one SMS) |
+| Last | 10 | app notification + email (free) |
+
+- Each step goes once per person, at most one nudge a day, 10 am–7 pm Nepal time.
+- Nudges go only to accounts younger than the window (30 days), so older accounts are never messaged.
+- Adding a free app reminder needs no credits, so the nudge never asks anyone to pay first.
+- Customers can turn the tips off in Settings; the switch is shown until they add a reminder (`users.nudges_opt_out`).
+- **Settings:** Admin → Settings → **First-reminder nudges** (days, SMS on/off, SMS text up to 160 characters with `{link}`, window). The same card shows people nudged, how many then added a reminder, and the SMS sent in the last 30 days.
+- Each nudge is in the audit log as `nudge.sent` (stage, channels).

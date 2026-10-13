@@ -12,6 +12,8 @@ import { TwoFactorManager } from "@/components/TwoFactorManager";
 import { SessionsCard } from "@/components/SessionsCard";
 import { twoFactorStatus, staffNeedsTwoFactor } from "@/lib/services/two-factor";
 import { PushManager } from "@/components/PushManager";
+import { NudgesToggle } from "@/components/NudgesToggle";
+import { getDb } from "@/lib/db";
 import { EmailManager } from "@/components/EmailManager";
 import { CalendarSync } from "@/components/CalendarSync";
 import { getCalendarLink } from "@/lib/services/calendar";
@@ -32,6 +34,12 @@ export default async function SettingsPage() {
   const tfa = await twoFactorStatus(user.id);
   const staffMust = await staffNeedsTwoFactor(user);
   const link = `${env.appUrl.replace(/\/$/, "")}/r/${ref.code}`;
+  // The "first reminder" tips only matter until the first reminder exists.
+  const { rows: nudgeRows } = await getDb().query<{ off: boolean; has: boolean }>(
+    "select nudges_opt_out as off, exists (select 1 from renewal_items i where i.owner_user_id = u.id) as has from users u where u.id = $1",
+    [user.id],
+  );
+  const nudge = { show: Boolean(nudgeRows[0] && !nudgeRows[0].has), on: !nudgeRows[0]?.off };
   return (
     <div className="stack">
       <h1>{t("settings.title")}</h1>
@@ -51,6 +59,7 @@ export default async function SettingsPage() {
       {pro && <EmailManager initial={email} digest={proPrefs.digest} />}
       {calendar && <CalendarSync initial={calendar} />}
       <PushManager />
+      {nudge.show && <NudgesToggle initial={nudge.on} />}
       {staffMust && <TwoFactorManager initial={tfa} />}
       <PinManager initial={pin} />
       {!staffMust && <TwoFactorManager initial={tfa} />}

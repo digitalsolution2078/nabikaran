@@ -62,7 +62,7 @@ describe("Admin → Integrations", () => {
     const s = await integrationStatus(db);
     const fp = s.providers.find((p) => p.key === "fonepay")!;
     expect(fp.ready).toBe(false);
-    expect(fp.missing).toEqual(expect.arrayContaining(["merchant code", "username", "password", "secret key"]));
+    expect(fp.missing).toEqual(["merchant code", "secret key"]);
     expect(s.providers.find((p) => p.key === "whatsapp")!.missing).toContain("access token");
     await setSecret({ id: admin }, "whatsapp_access_token", "EAAG-token-abcd", db);
     await refreshIntegrations(db);

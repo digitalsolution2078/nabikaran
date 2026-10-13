@@ -93,8 +93,10 @@ export async function integrationStatus(db: Db = getDb()): Promise<{ settings: I
   const esMissing = es.mode === "live" ? [!es.productCode && "product code", !has("esewa_secret_key") && "secret key"].filter(Boolean) as string[] : [];
   providers.push({ key: "esewa", mode: es.mode, ready: es.mode === "off" || esMissing.length === 0, missing: esMissing });
   const f = env.fonepay;
-  const fMissing = f.mode === "live" ? [!f.merchantCode && "merchant code", !has("fonepay_username") && "username", !has("fonepay_password") && "password", !has("fonepay_secret_key") && "secret key"].filter(Boolean) as string[] : [];
-  providers.push({ key: "fonepay", mode: f.mode, ready: f.mode !== "live" || fMissing.length === 0, missing: fMissing });
+  // Checkout by Fonepay needs the merchant code (PID) and secret key; the API username and
+  // password are only for the older dynamic-QR API and are optional.
+  const fMissing = f.mode === "live" || f.mode === "test" ? [!f.merchantCode && "merchant code", !has("fonepay_secret_key") && "secret key"].filter(Boolean) as string[] : [];
+  providers.push({ key: "fonepay", mode: f.mode, ready: (f.mode !== "live" && f.mode !== "test") || fMissing.length === 0, missing: fMissing });
   const w = env.whatsapp;
   const wMissing = w.provider === "meta" ? [!has("whatsapp_access_token") && "access token", !has("whatsapp_app_secret") && "app secret", !has("whatsapp_verify_token") && "verify token"].filter(Boolean) as string[] : [];
   providers.push({ key: "whatsapp", mode: w.provider, ready: w.provider !== "meta" || wMissing.length === 0, missing: wMissing });

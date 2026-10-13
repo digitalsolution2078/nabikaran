@@ -100,7 +100,7 @@ export const integrationSettingsSchema = z.object({
   khalti_env: z.enum(["env", "live", "test"]),
   esewa_mode: z.enum(["env", "off", "live", "test"]).default("env"),
   esewa_product_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only").default(""),
-  fonepay_mode: z.enum(["env", "off", "live", "mock"]),
+  fonepay_mode: z.enum(["env", "off", "live", "test", "mock"]),
   fonepay_merchant_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only"),
   whatsapp_provider: z.enum(["env", "off", "meta", "mock"]),
 });
@@ -123,6 +123,29 @@ export const lowCreditSettingsSchema = z.object({
   last_call_days: z.number().int().min(1).max(6),
 });
 
+/**
+ * "Set your first reminder" nudges to people who signed up but have not added
+ * a reminder: an app notification + email, then one SMS, then a last reminder.
+ */
+export const nudgeSettingsSchema = z.object({
+  enabled: z.boolean(),
+  /** Days after sign-up for the first (free) nudge, the SMS, and the last (free) nudge. */
+  first_days: z.number().int().min(1).max(30),
+  sms_days: z.number().int().min(1).max(60),
+  last_days: z.number().int().min(2).max(90),
+  /** Also send one SMS (costs the business one SMS per person). */
+  sms: z.boolean(),
+  /** SMS text, plain characters only (one SMS = 160). {link} becomes the add-reminder link. */
+  sms_text: z.string().trim().min(10).max(200).regex(/^[\x20-\x7E]+$/, "Use plain English letters (no Nepali script) so it stays one SMS"),
+  /** Only people who signed up within this many days are nudged (old accounts are left alone). */
+  window_days: z.number().int().min(7).max(365),
+}).refine((v) => v.first_days < v.sms_days || !v.sms, "the SMS must come after the first nudge")
+  .refine((v) => v.last_days > v.first_days, "the last nudge must come after the first")
+  .refine((v) => v.last_days < v.window_days, "the last nudge must come before the window ends")
+  .refine((v) => v.sms_text.replace("{link}", NUDGE_LINK).length <= 160, "the SMS text must fit in one SMS (160 characters with the link)");
+
+export const NUDGE_LINK = "nabikaran.org/renewals/new";
+
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
 export type ManualQrSettings = z.infer<typeof manualQrSettingsSchema>;
 export type SigninSettings = z.infer<typeof signinSettingsSchema>;
@@ -134,11 +157,12 @@ export type EmailSettings = z.infer<typeof emailSettingsSchema>;
 export type IntegrationSettings = z.infer<typeof integrationSettingsSchema>;
 export type CodesSettings = z.infer<typeof codesSettingsSchema>;
 export type LowCreditSettings = z.infer<typeof lowCreditSettingsSchema>;
+export type NudgeSettings = z.infer<typeof nudgeSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema, nudges: nudgeSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings; nudges: NudgeSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
@@ -151,6 +175,10 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", esewa_mode: "env", esewa_product_code: "", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
   codes: { gifts_enabled: true, gift_min_npr: 50, gift_max_npr: 5000, counter_daily_limit_npr: 50000 },
   low_credit: { enabled: true, sms_last_call: true, last_call_days: 2 },
+  nudges: {
+    enabled: true, first_days: 1, sms_days: 3, last_days: 10, sms: true, window_days: 30,
+    sms_text: "Namaste! Bluebook, license, bima ko renewal date Nabikaran ma halnus, samaya mai reminder aauchha. Free app reminder: {link}",
+  },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {
