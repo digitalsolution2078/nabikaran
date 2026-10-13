@@ -43,7 +43,7 @@ describe("Admin → Integrations", () => {
     expect(integrationsVersion()).toBeGreaterThan(before);
     expect(env.smsProvider).toBe("aakash");
     expect(env.aakash.authToken).toBe("aakash-token-123456");
-    expect(env.khalti.baseUrl).toBe("https://a.khalti.com");
+    expect(env.khalti.baseUrl).toBe("https://khalti.com");
     expect(env.fonepay.merchantCode).toBe("NBK01");
     expect(getSmsProvider().name).toBe("aakash"); // provider rebuilt with the new settings
     // Back to the server value.
