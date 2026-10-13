@@ -9,6 +9,7 @@ import { formatPhoneLocal } from "@/lib/phone";
 import { InviteFriends } from "@/components/InviteFriends";
 import { PinManager } from "@/components/PinManager";
 import { TwoFactorManager } from "@/components/TwoFactorManager";
+import { SessionsCard } from "@/components/SessionsCard";
 import { twoFactorStatus, staffNeedsTwoFactor } from "@/lib/services/two-factor";
 import { PushManager } from "@/components/PushManager";
 import { EmailManager } from "@/components/EmailManager";
@@ -59,6 +60,7 @@ export default async function SettingsPage() {
       {!staffMust && <TwoFactorManager initial={tfa} />}
       <InstallApp variant="card" />
       <ConnectedApps connections={connections} />
+      <SessionsCard />
     </div>
   );
 }

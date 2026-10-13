@@ -962,6 +962,11 @@ const en = {
   "ledger.proExpiry": "Unused Pro credits expired",
   "wallet.payStartFailed": "The payment could not start right now. Please try again in a moment, or choose QR payment.",
   "wallet.payUnavailable": "This payment method is not available right now. Please choose QR payment.",
+  "sess.title": "Signed-in devices",
+  "sess.text": "Lost your phone or signed in on someone else's computer? Sign out everywhere else. This device stays signed in.",
+  "sess.button": "Log out all other devices",
+  "sess.confirm": "Log out of every other phone and browser now?",
+  "sess.done": "Done. Every other device is signed out.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1925,6 +1930,11 @@ const ne: Record<MessageKey, string> = {
   "ledger.proExpiry": "प्रयोग नभएका Pro क्रेडिट सकिए",
   "wallet.payStartFailed": "अहिले भुक्तानी सुरु हुन सकेन। केही बेरपछि फेरि प्रयास गर्नुहोस्, वा QR भुक्तानी छान्नुहोस्।",
   "wallet.payUnavailable": "यो भुक्तानी माध्यम अहिले उपलब्ध छैन। कृपया QR भुक्तानी छान्नुहोस्।",
+  "sess.title": "साइन-इन भएका डिभाइस",
+  "sess.text": "फोन हराएको वा अरूको कम्प्युटरमा साइन-इन गर्नुभएको छ? अरू सबै ठाउँबाट साइन-आउट गर्नुहोस्। यो डिभाइस भने साइन-इनमै रहन्छ।",
+  "sess.button": "अरू सबै डिभाइसबाट लग-आउट",
+  "sess.confirm": "अहिले अरू सबै फोन र ब्राउजरबाट लग-आउट गर्ने?",
+  "sess.done": "भयो। अरू सबै डिभाइस साइन-आउट भए।",
 };
 
 export const DICTS = { en: en as Record<MessageKey, string>, ne } as const;

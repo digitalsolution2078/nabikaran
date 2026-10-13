@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { revokeAllSessions } from "@/lib/auth/session";
+import { getDb } from "@/lib/db";
 import { handle, json, parseBody, requireAdmin, HttpError } from "@/lib/http";
 import { can } from "@/lib/auth/rbac";
 import { directAdjustment, setUserRole } from "@/lib/services/admin-console";
@@ -21,6 +23,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("ban"), reason: z.string().trim().min(5).max(300), until: z.string().max(40).nullable().default(null), confirm: z.literal(true) }),
   z.object({ action: z.literal("unban"), note: z.string().trim().max(300).nullable().default(null), confirm: z.literal(true) }),
   z.object({ action: z.literal("reset2fa"), reason: z.string().trim().min(5).max(300), confirm: z.literal(true) }),
+  z.object({ action: z.literal("logout_all"), confirm: z.literal(true) }),
 ]);
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -37,6 +40,12 @@ export async function POST(req: Request, ctx: Ctx) {
     if (body.action === "reset2fa") {
       if (!can(admin.role, "roles.manage")) throw new HttpError(403, "Only a Super Admin can reset two-step sign-in", "forbidden");
       await adminResetTwoFactor(admin, userId, body.reason);
+      return json({ ok: true });
+    }
+    if (body.action === "logout_all") {
+      if (!can(admin.role, "users.ban")) throw new HttpError(403, "Only an admin or Super Admin can sign a customer out", "forbidden");
+      await revokeAllSessions(userId);
+      await getDb().query("insert into audit_events (actor_user_id, actor_via, action, target_type, target_id) values ($1,'web','auth.logout_all_by_admin','user',$2)", [admin.id, userId]);
       return json({ ok: true });
     }
     if (body.action === "ban" || body.action === "unban") {

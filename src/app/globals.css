@@ -992,3 +992,11 @@ a.chip { text-decoration: none !important; }
 :root[data-theme="dark"] .bonus-box { background: #2b1a0c; border-color: #7c2d12; }
 .flex-credits { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--pro-bg); border: 1px dashed var(--pro-line); }
 .pro-credit-stat .value { color: var(--pro); }
+
+/* Revenue chart: one series, thin columns with a 2px gap, rounded tops on the baseline */
+.rev-chart { display: flex; align-items: flex-end; gap: 2px; height: 180px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.rev-col { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 2px; }
+.rev-col:hover .rev-bar { background: var(--brand-700); }
+.rev-bar { display: block; width: 100%; border-radius: 4px 4px 0 0; background: var(--brand-500); transition: background var(--dur-2) ease; }
+:root[data-theme="dark"] .rev-bar { background: var(--brand-300); }
+@media (prefers-color-scheme: dark) { :root[data-theme="system"] .rev-bar { background: var(--brand-300); } }
