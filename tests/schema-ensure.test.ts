@@ -20,8 +20,8 @@ describe("embedded schema steps", () => {
   });
 
   it("report present and do nothing on a fully migrated database", async () => {
-    expect(await schemaStatus(db)).toEqual({ "0007_groups_yearly": true, "0008_seo_pages": true, "0009_referrals_pin": true, "0010_web_push": true, "0011_pro": true, "0012_calendar": true, "0013_credit_codes": true, "0014_user_bans": true, "0015_security": true, "0016_totp": true, "0017_push_channel": true });
-    expect(await ensureSchema(db)).toEqual({ applied: [], present: ["0007_groups_yearly", "0008_seo_pages", "0009_referrals_pin", "0010_web_push", "0011_pro", "0012_calendar", "0013_credit_codes", "0014_user_bans", "0015_security", "0016_totp", "0017_push_channel"] });
+    expect(await schemaStatus(db)).toEqual({ "0007_groups_yearly": true, "0008_seo_pages": true, "0009_referrals_pin": true, "0010_web_push": true, "0011_pro": true, "0012_calendar": true, "0013_credit_codes": true, "0014_user_bans": true, "0015_security": true, "0016_totp": true, "0017_push_channel": true, "0018_support": true });
+    expect(await ensureSchema(db)).toEqual({ applied: [], present: ["0007_groups_yearly", "0008_seo_pages", "0009_referrals_pin", "0010_web_push", "0011_pro", "0012_calendar", "0013_credit_codes", "0014_user_bans", "0015_security", "0016_totp", "0017_push_channel", "0018_support"] });
   });
 
   it("report missing when the step is not in place", async () => {

@@ -35,20 +35,21 @@ export type Permission =
   | "plans.grant"             // give, extend or revoke Pro for a customer
   | "counter.topup"           // credit a customer's wallet for cash / payment taken in person
   | "coupons.manage"          // create, download and disable coupon codes
-  | "users.ban";              // ban (suspend) or unban a customer; data is kept
+  | "users.ban"               // ban (suspend) or unban a customer; data is kept
+  | "support.manage";         // answer and close support tickets
 
 const MATRIX: Record<Role, readonly Permission[]> = {
   user: [],
   auditor: ["admin.view"],
   counter: ["counter.topup"],
   content: ["admin.view", "templates.manage"],
-  support: ["admin.view", "notes.write", "adjustments.request"],
-  finance: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "counter.topup"],
-  admin: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "templates.manage", "notes.write", "oauth.manage", "counter.topup", "coupons.manage", "users.ban"],
+  support: ["admin.view", "notes.write", "adjustments.request", "support.manage"],
+  finance: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "counter.topup", "support.manage"],
+  admin: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "templates.manage", "notes.write", "oauth.manage", "counter.topup", "coupons.manage", "users.ban", "support.manage"],
   super_admin: [
     "admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "adjustments.direct",
     "templates.manage", "sms.manage", "whatsapp.manage", "settings.manage", "roles.manage", "notes.write", "oauth.manage",
-    "customers.export", "plans.grant", "counter.topup", "coupons.manage", "users.ban",
+    "customers.export", "plans.grant", "counter.topup", "coupons.manage", "users.ban", "support.manage",
   ],
 };
 

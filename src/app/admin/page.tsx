@@ -8,6 +8,7 @@ import { AdminClients } from "@/components/AdminClients";
 import { Icon } from "@/components/Icon";
 import { env } from "@/lib/env";
 import { getCurrentUser } from "@/lib/auth/session";
+import { supportCounts } from "@/lib/services/support";
 import { can } from "@/lib/auth/rbac";
 import { formatPhoneLocal } from "@/lib/phone";
 
@@ -47,7 +48,7 @@ function ChannelRow({ name, c, extra }: { name: string; c: ChannelOps; extra?: R
 
 export default async function AdminOverview() {
   await requireAdminPage();
-  const [o, m, ops, clients, me] = await Promise.all([getOverview(), getMetrics(), getOps(), listClientsForAdmin(), getCurrentUser()]);
+  const [o, m, ops, clients, me, tickets] = await Promise.all([getOverview(), getMetrics(), getOps(), listClientsForAdmin(), getCurrentUser(), supportCounts().catch(() => ({ open: 0, waiting: 0 }))]);
   const stale = ops.dispatcher.minutesSinceDispatch === null || ops.dispatcher.minutesSinceDispatch >= 3;
   const npr = (paisa: number) => `NPR ${(paisa / 100).toLocaleString("en-IN")}`;
   const wa = ops.whatsapp;
@@ -63,6 +64,7 @@ export default async function AdminOverview() {
     <div className="stack">
       {stale && <div className="alert bad" role="alert"><Icon name="alert" /> <span><strong>Dispatcher not running.</strong> Last run: {when(ops.dispatcher.lastDispatchAt)}. Scheduled messages will not go out. Check the <code>cron</code> container.</span></div>}
       {o.topups.pendingManual > 0 && <div className="alert info"><Icon name="qr" /> <span>{o.topups.pendingManual} QR top-up{o.topups.pendingManual > 1 ? "s" : ""} waiting for verification. <Link href="/admin/wallet/topups">Review →</Link></span></div>}
+      {tickets.open > 0 && can(me?.role, "support.manage") && <div className="alert info"><Icon name="message" /> <span>{tickets.open} support ticket{tickets.open > 1 ? "s" : ""} waiting for an answer. <Link href="/admin/support">Open support →</Link></span></div>}
       {ops.sms.unknown + wa.unknown > 0 && <div className="alert warn"><Icon name="alert" /> <span>{ops.sms.unknown + wa.unknown} message(s) have an unknown outcome and are being reconciled. They are never re-sent blindly.</span></div>}
       {smsReportGap && <div className="alert warn"><Icon name="alert" /> <span><strong>No SMS delivery reports in 7 days.</strong> Aakash accepted {ops.sms.acceptedLast7d} SMS but no delivery status came back. Confirm the delivery-report API with Aakash (see docs/OPERATIONS.md); until then "accepted" is the strongest status we can show.</span></div>}
       {waProblems.length > 0 && <div className="alert warn"><Icon name="alert" /> <span><strong>WhatsApp configuration:</strong> {waProblems.join(" · ")}</span></div>}
