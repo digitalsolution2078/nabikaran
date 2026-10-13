@@ -26,7 +26,7 @@ export function instantDTO(d: Date): InstantDTO {
 }
 
 export type JobStatus = "planned" | "awaiting_credits" | "scheduled" | "sending" | "submitted" | "delivered" | "read" | "failed" | "unknown" | "cancelled";
-export type Channel = "sms" | "whatsapp" | "email";
+export type Channel = "sms" | "whatsapp" | "email" | "push";
 
 export interface ReminderJobDTO {
   id: string;
@@ -80,7 +80,8 @@ export type Warning =
   | "whatsapp_consent_required"
   | "email_unavailable"
   | "credits_permission_required"
-  | "after_pro_ends";
+  | "after_pro_ends"
+  | "push_no_device";
 
 export interface SchedulePreviewLine {
   channel: Channel;

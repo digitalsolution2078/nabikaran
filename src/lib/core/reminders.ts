@@ -17,6 +17,7 @@ import { instantDTO, type ChannelCost, type ReminderDTO, type ReminderJobDTO, ty
 import { CATEGORIES, categorySmsName, isOccasion } from "../categories";
 import { anchorFromInput, anchorToString, nextEveryMonths, nextOccurrence, parseAnchor, type Anchor } from "../recurrence";
 import { emailConfigured } from "./email-config";
+import { deviceCount } from "../services/push";
 export { CATEGORIES };
 
 export const SUB_CURRENCIES = ["NPR", "USD", "INR", "EUR", "GBP", "AUD"] as const;
@@ -33,7 +34,7 @@ export const reminderInputSchema = z.object({
   templateSlug: z.string().max(60).optional().nullable(),
   offsets: z.array(z.number().int().min(0).max(MAX_OFFSET_MINUTES)).max(20).default([30 * 1440, 7 * 1440, 1440, 0]),
   /** Delivery channels: SMS only, WhatsApp only, or both. */
-  channels: z.array(z.enum(["sms", "whatsapp", "email"])).min(1).max(3).default(["sms"]).transform((c) => [...new Set(c)] as Channel[]),
+  channels: z.array(z.enum(["sms", "whatsapp", "email", "push"])).min(1).max(4).default(["sms"]).transform((c) => [...new Set(c)] as Channel[]),
   /** Required (true) the first time a user picks WhatsApp: consent to business-initiated WhatsApp messages. */
   whatsappConsent: z.boolean().optional(),
   /** Optional group (e.g. "Birthdays"). Omitted on edit = keep; null = remove from group. */
@@ -167,7 +168,7 @@ export async function loadWaTemplates(db: Db): Promise<WaTemplateRow[]> {
 }
 
 export function normalizeChannels(c: string[] | null | undefined): Channel[] {
-  const v = (c ?? ["sms"]).filter((x): x is Channel => x === "sms" || x === "whatsapp" || x === "email");
+  const v = (c ?? ["sms"]).filter((x): x is Channel => x === "sms" || x === "whatsapp" || x === "email" || x === "push");
   return v.length ? [...new Set(v)] : ["sms"];
 }
 
@@ -197,7 +198,7 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
       .filter((j) => j.cycle_no === r.cycle_no)
       .map<ReminderJobDTO>((j) => ({
         id: j.id,
-        channel: (j.channel === "whatsapp" || j.channel === "email" ? j.channel : "sms") as ReminderJobDTO["channel"],
+        channel: (j.channel === "whatsapp" || j.channel === "email" || j.channel === "push" ? j.channel : "sms") as ReminderJobDTO["channel"],
         offsetMinutes: j.offset_minutes ?? 0,
         due: instantDTO(new Date(j.due_at_utc)),
         status: j.status as ReminderJobDTO["status"],
@@ -225,8 +226,8 @@ async function includedLeft(db: Db, userId: string, renewalId: string | null, no
     "select channel, (granted - reserved - used)::int as left, granted from plan_allowances where user_plan_id = $1",
     [rows[0].id],
   );
-  const left: Record<Channel, number> = { sms: 0, whatsapp: 0, email: 0 };
-  const granted: Record<Channel, number> = { sms: 0, whatsapp: 0, email: 0 };
+  const left: Record<Channel, number> = { sms: 0, whatsapp: 0, email: 0, push: 0 };
+  const granted: Record<Channel, number> = { sms: 0, whatsapp: 0, email: 0, push: 0 };
   for (const r of a) {
     left[r.channel] = Math.max(0, r.left);
     granted[r.channel] = r.granted;
@@ -320,6 +321,20 @@ export async function previewSchedule(
           smsLabel: r.smsLabel,
           labelAdjusted: r.labelAdjusted,
         });
+      } else if (ch === "push") {
+        const r = renderReminder({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale, category: input.category }, templates);
+        lines.push({
+          channel: "push",
+          offsetMinutes: c.offsetMinutes,
+          due: instantDTO(c.dueAtUtc),
+          horizon: c.horizon,
+          smsText: r.body,
+          segments: 1,
+          encoding: "App notification",
+          credits: 0,
+          smsLabel: input.label,
+          labelAdjusted: false,
+        });
       } else if (ch === "email") {
         const r = renderReminder({ label: input.label, fallbackLabel, expiryAtUtc, dueAtUtc: c.dueAtUtc, locale: p.locale, category: input.category }, templates);
         lines.push({
@@ -356,6 +371,7 @@ export async function previewSchedule(
   if (allowance) {
     const left = { ...allowance.left };
     for (const l of [...lines].sort((a, b) => a.due.utc.localeCompare(b.due.utc))) {
+      if (l.channel === "push") continue;
       const units = l.channel === "sms" ? l.segments : 1;
       if (new Date(l.due.utc).getTime() < allowance.endsAt.getTime() && left[l.channel] >= units) {
         left[l.channel] -= units;
@@ -368,14 +384,14 @@ export async function previewSchedule(
   let permissionCredits = 0;
   if (allowance && !allowance.fallback) {
     for (const l of lines) {
-      if (!l.included && allowance.granted[l.channel] > 0 && new Date(l.due.utc).getTime() < allowance.endsAt.getTime()) permissionCredits += l.credits;
+      if (l.channel !== "push" && !l.included && allowance.granted[l.channel] > 0 && new Date(l.due.utc).getTime() < allowance.endsAt.getTime()) permissionCredits += l.credits;
     }
   }
   const proEndsAt = await proEnd(db, p.userId, now);
   const byChannel: Partial<Record<Channel, ChannelCost>> = {};
   for (const ch of channels) {
     const ls = lines.filter((l) => l.channel === ch);
-    const pr = ch === "sms" ? smsPricing : ch === "email" ? emailPricing : waPricing;
+    const pr = ch === "push" ? { id: 0, creditsPerUnit: 0 } : ch === "sms" ? smsPricing : ch === "email" ? emailPricing : waPricing;
     byChannel[ch] = { messages: ls.length, included: ls.filter((l) => l.included).length, credits: ls.reduce((n, l) => n + l.credits, 0), creditsPerUnit: pr.creditsPerUnit, pricingVersion: pr.id };
   }
   const totalCredits = lines.reduce((n, l) => n + l.credits, 0);
@@ -393,6 +409,7 @@ export async function previewSchedule(
   if (wantsWa && consent && !consent.rows[0]?.at) warnings.push("whatsapp_consent_required");
   if (wantsEmail && !emailOk) warnings.push("email_unavailable");
   if (permissionCredits > 0) warnings.push("credits_permission_required");
+  if (channels.includes("push") && (await deviceCount(p.userId, db).catch(() => 0)) === 0) warnings.push("push_no_device");
   if (proEndsAt && lines.some((l) => new Date(l.due.utc).getTime() >= proEndsAt.getTime())) warnings.push("after_pro_ends");
   // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
   const shortfallCredits = Math.max(0, reservedOnConfirmCredits - (wallet.available + releasable));
@@ -479,6 +496,10 @@ async function materializeJobs(tx: Db, renewal: RenewalRow, locale: string, cand
       } else if (ch === "email") {
         credits = emailPricing.creditsPerUnit;
         version = emailPricing.id;
+      } else if (ch === "push") {
+        // Free: no credits, no reservation (wallet_reserve_for_job schedules it directly).
+        credits = 0;
+        version = smsPricing.id;
       } else {
         renderWhatsApp({ label: renewal.label, fallbackLabel: categorySmsName(renewal.category), expiryAtUtc: expiry, dueAtUtc: c.dueAtUtc, locale }, waTemplates);
       }

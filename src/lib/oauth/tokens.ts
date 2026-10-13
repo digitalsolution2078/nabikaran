@@ -269,3 +269,35 @@ export async function pruneOAuth(db: Db = getDb()): Promise<void> {
   await db.query("delete from oauth_authorization_codes where expires_at < now() - interval '1 day'");
   await db.query("delete from oauth_tokens where expires_at < now() - interval '30 days'");
 }
+
+export interface McpConnectionAdminView {
+  userId: string;
+  userName: string | null;
+  phone: string;
+  clientId: string;
+  clientName: string;
+  scopes: string[];
+  connectedAt: string;
+  lastUsedAt: string | null;
+}
+
+/** Admin: who is connected through which AI app (one row per customer and app). */
+export async function listMcpConnectionsForAdmin(opts: { userId?: string; limit?: number } = {}, db: Db = getDb()): Promise<McpConnectionAdminView[]> {
+  const { rows } = await db.query<{ user_id: string; display_name: string | null; phone_e164: string; client_id: string; name: string; scopes: string[]; connected_at: string; last_used_at: string | null }>(
+    `select t.user_id, u.display_name, u.phone_e164, t.client_id, c.name,
+            array(select distinct s from oauth_tokens t2, unnest(t2.scopes) s
+                   where t2.user_id = t.user_id and t2.client_id = t.client_id and t2.kind = 'refresh' and t2.revoked_at is null and t2.expires_at > now() order by s) as scopes,
+            min(t.created_at) as connected_at,
+            (select max(t3.last_used_at) from oauth_tokens t3 where t3.user_id = t.user_id and t3.client_id = t.client_id) as last_used_at
+       from oauth_tokens t join oauth_clients c on c.id = t.client_id join users u on u.id = t.user_id
+      where t.kind = 'refresh' and t.revoked_at is null and t.expires_at > now() and ($1::uuid is null or t.user_id = $1::uuid)
+      group by t.user_id, u.display_name, u.phone_e164, t.client_id, c.name
+      order by last_used_at desc nulls last, connected_at desc
+      limit $2`,
+    [opts.userId ?? null, Math.min(opts.limit ?? 200, 500)],
+  );
+  return rows.map((r) => ({
+    userId: r.user_id, userName: r.display_name, phone: r.phone_e164, clientId: r.client_id, clientName: r.name, scopes: r.scopes,
+    connectedAt: new Date(r.connected_at).toISOString(), lastUsedAt: r.last_used_at ? new Date(r.last_used_at).toISOString() : null,
+  }));
+}

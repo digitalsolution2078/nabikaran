@@ -139,7 +139,7 @@ export default async function AdminOverview() {
           </dl>
         </section>
         <section className="card">
-          <h2>AI assistants (MCP)</h2>
+          <div className="card-head"><h2>AI assistants (MCP)</h2><Link href="/admin/mcp" className="small">Who is connected →</Link></div>
           <dl className="kv">
             <dt>Connected users</dt><dd>{m.mcp.connectedUsers}</dd>
             <dt>Tool calls (24h)</dt><dd>{m.mcp.toolCalls24h} ({m.mcp.toolErrors24h} errors)</dd>

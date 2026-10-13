@@ -11,6 +11,7 @@ const TABS: [string, string, Need][] = [
   ["/counter", "Counter", "counter"],
   ["/admin/coupons", "Coupons & gifts", "coupons"],
   ["/admin/sms", "Channels & pricing", false],
+  ["/admin/mcp", "AI apps (MCP)", false],
   ["/admin/templates", "Templates", false],
   ["/admin/seo", "SEO pages", false],
   ["/admin/audit", "Audit log", false],

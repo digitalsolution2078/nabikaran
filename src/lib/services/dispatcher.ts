@@ -107,8 +107,16 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       if (s.renewal_status !== "active" || s.cycle_no !== s.job_cycle) return fail("cancelled", "renewal not active or superseded");
       if (s.user_status !== "active" || !s.phone_verified_at) return fail("cancelled", "destination not verified");
       if (s.prior > 0) return fail("unknown", "prior attempt exists; reconcile", false);
-      if (s.reservation_status !== "active") return fail("awaiting_credits", "no active reservation");
       if (new Date(s.due_at_utc).getTime() > now.getTime()) return fail("scheduled", "not due", false);
+      if (job.channel === "push") {
+        // Free app notification: no credits, no provider attempt row.
+        const { rows: d } = await tx.query<{ n: number }>("select count(*)::int as n from push_subscriptions where user_id = $1", [job.user_id]);
+        if (!d[0]?.n) return fail("failed", "No device has notifications turned on", false);
+        const r = renderReminder({ label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale, category: s.category }, templates);
+        await tx.query("update reminder_jobs set status = 'delivered', attempts = attempts + 1, lock_at = null, lock_token = null, last_error = null, updated_at = now() where id = $1", [job.id]);
+        return { ok: true as const, push: true as const, text: r.body };
+      }
+      if (s.reservation_status !== "active") return fail("awaiting_credits", "no active reservation");
       const isWa = job.channel === "whatsapp";
       // WhatsApp switched off (or provider missing) after scheduling: return the credits.
       if (isWa && (!waOk || !waProvider)) return fail("failed", "WhatsApp is not available; credits returned");
@@ -137,6 +145,11 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
 
     if (!pre.ok) {
       summary.skipped++;
+      continue;
+    }
+    if ("push" in pre) {
+      pushes.push({ userId: job.user_id, renewalId: job.renewal_id, occurrenceKey: `${job.renewal_id}:${job.cycle_no}:${new Date(job.due_at_utc).toISOString()}`, body: pre.text });
+      summary.submitted++;
       continue;
     }
     // Free web push alongside the message (once per occurrence, sent after the loop).

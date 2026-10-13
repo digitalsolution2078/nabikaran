@@ -195,7 +195,7 @@ const en = {
   "qr.note": "Note (optional)",
   "qr.submit": "I have paid — submit",
   "qr.waiting": "Waiting for admin verification",
-  "qr.waitingd": "We check every payment against our bank statement before adding credits. This usually takes a few hours during office time.",
+  "qr.waitingd": "We check every payment against our bank statement before adding credits. This can take up to 24 hours — usually a few hours during office time.",
   "qr.approved": "Approved — credits added",
   "qr.rejected": "Rejected",
   "qr.cancel": "Cancel request",
@@ -865,6 +865,14 @@ const en = {
   "apps.never": "never",
   "apps.disconnect": "Disconnect",
   "apps.confirm": "Disconnect this app? It will lose access immediately.",
+  "qr.receiptHint": "PNG, JPG, WebP or PDF · up to 3 MB. Large photos are made smaller automatically.",
+  "qr.tooLarge": "This file is {mb} MB. The limit is 3 MB — send a screenshot instead of a photo, or crop it.",
+  "qr.verifyTime": "Manual verification can take up to 24 hours. Most payments are checked within a few hours during office time.",
+  "channel.pushOnly": "App notification only",
+  "channel.free": "Free",
+  "channel.pushHint": "Free on every plan. It reaches the phones where you turned on notifications (Settings → Notifications). No SMS is sent.",
+  "channel.pushAlso": "Every reminder also comes as a free app notification on your phone.",
+  "warn.push_no_device": "Notifications are not turned on for any of your devices yet. Turn them on in Settings → Notifications, or this reminder will not reach you.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1061,7 +1069,7 @@ const ne: Record<MessageKey, string> = {
   "qr.note": "टिपोट (ऐच्छिक)",
   "qr.submit": "मैले तिरेँ — पेस गर्नुहोस्",
   "qr.waiting": "एडमिन प्रमाणीकरण पर्खँदै",
-  "qr.waitingd": "क्रेडिट थप्नु अघि हामी हरेक भुक्तानी बैंक विवरणसँग जाँच्छौं। कार्यालय समयमा सामान्यतया केही घण्टा लाग्छ।",
+  "qr.waitingd": "क्रेडिट थप्नु अघि हामी हरेक भुक्तानी बैंक विवरणसँग जाँच्छौं। यसमा बढीमा २४ घण्टा लाग्न सक्छ — कार्यालय समयमा सामान्यतया केही घण्टा।",
   "qr.approved": "स्वीकृत — क्रेडिट थपियो",
   "qr.rejected": "अस्वीकृत",
   "qr.cancel": "अनुरोध रद्द गर्नुहोस्",
@@ -1731,6 +1739,14 @@ const ne: Record<MessageKey, string> = {
   "apps.never": "कहिल्यै होइन",
   "apps.disconnect": "हटाउनुहोस्",
   "apps.confirm": "यो एप हटाउने? यसको पहुँच तुरुन्तै बन्द हुन्छ।",
+  "qr.receiptHint": "PNG, JPG, WebP वा PDF · बढीमा ३ MB। ठूला फोटो आफैं सानो बनाइन्छ।",
+  "qr.tooLarge": "यो फाइल {mb} MB छ। सीमा ३ MB हो — फोटोको सट्टा स्क्रिनसट पठाउनुहोस् वा क्रप गर्नुहोस्।",
+  "qr.verifyTime": "म्यानुअल प्रमाणीकरणमा बढीमा २४ घण्टा लाग्न सक्छ। धेरैजसो भुक्तानी कार्यालय समयमा केही घण्टाभित्रै जाँचिन्छ।",
+  "channel.pushOnly": "एप नोटिफिकेसन मात्र",
+  "channel.free": "निःशुल्क",
+  "channel.pushHint": "सबै प्लानमा निःशुल्क। तपाईंले नोटिफिकेसन खोलेका फोनमा आउँछ (सेटिङ → नोटिफिकेसन)। SMS पठाइँदैन।",
+  "channel.pushAlso": "हरेक रिमाइन्डर तपाईंको फोनमा निःशुल्क एप नोटिफिकेसनको रूपमा पनि आउँछ।",
+  "warn.push_no_device": "तपाईंको कुनै पनि डिभाइसमा नोटिफिकेसन खोलिएको छैन। सेटिङ → नोटिफिकेसनमा खोल्नुहोस्, नत्र यो रिमाइन्डर तपाईंसम्म पुग्दैन।",
 };
 
 export const DICTS = { en: en as Record<MessageKey, string>, ne } as const;

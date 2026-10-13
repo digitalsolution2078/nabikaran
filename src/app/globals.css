@@ -945,3 +945,10 @@ html[lang="ne"] .final-cta h2 { letter-spacing: 0; }
   .pub-header .logo small { display: none; }
   .lang-switch button { min-width: 34px; padding: 4px 9px; }
 }
+
+/* Free app-notification channel */
+.ch-push { background: #e0f2fe; color: #075985; }
+:root[data-theme="dark"] .ch-push { background: #082f49; color: #bae6fd; }
+@media (prefers-color-scheme: dark) { :root[data-theme="system"] .ch-push { background: #082f49; color: #bae6fd; } }
+.choice-free { border-style: dashed; }
+.choice-row { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }

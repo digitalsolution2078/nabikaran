@@ -73,10 +73,12 @@ export async function getLedger(p: Principal, limit = 50, db: Db = getDb()): Pro
   }));
 }
 
-export type Channel = "sms" | "whatsapp" | "email";
+/** Channels with a price. App (push) notifications are free. */
+export type PricedChannel = "sms" | "whatsapp" | "email";
+export type Channel = PricedChannel | "push";
 
 /** Current price for a channel: credits per SMS unit, or per accepted WhatsApp template message. */
-export async function getActivePricing(db: Db = getDb(), channel: Channel = "sms"): Promise<{ id: number; creditsPerUnit: number }> {
+export async function getActivePricing(db: Db = getDb(), channel: PricedChannel = "sms"): Promise<{ id: number; creditsPerUnit: number }> {
   const { rows } = await db.query<{ id: number | string; credits_per_billable_unit: number }>(
     "select id, credits_per_billable_unit from pricing_versions where channel = $1 and effective_at <= now() order by effective_at desc, id desc limit 1",
     [channel],

@@ -27,7 +27,7 @@ export function AdminClients({ clients }: { clients: ClientRow[] }) {
     }
   }
   return (
-    <table>
+    <div className="table-wrap"><table>
       <thead><tr><th>Client</th><th>Users</th><th>Live tokens</th><th>State</th><th /></tr></thead>
       <tbody>
         {clients.map((c) => (
@@ -36,11 +36,11 @@ export function AdminClients({ clients }: { clients: ClientRow[] }) {
             <td>{c.activeUsers}</td>
             <td>{c.activeTokens}</td>
             <td><span className={`badge ${c.disabledAt ? "bad" : "ok"}`}>{c.disabledAt ? "disabled" : "enabled"}</span></td>
-            <td><button className={c.disabledAt ? "secondary" : "danger"} disabled={busy === c.id} onClick={() => toggle(c)}>{c.disabledAt ? "Enable" : "Disable"}</button></td>
+            <td><button className={`btn btn-sm ${c.disabledAt ? "btn-secondary" : "btn-danger"}`} disabled={busy === c.id} onClick={() => toggle(c)}>{c.disabledAt ? "Enable" : "Disable"}</button></td>
           </tr>
         ))}
         {clients.length === 0 && <tr><td colSpan={5} className="muted">No OAuth clients registered yet.</td></tr>}
       </tbody>
-    </table>
+    </table></div>
   );
 }
