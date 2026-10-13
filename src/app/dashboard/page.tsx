@@ -14,6 +14,7 @@ import { ProOverview } from "@/components/ProOverview";
 import { getDb } from "@/lib/db";
 import { getSetting } from "@/lib/services/settings";
 import { AppBadge } from "@/components/AppBadge";
+import { CountUp } from "@/components/motion/CountUp";
 import { formatDate, formatDateTime, daysUntil, localizeNumber, offsetLabel } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/dict";
 
@@ -64,7 +65,7 @@ export default async function Dashboard() {
         {s && (
           <Link href="/wallet" className="welcome-credits">
             <span className="small">{t("dash.available")}</span>
-            <strong>{n(s.wallet.available)}</strong>
+            <strong><CountUp value={s.wallet.available} lang={prefs.lang} /></strong>
           </Link>
         )}
       </section>
@@ -162,7 +163,7 @@ type P = { lang: "ne" | "en"; date: "AD" | "BS" };
 
 function Stat({ href, icon, label, value, sub, tone = "" }: { href: string; icon: Parameters<typeof Icon>[0]["name"]; label: string; value: string; sub?: string; tone?: string }) {
   return (
-    <Link href={href} className={`stat stat-link ${tone ? `stat-${tone}` : ""}`}>
+    <Link href={href} className={`stat stat-link glow ${tone ? `stat-${tone}` : ""}`}>
       <div className="label"><span className="icon-chip"><Icon name={icon} size={16} /></span>{label}</div>
       <div className="value">{value}</div>
       {sub && <div className="sub">{sub}</div>}
@@ -172,7 +173,7 @@ function Stat({ href, icon, label, value, sub, tone = "" }: { href: string; icon
 
 function NextStat({ next, t, prefs }: { next: CustomerSummary["next"]; t: T; prefs: P }) {
   return (
-    <Link href={next ? `/renewals/${next.renewalId}` : "/renewals/new"} className="stat stat-link">
+    <Link href={next ? `/renewals/${next.renewalId}` : "/renewals/new"} className="stat stat-link glow">
       <div className="label"><span className="icon-chip"><Icon name="bell" size={16} /></span>{t("dash.next")}</div>
       {next ? (
         <>

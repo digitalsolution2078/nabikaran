@@ -3,6 +3,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon, type IconName } from "./Icon";
 import { LiveClock } from "./LiveClock";
+import { LangSwitch } from "./LangSwitch";
+import { CountUp } from "./motion/CountUp";
 import { usePrefs } from "./Prefs";
 import type { MessageKey } from "@/lib/i18n/dict";
 import { formatDate, localizeNumber } from "@/lib/i18n/format";
@@ -61,7 +63,7 @@ export function Shell({ user, clockIso, children }: { user: ShellUser | null; cl
 }
 
 function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: string; clockIso: string; children: React.ReactNode }) {
-  const { t, prefs, setPrefs } = usePrefs();
+  const { t, prefs } = usePrefs();
   const router = useRouter();
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -98,7 +100,7 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
             </div>
           )}
           <div className="muted small mt-xs">{user.pro ? t("plan.credits") : t("dash.available")}</div>
-          <div style={{ fontFamily: "var(--font-head)", fontSize: 22, fontWeight: 700 }}>{localizeNumber(user.availableCredits, prefs.lang)}</div>
+          <div className="side-credits"><CountUp value={user.availableCredits} lang={prefs.lang} /></div>
           <Link href="/wallet" className="small">{t("dash.topUp")} →</Link>
         </div>
         <button className="side-link" style={{ border: 0, background: "transparent", cursor: "pointer", font: "inherit" }} onClick={logout}><Icon name="logout" /> {t("nav.logout")}</button>
@@ -109,14 +111,12 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
             <span className="mobile-logo"><Logo href="/dashboard" />{user.pro && <Link href="/pro" aria-label="Nabikaran Pro"><ProBadge small /></Link>}</span>
             <LiveClock initialIso={clockIso} />
             <div className="right">
-              <button className="btn btn-ghost btn-sm" onClick={() => setPrefs({ ...prefs, lang: prefs.lang === "ne" ? "en" : "ne" })} aria-label="Switch language">
-                <Icon name="globe" size={16} /> {prefs.lang === "ne" ? "EN" : "ने"}
-              </button>
+              <LangSwitch compact />
               <Link href="/settings" className="btn btn-secondary btn-sm hide-mobile">{user.name ?? user.phoneLocal}</Link>
             </div>
           </div>
         </header>
-        <main className="content" id="main">{children}</main>
+        <main className="content page-in" id="main" key={path}>{children}</main>
       </div>
       <nav className="bottom-nav" aria-label="Main navigation">
         <Link href="/dashboard" className={isActive(path, "/dashboard") ? "active" : ""}><Icon name="home" /><span>{t("nav.dashboard")}</span></Link>
@@ -134,17 +134,16 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
 }
 
 function PublicShell({ signedIn, children }: { signedIn: boolean; children: React.ReactNode }) {
-  const { t, prefs, setPrefs } = usePrefs();
+  const { t } = usePrefs();
   return (
     <>
+      <div className="scroll-progress" aria-hidden />
       <header className="pub-header">
         <div className="inner">
           <Logo />
           <nav>
-            <Link href="/pricing" className="btn btn-ghost btn-sm">{t("nav.pricing")}</Link>
-            <button className="btn btn-ghost btn-sm" onClick={() => setPrefs({ ...prefs, lang: prefs.lang === "ne" ? "en" : "ne" })} aria-label="Switch language">
-              <Icon name="globe" size={16} /> {prefs.lang === "ne" ? "English" : "नेपाली"}
-            </button>
+            <Link href="/pricing" className="btn btn-ghost btn-sm hide-mobile">{t("nav.pricing")}</Link>
+            <LangSwitch compact />
             {signedIn ? (
               <Link href="/dashboard" className="btn btn-primary btn-sm">{t("nav.dashboard")}</Link>
             ) : (
