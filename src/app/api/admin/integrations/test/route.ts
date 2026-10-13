@@ -34,7 +34,10 @@ export async function POST(req: Request) {
           body: JSON.stringify({ pidx: "nabikaran-key-check" }), signal: AbortSignal.timeout(10_000),
         });
         ok = res.status !== 401 && res.status !== 403;
-        detail = ok ? `Khalti accepted the key (${k.baseUrl.includes("dev.") ? "test" : "live"} environment).` : "Khalti rejected the key (401). Check that it is the live/test key for this environment.";
+        const sandbox = /dev\.khalti|a\.khalti/.test(k.baseUrl);
+        detail = ok
+          ? `Khalti accepted the key (${sandbox ? "test/sandbox" : "live"} environment, ${k.baseUrl}).`
+          : `Khalti rejected the key (${res.status}) at ${k.baseUrl}. A live key works only with the live environment (khalti.com) and a test key only with the test one (dev.khalti.com) — set "Khalti environment" to match.`;
       } else {
         const w = env.whatsapp;
         const s = await getSetting("whatsapp");

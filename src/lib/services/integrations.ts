@@ -10,7 +10,8 @@ import { ADMIN_SECRETS, allSecretStatus, decryptSecret, type AdminSecret, type S
  * Admin → Integrations: provider modes and API keys set by a super admin.
  * Values set here override the server environment; empty ones fall back to it.
  */
-const KHALTI_URL = { live: "https://a.khalti.com", test: "https://dev.khalti.com" } as const;
+// Khalti KPG-2: live API is khalti.com/api/v2; a.khalti.com and dev.khalti.com are sandboxes.
+const KHALTI_URL = { live: "https://khalti.com", test: "https://dev.khalti.com" } as const;
 
 async function decrypted(db: Db): Promise<Partial<Record<AdminSecret, string>>> {
   const { rows } = await db.query<{ key: string; value: { value?: string } }>("select key, value from app_secrets where key = any($1::text[])", [ADMIN_SECRETS as unknown as string[]]);
