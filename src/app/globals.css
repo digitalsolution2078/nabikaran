@@ -932,3 +932,27 @@ a.chip { text-decoration: none !important; }
   .admin-group { position: relative; flex-direction: column; gap: 3px; padding: 7px 2px; font-size: 11px; }
   .admin-group .admin-count { position: absolute; top: 2px; right: 6px; margin: 0; min-width: 16px; height: 16px; font-size: 10px; }
 }
+
+/* My records: usage, status counts and type chips above the list. */
+.records-overview { display: grid; gap: 12px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-sm); }
+.rec-usage .small strong { font-size: 15px; }
+.rec-meter { height: 6px; margin-top: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.rec-meter span { display: block; height: 100%; background: var(--brand-600); border-radius: 3px; transition: width .4s ease; }
+.rec-meter.high span { background: var(--warn); }
+.rec-meter.full span { background: var(--bad); }
+.rec-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.rec-stat { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid transparent; color: var(--fg); text-decoration: none !important; transition: border-color .15s, transform .15s; }
+.rec-stat:hover { border-color: var(--border); transform: translateY(-1px); }
+.rec-stat .v { font-size: 22px; font-weight: 700; line-height: 1.1; }
+.rec-stat .l { font-size: 12px; color: var(--muted); }
+.rec-stat.ok .v { color: var(--ok); }
+.rec-stat.warn .v { color: var(--warn); }
+.rec-stat.bad .v { color: var(--bad); }
+.rec-stat.zero .v { color: var(--muted); }
+.rec-stat.on { border-color: var(--brand-600); }
+.rec-groups { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 560px) { .rec-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* "Remind me" switch in the add / edit form. */
+.remind-switch { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); cursor: pointer; }
+.remind-switch input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--brand-600); }

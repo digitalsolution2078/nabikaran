@@ -12,6 +12,7 @@ import { renderReminder } from "../sms/templates";
 import { CATEGORIES, categorySmsName } from "../categories";
 import { MAX_IMPORT_BYTES, parseImport, type ParsedRow, type RowError } from "../csv-import";
 import { businessName, clientForImport } from "./clients";
+import { assertCanAddRecords, recordUsage } from "./limits";
 import { createGroupIn, groupInputSchema } from "./groups";
 
 export const importRequestSchema = z.object({
@@ -65,6 +66,8 @@ export interface ImportPreview {
   available: number;
   shortfallCredits: number;
   sufficient: boolean;
+  /** Record limit: records kept now, the account's limit, and how many more fit. */
+  records: { used: number; limit: number; room: number; pro: boolean; proLimit: number };
 }
 
 function toReminderInput(r: ParsedRow) {
@@ -84,7 +87,7 @@ function toReminderInput(r: ParsedRow) {
 
 async function buildPreview(p: Principal, req: ImportRequest, db: Db, now: Date): Promise<{ preview: ImportPreview; parsed: ParsedRow[] }> {
   const parsed = parseImport(req.csv, req.defaults);
-  const [pricing, templates, wallet, business] = await Promise.all([getActivePricing(db, "sms"), loadTemplates(db), readWallet(p.userId, db), businessName(p.userId, db)]);
+  const [pricing, templates, wallet, business, usage] = await Promise.all([getActivePricing(db, "sms"), loadTemplates(db), readWallet(p.userId, db), businessName(p.userId, db), recordUsage(p.userId, db)]);
   const rows: ImportRowPreview[] = parsed.rows.map((r) => {
     const out: ImportRowPreview = {
       line: r.line, label: r.label, inputDate: r.date, calendar: r.calendar, category: r.category, repeatYearly: r.repeatYearly,
@@ -132,6 +135,7 @@ async function buildPreview(p: Principal, req: ImportRequest, db: Db, now: Date)
       available: wallet.available,
       shortfallCredits,
       sufficient: shortfallCredits === 0,
+      records: { used: usage.used, limit: usage.limit, room: Math.max(0, usage.limit - usage.used), pro: usage.pro, proLimit: usage.proLimit },
     },
   };
 }
@@ -163,6 +167,7 @@ export async function commitImport(
       if (preview.validRows === 0) throw new HttpError(400, "No valid rows to import.", "import_empty");
       if (preview.invalidRows > 0 && !req.skipInvalid) throw new HttpError(400, `${preview.invalidRows} row(s) have errors. Fix them or choose to skip them.`, "import_has_errors");
       if (!preview.sufficient) throw insufficientCredits(preview.totalCredits, preview.available);
+      await assertCanAddRecords(tx, p.userId, preview.validRows);
 
       let groupId = req.groupId ?? null;
       if (groupId) {

@@ -19,6 +19,7 @@ import { anchorFromInput, anchorToString, nextEveryMonths, nextOccurrence, parse
 import { emailConfigured } from "./email-config";
 import { deviceCount } from "../services/push";
 import { assertClientReminder } from "../services/clients";
+import { assertCanAddRecords } from "../services/limits";
 export { CATEGORIES };
 
 export const SUB_CURRENCIES = ["NPR", "USD", "INR", "EUR", "GBP", "AUD"] as const;
@@ -417,7 +418,8 @@ export async function previewSchedule(
   if (channels.includes("push") && (await deviceCount(p.userId, db).catch(() => 0)) === 0) warnings.push("push_no_device");
   if (proEndsAt && lines.some((l) => new Date(l.due.utc).getTime() >= proEndsAt.getTime())) warnings.push("after_pro_ends");
   // A negative balance (sign-in fee debt) is settled first, so it adds to the shortfall.
-  const shortfallCredits = Math.max(0, roundCredits(reservedOnConfirmCredits - (wallet.available + releasable)));
+  // Nothing to reserve (a record kept without paid messages) is never short.
+  const shortfallCredits = reservedOnConfirmCredits <= 0 ? 0 : Math.max(0, roundCredits(reservedOnConfirmCredits - (wallet.available + releasable)));
   if (shortfallCredits > 0) warnings.push("insufficient_credits");
   return {
     expiry: instantDTO(expiryAtUtc),
@@ -735,6 +737,7 @@ export async function markRenewed(p: Principal, renewalId: string, raw: z.input<
 export async function createReminderIn(tx: Db, p: Principal, input: ReminderInput, now = new Date(), detail: Record<string, unknown> = {}): Promise<Omit<MutationResult, "replayed">> {
   requireScope(p, "reminders:write");
   await assertNotLocked(p.userId, tx);
+  await assertCanAddRecords(tx, p.userId);
   await assertProFields(tx, p.userId, input);
   await allowCreditsFor(tx, input);
   const repeatMonths = input.repeatMonths ?? null;

@@ -1,4 +1,5 @@
 import { getDb, type Db } from "../db";
+import { CATEGORY_INFO } from "../categories";
 import { readWallet, type WalletView } from "../core/wallet";
 
 /**
@@ -122,10 +123,46 @@ export interface RenewalListRow {
   /** Business accounts: the client this reminder is for. */
   clientId: string | null;
   clientName: string | null;
+  /** Reminders switched on (false = kept as a record only). */
+  remindersOn: boolean;
+}
+
+/** "My records" dashboard: how many records are valid, expiring, expired, and kept without reminders. */
+export interface RecordSummary {
+  total: number;
+  valid: number;
+  expiring: number;
+  expired: number;
+  paused: number;
+  remindersOff: number;
+  byGroup: Record<string, number>;
+}
+
+export async function recordSummary(userId: string, db: Db = getDb()): Promise<RecordSummary> {
+  const { rows } = await db.query<{ category: string; status: string; state: string; rules: number; n: number }>(
+    `select i.category, i.status,
+            case when i.expiry_at_utc < now() then 'expired' when i.expiry_at_utc < now() + interval '30 days' then 'expiring' else 'valid' end as state,
+            (case when exists (select 1 from reminder_rules r where r.renewal_id = i.id and r.enabled) then 1 else 0 end)::int as rules,
+            count(*)::int as n
+       from renewal_items i
+      where i.owner_user_id = $1 and i.status in ('active','paused') and i.linked_to is null
+      group by 1, 2, 3, 4`,
+    [userId],
+  );
+  const s: RecordSummary = { total: 0, valid: 0, expiring: 0, expired: 0, paused: 0, remindersOff: 0, byGroup: {} };
+  for (const r of rows) {
+    s.total += r.n;
+    if (r.status === "paused") s.paused += r.n;
+    else s[r.state as "valid" | "expiring" | "expired"] += r.n;
+    if (!r.rules) s.remindersOff += r.n;
+    const g = CATEGORY_INFO[r.category as keyof typeof CATEGORY_INFO]?.group ?? "custom";
+    s.byGroup[g] = (s.byGroup[g] ?? 0) + r.n;
+  }
+  return s;
 }
 
 /** Customer renewals list with filters and search (label, family member, notes). */
-export async function listRenewalsForUser(userId: string, opts: { filter?: RenewalFilter; q?: string; limit?: number; groupId?: string | null; clientId?: string | null } = {}, db: Db = getDb()): Promise<RenewalListRow[]> {
+export async function listRenewalsForUser(userId: string, opts: { filter?: RenewalFilter; q?: string; limit?: number; groupId?: string | null; clientId?: string | null; categoryGroup?: string | null; remindersOff?: boolean } = {}, db: Db = getDb()): Promise<RenewalListRow[]> {
   const filter = opts.filter ?? "active";
   const where: string[] = ["i.owner_user_id = $1", "i.status <> 'deleted'"];
   const params: unknown[] = [userId];
@@ -139,6 +176,14 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
     params.push(opts.groupId);
     where.push(`i.group_id = $${params.length}`);
   }
+  if (opts.categoryGroup) {
+    const cats = Object.entries(CATEGORY_INFO).filter(([, v]) => v.group === opts.categoryGroup).map(([k]) => k);
+    if (cats.length) {
+      params.push(cats);
+      where.push(`i.category = any($${params.length}::text[])`);
+    }
+  }
+  if (opts.remindersOff) where.push("not exists (select 1 from reminder_rules rr where rr.renewal_id = i.id and rr.enabled)");
   if (opts.clientId && /^[0-9a-f-]{36}$/i.test(opts.clientId)) {
     params.push(opts.clientId);
     where.push(`i.client_id = $${params.length}`);
@@ -152,10 +197,11 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
   const { rows } = await db.query<{
     id: string; label: string; category: string; family_member_label: string | null; status: RenewalListRow["status"]; expiry_at_utc: unknown;
     channels: string[] | null; next_at: unknown; next_channel: string | null; pending: string; awaiting: string; held: string;
-    group_id: string | null; group_name: string | null; repeat_yearly: boolean; client_id: string | null; client_name: string | null;
+    group_id: string | null; group_name: string | null; repeat_yearly: boolean; client_id: string | null; client_name: string | null; reminders_on: boolean;
   }>(
     `select i.id, i.label, i.category, i.family_member_label, i.status, i.expiry_at_utc, i.channels,
             i.group_id, g.name as group_name, i.repeat_yearly, i.client_id, c.name as client_name,
+            exists (select 1 from reminder_rules rr where rr.renewal_id = i.id and rr.enabled) as reminders_on,
             n.due_at_utc as next_at, n.channel as next_channel,
             (select count(*) from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status in ('scheduled','planned','awaiting_credits'))::text as pending,
             (select count(*) from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status = 'awaiting_credits')::text as awaiting,
@@ -184,7 +230,7 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
       pendingMessages: Number(r.pending), awaitingMessages: Number(r.awaiting), heldCredits: Number(r.held),
       expired: new Date(expiryAt).getTime() < now,
       groupId: r.group_id, groupName: r.group_name, repeatYearly: Boolean(r.repeat_yearly),
-      clientId: r.client_id, clientName: r.client_name,
+      clientId: r.client_id, clientName: r.client_name, remindersOn: Boolean(r.reminders_on),
     };
   });
 }

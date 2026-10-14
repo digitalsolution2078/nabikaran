@@ -230,6 +230,9 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
           {preview.invalidRows > 0 && (
             <label className="row small alert warn mt"><input type="checkbox" checked={skip} onChange={(e) => setSkip(e.target.checked)} /> <span>{t("imp.skipInvalid", { n: n(preview.invalidRows) })}</span></label>
           )}
+          {preview.validRows > preview.records.room && (
+            <div className="alert warn mt"><Icon name="alert" /> <span>{t("lim.importOver", { n: n(preview.validRows), room: n(preview.records.room), limit: n(preview.records.limit) })}{!preview.records.pro && <> <a href="/pro">{t("lim.goPro", { n: n(preview.records.proLimit) })} →</a></>}</span></div>
+          )}
           {!preview.sufficient && (
             <div className="alert warn mt"><Icon name="wallet" /> <span>{t("imp.needCredits", { need: n(preview.totalCredits), have: n(preview.available), short: n(preview.shortfallCredits) })}</span></div>
           )}
@@ -238,7 +241,7 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
             {!preview.sufficient ? (
               <a className="btn btn-accent" href={`/wallet?amount=${shortfall}&next=${encodeURIComponent("/renewals/import")}`}><Icon name="wallet" size={16} /> {t("topup.cta", { amount: n(shortfall) })}</a>
             ) : <span />}
-            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.validRows === 0 || !preview.sufficient || (preview.invalidRows > 0 && !skip) || preview.tooMany || (preview.rows.some((r) => r.client && r.errors.length === 0) && !clientConsent)} onClick={commit}>
+            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.validRows === 0 || !preview.sufficient || (preview.invalidRows > 0 && !skip) || preview.tooMany || preview.validRows > preview.records.room || (preview.rows.some((r) => r.client && r.errors.length === 0) && !clientConsent)} onClick={commit}>
               {busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {t("imp.import", { n: n(preview.validRows) })}
             </button>
           </div>
