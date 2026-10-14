@@ -30,6 +30,7 @@ export default async function PricingPage() {
   ]);
   const isPro = plan?.tier === "pro";
   const trialOpen = pro.enabled && pro.trial_enabled && !(plan?.trialUsed ?? false);
+  const limits = await getSetting("limits");
   const basicCta = user ? { href: "/dashboard", label: t("nav.dashboard") } : { href: "/login", label: t("price.startFree") };
   const proCta = !pro.enabled ? null
     : isPro ? { href: "/pro", label: t("price.managePro") }
@@ -70,7 +71,7 @@ export default async function PricingPage() {
           <div className="price-big">{t("price.free")}</div>
           <p className="small muted">{t("price.basicSub")}</p>
           <ul className="check-list">
-            <li>{t("price.b1")}</li><li>{t("price.b2")}</li><li>{t("price.b3")}</li><li>{t("price.b4")}</li>
+            <li><strong>{t("price.recordsFree", { n: n(limits.free_records) })}</strong></li><li>{t("price.b1")}</li><li>{t("price.b2")}</li><li>{t("price.b3")}</li><li>{t("price.b4")}</li>
           </ul>
           <Link href={basicCta.href} className="btn btn-secondary btn-block">{basicCta.label}</Link>
         </section>
@@ -85,6 +86,7 @@ export default async function PricingPage() {
               <ul className="check-list">
                 {pro.monthly_credits > 0 && <li><strong>{t("price.p1credits", { n: n(pro.monthly_credits), sms: n(Math.floor(pro.monthly_credits / (sms ?? 1.5))) })}</strong></li>}
                 {pro.allowance_sms + pro.allowance_whatsapp + pro.allowance_email > 0 && <li><strong>{t("price.p1", { sms: n(pro.allowance_sms), wa: n(pro.allowance_whatsapp), email: n(pro.allowance_email) })}</strong></li>}
+                <li><strong>{t("price.recordsPro", { n: n(limits.pro_records) })}</strong></li>
                 <li>{t("price.p2")}</li><li>{t("price.p3")}</li><li>{t("price.p4")}</li><li>{t("price.p5")}</li>
               </ul>
               {pro.monthly_credits > 0 && (

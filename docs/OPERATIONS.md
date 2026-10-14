@@ -623,3 +623,20 @@ Built for dealers, insurance agents and consultancies that track renewals (blueb
 - **Admin settings:** business accounts on/off and the most clients per account (default 1000). The card shows the number of business accounts, clients and active client reminders. The admin user page shows each account's business name and counts.
 - **Audit log:** `business.enabled` / `business.disabled`, `client.create` / `client.update` / `client.archive`, `recipient.block` / `recipient.unblock`.
 - **Data export:** includes the account's clients.
+
+## 29. My records: record limits, record-only items, overview
+
+- **Menu:** "Reminders" is now **My records** (मेरा रेकर्ड). Every record has an expiry status, and its reminders can be on or off.
+- **Record only:** in the add/edit form, "Remind me about this" can be switched off. The record and its date are kept with no messages, no credits and no reservation; past dates are allowed (e.g. an expired licence). Switching reminders on later is a normal edit.
+  - A zero-cost save is never blocked, even when the sign-in fee left the wallet at −1.
+- **Overview** (top of `/renewals`):
+  - usage `used / limit`;
+  - counts for valid, expiring in 30 days, expired and record only; each one is a filter (`?filter=…`, `?remind=off`);
+  - type chips (`?cat=vehicle|personal|insurance|business|occasions|custom`);
+  - a Spending link for Pro.
+- **Record limits** (Admin → Settings → **Record limits**): Free 150, Pro 10,000 by default.
+  - Active and paused records count; deleted ones and the automatic "cancel by" companions do not.
+  - Enforced for the web form, Excel/CSV import (checked before anything is saved, with the room left shown in the preview), confirmed AI-assistant actions and MCP `prepare_reminder`.
+  - Over the limit, nothing is removed; adding stops with `record_limit` (403), and Free accounts get a link to Pro.
+  - The admin card shows Free accounts at or near the limit: good people to offer Pro.
+- **Pricing page:** shows both limits.

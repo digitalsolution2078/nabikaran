@@ -152,6 +152,12 @@ export const businessSettingsSchema = z.object({
   max_clients: z.number().int().min(1).max(100000),
 });
 
+/** How many records (reminders, documents, subscriptions) an account can keep. */
+export const limitsSettingsSchema = z.object({
+  free_records: z.number().int().min(1).max(100000),
+  pro_records: z.number().int().min(1).max(1000000),
+}).refine((v) => v.pro_records >= v.free_records, "the Pro limit must be at least the free limit");
+
 export const NUDGE_LINK = "nabikaran.org/renewals/new";
 
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
@@ -167,11 +173,12 @@ export type CodesSettings = z.infer<typeof codesSettingsSchema>;
 export type LowCreditSettings = z.infer<typeof lowCreditSettingsSchema>;
 export type NudgeSettings = z.infer<typeof nudgeSettingsSchema>;
 export type BusinessSettings = z.infer<typeof businessSettingsSchema>;
+export type LimitsSettings = z.infer<typeof limitsSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema, nudges: nudgeSettingsSchema, business: businessSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema, nudges: nudgeSettingsSchema, business: businessSettingsSchema, limits: limitsSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings; nudges: NudgeSettings; business: BusinessSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings; nudges: NudgeSettings; business: BusinessSettings; limits: LimitsSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
@@ -189,6 +196,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
     sms_text: "Namaste! Bluebook, license, bima ko renewal date Nabikaran ma halnus, samaya mai reminder aauchha. Free app reminder: {link}",
   },
   business: { enabled: true, max_clients: 1000 },
+  limits: { free_records: 150, pro_records: 10000 },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

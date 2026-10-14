@@ -115,11 +115,20 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     ...(clients.some((c) => c.id === initialClientId) && !initial?.channels ? { channels: ["sms"] as RenewalFormValues["channels"] } : {}),
   });
   const forClient = clients.find((c) => c.id === v.clientId) ?? null;
+  // "Remind me" off = keep the record only (no messages, free). Offsets come back when switched on again.
+  const [remindOn, setRemindOn] = useState(!renewalId || !initial?.offsets || initial.offsets.length > 0);
+  const [savedOffsets, setSavedOffsets] = useState<number[]>(v.offsets.length ? v.offsets : [30 * 1440, 7 * 1440, 1440, 0]);
+  const setRemind = (on: boolean) => {
+    setRemindOn(on);
+    if (on) setV((x) => ({ ...x, offsets: x.offsets.length ? x.offsets : savedOffsets }));
+    else setV((x) => { if (x.offsets.length) setSavedOffsets(x.offsets); return { ...x, offsets: [] }; });
+  };
   const [custom, setCustom] = useState({ days: 0, hours: 0, minutes: 0 });
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [limitHit, setLimitHit] = useState(false);
   const [topup, setTopup] = useState<Shortfall | null>(null);
   const [bsConfirmed, setBsConfirmed] = useState(false);
   const [useCredits, setUseCredits] = useState(false);
@@ -297,6 +306,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           locked: e.code === "account_locked",
         });
       } else {
+        setLimitHit(e instanceof ApiError && e.code === "record_limit" && !e.detail?.pro);
         setError((e as Error).message);
       }
       setBusy(false);
@@ -480,6 +490,11 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       {step === 2 && (
         <section className="card">
           <h2>{t("rem.when")}</h2>
+          <label className="remind-switch">
+            <input type="checkbox" role="switch" checked={remindOn} onChange={(e) => setRemind(e.target.checked)} />
+            <span><strong>{t("rec.remindMe")}</strong><br /><span className="small muted">{remindOn ? t("rec.remindOnHint") : t("rec.remindOffHint")}</span></span>
+          </label>
+          {remindOn && (<>
           <div className="chips">
             {PRESET_OFFSET_DAYS.map((d) => {
               const m = d * 1440;
@@ -536,10 +551,12 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             )}
           </fieldset>
           )}
+          </>)}
+          {!remindOn && <div className="alert info mt"><Icon name="file" /> <span>{t("rec.recordOnly")}</span></div>}
           {error && <div className="alert bad mt" role="alert">{error}</div>}
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(1)}>{t("rem.back")}</button>
-            <button type="button" className="btn btn-primary" disabled={busy || v.offsets.length === 0 || (v.channels.includes("whatsapp") && !whatsapp.optedIn && !v.whatsappConsent)} onClick={loadPreview}>{busy ? <span className="spinner" /> : <Icon name="receipt" size={16} />} {t("rem.preview")}</button>
+            <button type="button" className="btn btn-primary" disabled={busy || (remindOn && v.offsets.length === 0) || (v.channels.includes("whatsapp") && !whatsapp.optedIn && !v.whatsappConsent)} onClick={loadPreview}>{busy ? <span className="spinner" /> : <Icon name="receipt" size={16} />} {t("rem.preview")}</button>
           </div>
         </section>
       )}
@@ -548,12 +565,13 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
         <section className="card">
           <div className="row between">
             <h2 className="mb-0">{t("rem.step.review")}</h2>
-            <span className="badge info">{t("rem.oneSms")}</span>
+            {remindOn && <span className="badge info">{t("rem.oneSms")}</span>}
           </div>
           <p className="mt">
             <strong>{v.label}</strong> · {occasion ? t("grp.date") : t("rem.expires")}: <strong>{formatDate(preview.expiry.utc, prefs)}</strong>{" "}
             <span className="muted">({formatDate(preview.expiry.utc, { ...prefs, date: prefs.date === "BS" ? "AD" : "BS" })}) · {preview.expiry.local.slice(11)} NPT</span>
           </p>
+          {!remindOn && <div className="alert info"><Icon name="file" /> <span>{t("rec.recordOnlyReview")}</span></div>}
           {(v.repeatYearly || Boolean(v.repeatMonths)) && <div className="alert info"><Icon name="repeat" /> <span>{v.repeatMonths ? t("rem.repeat.everyN", { n: localizeNumber(v.repeatMonths, lang) }) : t("grp.repeatReview")}</span></div>}
           {preview.warnings.map((w) => (
             <div key={w} className={`alert ${w === "insufficient_credits" || w === "bs_date_needs_confirmation" ? "warn" : "info"}`}><Icon name="info" /> <span>{t(`warn.${w}` as MessageKey)}</span></div>
@@ -575,6 +593,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
               </li>
             ))}
           </ol>
+          {remindOn && (<>
           <div className="cost-table mt">
             {preview.channels.map((ch) => {
               const c = preview.byChannel[ch];
@@ -590,6 +609,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             <div className="stat"><div className="label">{t("rem.available")}</div><div className="value">{localizeNumber(preview.wallet.available, lang)}</div></div>
           </div>
           <p className="hint mt">{t("rem.reserveNote")}</p>
+          </>)}
           {preview.permissionCredits > 0 && (
             <label className="row small alert pro"><input type="checkbox" checked={useCredits} onChange={(e) => setUseCredits(e.target.checked)} /> <span>{t("rem.useCredits", { credits: localizeNumber(preview.permissionCredits, lang) })}</span></label>
           )}
@@ -597,7 +617,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
           {v.calendar === "BS" && (
             <label className="row small alert warn"><input type="checkbox" checked={bsConfirmed} onChange={(e) => setBsConfirmed(e.target.checked)} /> <span>{t("rem.bsConfirm")} <strong>{formatDate(preview.expiry.utc, { lang, date: "BS" })} = {formatDate(preview.expiry.utc, { lang, date: "AD" })}</strong></span></label>
           )}
-          {error && <div className="alert bad" role="alert">{error}</div>}
+          {error && <div className="alert bad" role="alert">{error}{limitHit && <> <a href="/pro">Nabikaran Pro →</a></>}</div>}
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(2)}>{t("rem.back")}</button>
             {!preview.sufficient && (
@@ -605,7 +625,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
                 <Icon name="wallet" size={18} /> {t("topup.needTitle")}
               </button>
             )}
-            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.lines.length === 0 || !preview.sufficient || (v.calendar === "BS" && !bsConfirmed) || (preview.permissionCredits > 0 && !useCredits)} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
+            <button type="button" className="btn btn-primary btn-lg" disabled={busy || (remindOn && preview.lines.length === 0) || !preview.sufficient || (v.calendar === "BS" && !bsConfirmed) || (preview.permissionCredits > 0 && !useCredits)} onClick={confirm}>{busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {renewalId ? t("rem.save") : t("rem.confirm")}</button>
           </div>
         </section>
       )}

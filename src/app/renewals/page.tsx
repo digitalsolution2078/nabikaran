@@ -1,21 +1,25 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
-import { listRenewalsForUser, type RenewalFilter } from "@/lib/services/customer-summary";
+import { listRenewalsForUser, recordSummary, type RenewalFilter } from "@/lib/services/customer-summary";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ChannelBadges } from "@/components/ChannelBadge";
-import { Icon, iconForCategory } from "@/components/Icon";
+import { Icon, iconForCategory, iconForGroup } from "@/components/Icon";
 import { formatDate, formatDateTime, daysUntil, localizeNumber } from "@/lib/i18n/format";
 import { categoryName } from "@/lib/categories";
+import type { MessageKey } from "@/lib/i18n/dict";
 import { businessName, listClients } from "@/lib/services/clients";
+import { recordUsage } from "@/lib/services/limits";
 import { listGroups } from "@/lib/services/groups";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Reminders" };
 
 const FILTERS: RenewalFilter[] = ["active", "due", "awaiting", "expired", "paused", "all"];
+/** "My records" type groups (category groups). */
+const REC_GROUPS = ["vehicle", "personal", "insurance", "business", "occasions", "custom"];
 
-export default async function RenewalsPage({ searchParams }: { searchParams: Promise<{ filter?: string; status?: string; q?: string; group?: string; imported?: string; client?: string }> }) {
+export default async function RenewalsPage({ searchParams }: { searchParams: Promise<{ filter?: string; status?: string; q?: string; group?: string; imported?: string; client?: string; cat?: string; remind?: string }> }) {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login?next=/renewals");
   const sp = await searchParams;
@@ -27,13 +31,21 @@ export default async function RenewalsPage({ searchParams }: { searchParams: Pro
   const imported = Number(sp.imported ?? 0);
   const clients = (await businessName(user.id)) ? await listClients(user.id) : [];
   const client = clients.find((c) => c.id === sp.client) ?? null;
-  const rows = await listRenewalsForUser(user.id, { filter, q, groupId: group?.id ?? null, clientId: client?.id ?? null });
+  const cat = REC_GROUPS.includes(sp.cat ?? "") ? sp.cat! : null;
+  const remindOff = sp.remind === "off";
+  const [rows, sum, usage] = await Promise.all([
+    listRenewalsForUser(user.id, { filter, q, groupId: group?.id ?? null, clientId: client?.id ?? null, categoryGroup: cat, remindersOff: remindOff }),
+    recordSummary(user.id),
+    recordUsage(user.id),
+  ]);
+  const pct = Math.min(100, Math.round((usage.used / Math.max(1, usage.limit)) * 100));
   const n = (v: number) => localizeNumber(v, prefs.lang);
   const label: Record<RenewalFilter, string> = {
     active: t("status.active"), due: t("dash.dueSoon"), awaiting: t("dash.awaiting"), expired: t("dash.expired"), paused: t("status.paused"), all: t("rem.filterAll"),
   };
   const other = { ...prefs, date: prefs.date === "BS" ? "AD" : "BS" } as const;
-  const qs = (f: string, g: string | null = group?.id ?? null, c: string | null = client?.id ?? null) => `/renewals?filter=${f}${q ? `&q=${encodeURIComponent(q)}` : ""}${g ? `&group=${g}` : ""}${c ? `&client=${c}` : ""}`;
+  const qs = (f: string, g: string | null = group?.id ?? null, c: string | null = client?.id ?? null, k: string | null = cat, off = remindOff) =>
+    `/renewals?filter=${f}${q ? `&q=${encodeURIComponent(q)}` : ""}${g ? `&group=${g}` : ""}${c ? `&client=${c}` : ""}${k ? `&cat=${k}` : ""}${off ? "&remind=off" : ""}`;
 
   return (
     <div className="stack">
@@ -46,6 +58,33 @@ export default async function RenewalsPage({ searchParams }: { searchParams: Pro
       </div>
 
       {imported > 0 && <div className="alert ok"><Icon name="check" /> <span>{t("imp.done", { n: n(imported) })}</span></div>}
+
+      {!group && !client && (
+        <section className="records-overview" aria-label={t("rec.overview")}>
+          <div className="rec-usage">
+            <div className="row between" style={{ gap: 8 }}>
+              <span className="small"><strong>{n(usage.used)}</strong> / {n(usage.limit)} {t("rec.records")}</span>
+              {!usage.pro && <Link href="/pro" className="small">{t("rec.proLimit", { n: n(usage.proLimit) })} →</Link>}
+            </div>
+            <div className={`rec-meter ${pct >= 90 ? "full" : pct >= 75 ? "high" : ""}`} role="meter" aria-valuemin={0} aria-valuemax={usage.limit} aria-valuenow={usage.used} aria-label={t("rec.records")}><span style={{ width: `${pct}%` }} /></div>
+          </div>
+          <div className="rec-stats">
+            <Link href={qs("active", null, null, null, false)} className="rec-stat ok"><span className="v">{n(sum.valid + sum.expiring)}</span><span className="l">{t("rec.valid")}</span></Link>
+            <Link href={qs("due", null, null, null, false)} className={`rec-stat warn ${sum.expiring ? "" : "zero"}`}><span className="v">{n(sum.expiring)}</span><span className="l">{t("rec.expiring")}</span></Link>
+            <Link href={qs("expired", null, null, null, false)} className={`rec-stat bad ${sum.expired ? "" : "zero"}`}><span className="v">{n(sum.expired)}</span><span className="l">{t("rec.expired")}</span></Link>
+            <Link href={qs("all", null, null, null, true)} className={`rec-stat ${remindOff ? "on" : ""}`}><span className="v">{n(sum.remindersOff)}</span><span className="l">{t("rec.remindersOff")}</span></Link>
+          </div>
+          {sum.total > 0 && (
+            <nav className="rec-groups" aria-label={t("rec.byType")}>
+              <Link href={qs(filter, null, null, null)} className="chip" aria-pressed={!cat}>{t("grp.all")} <span className="muted">{n(sum.total)}</span></Link>
+              {REC_GROUPS.filter((g) => sum.byGroup[g]).map((g) => (
+                <Link key={g} href={qs(filter, null, null, g)} className="chip" aria-pressed={cat === g}><Icon name={iconForGroup(g)} size={14} /> {t(`rec.grp.${g}` as MessageKey)} <span className="muted">{n(sum.byGroup[g])}</span></Link>
+              ))}
+              {usage.pro ? <Link href="/insights" className="chip"><Icon name="chart" size={14} /> {t("rec.spending")}</Link> : null}
+            </nav>
+          )}
+        </section>
+      )}
 
       <nav className="group-chips" aria-label={t("grp.title")}>
         <Link href={qs(filter, null)} className="chip" aria-pressed={!group}>{t("grp.all")}</Link>
@@ -90,8 +129,8 @@ export default async function RenewalsPage({ searchParams }: { searchParams: Pro
                       <strong>{formatDate(r.expiryAt, prefs)}</strong> · {formatDate(r.expiryAt, other)}
                     </span>
                     <span className="rr-meta">
-                      <ChannelBadges channels={r.channels} />{" "}
-                      {r.nextAt ? <>{t("rem.next")}: {formatDateTime(r.nextAt, prefs)}</> : t("rem.noNext")}
+                      {r.remindersOn ? <><ChannelBadges channels={r.channels} />{" "}
+                      {r.nextAt ? <>{t("rem.next")}: {formatDateTime(r.nextAt, prefs)}</> : t("rem.noNext")}</> : <span className="badge"><Icon name="file" size={12} /> {t("rec.recordOnlyBadge")}</span>}
                       {r.heldCredits > 0 && <> · {n(r.heldCredits)} {t("common.credits")}</>}
                     </span>
                   </span>

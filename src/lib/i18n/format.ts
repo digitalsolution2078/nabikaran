@@ -16,7 +16,8 @@ export function nepaliDigits(s: string | number): string {
 
 export function localizeNumber(n: number | string, lang: Lang): string {
   // Credits have at most two decimals (1 credit = NPR 1, prices like 1.50 or 0.30).
-  const s = typeof n === "number" ? n.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : n;
+  // -0 (e.g. a count-up animation passing through zero) prints as 0, never "-0".
+  const s = typeof n === "number" ? (Math.abs(n) < 0.005 ? 0 : n).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : n;
   return lang === "ne" ? nepaliDigits(s) : s;
 }
 

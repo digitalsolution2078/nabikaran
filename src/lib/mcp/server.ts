@@ -16,6 +16,7 @@ import { getPlanState, isPro, startTrial } from "../services/plans";
 import { listSubscriptions } from "../services/subscriptions";
 import { getInsights } from "../services/insights";
 import { prepareReminderAction, confirmPreparedAction } from "../core/prepared-actions";
+import { recordUsage } from "../services/limits";
 import { MAX_OFFSET_MINUTES } from "../scheduler";
 
 /**
@@ -29,6 +30,7 @@ import { MAX_OFFSET_MINUTES } from "../scheduler";
 export const MCP_SERVER_INFO = { name: "nabikaran", version: "0.3.0" } as const;
 export const TOOL_RATE_LIMIT = { bucket: "mcp:call", limit: 60, windowSeconds: 60 } as const;
 export const PREPARE_RATE_LIMIT = { bucket: "mcp:prepare", limit: 20, windowSeconds: 600 } as const;
+/** @deprecated record limits now come from Admin → Settings (services/limits.ts). */
 export const MAX_REMINDERS_PER_USER = 200;
 
 export function principalFromAuthInfo(authInfo: AuthInfo | undefined): Principal | null {
@@ -243,8 +245,8 @@ export function createMcpServer(): McpServer {
         const db = getDb();
         await checkRateLimit(db, `user:${p.userId}`, PREPARE_RATE_LIMIT);
         if (!args.reminder_id) {
-          const { rows } = await db.query<{ n: string }>("select count(*)::text as n from renewal_items where owner_user_id = $1 and status <> 'deleted'", [p.userId]);
-          if (Number(rows[0].n) >= MAX_REMINDERS_PER_USER) return fail("limit_reached", `Maximum ${MAX_REMINDERS_PER_USER} reminders per account.`);
+          const u = await recordUsage(p.userId, db);
+          if (u.used >= u.limit) return fail("limit_reached", `This account has ${u.used} of ${u.limit} records${u.pro ? "" : ` (Nabikaran Pro keeps up to ${u.proLimit})`}. Delete old ones to add more.`);
         }
         const r = await prepareReminderAction(p, args, db);
         const pv = r.preview;
