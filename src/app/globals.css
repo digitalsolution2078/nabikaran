@@ -956,3 +956,13 @@ a.chip { text-decoration: none !important; }
 /* "Remind me" switch in the add / edit form. */
 .remind-switch { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); cursor: pointer; }
 .remind-switch input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--brand-600); }
+
+/* Admin → Message usage: stacked bars per channel */
+.use-col { flex-direction: column; justify-content: flex-end; }
+.use-seg { display: block; width: 100%; }
+.use-seg:first-child { border-radius: 4px 4px 0 0; }
+.use-sms { background: var(--brand-500); }
+.use-whatsapp { background: var(--ok); }
+.use-email { background: var(--accent-orange); }
+.use-push { background: var(--info); }
+.use-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }

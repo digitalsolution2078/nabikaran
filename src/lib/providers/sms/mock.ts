@@ -1,5 +1,5 @@
 import { estimateSegments } from "../../sms/segments";
-import type { ReportResult, SendOutcome, SmsProvider } from "./types";
+import type { ProviderBalance, ReportResult, SendOutcome, SmsProvider } from "./types";
 
 /**
  * In-memory provider for development and tests. Behaviour can be scripted
@@ -13,6 +13,8 @@ export class MockSmsProvider implements SmsProvider {
   readonly sent: Array<{ to: string; text: string; idempotencyKey: string; id: string }> = [];
   private seq = 0;
   public log: (line: string) => void = () => undefined;
+  /** Pretend account balance for development (null = no balance API). */
+  public startingBalance: number | null = 1000;
 
   async send(input: { to: string; text: string; idempotencyKey: string }): Promise<SendOutcome> {
     if (input.to.endsWith("00")) return { kind: "rejected", transient: false, reason: "mock: invalid destination" };
@@ -31,5 +33,11 @@ export class MockSmsProvider implements SmsProvider {
   async findByClientRef(idempotencyKey: string): Promise<ReportResult | null> {
     const hit = this.sent.find((s) => s.idempotencyKey === idempotencyKey);
     return hit ? { providerMessageId: hit.id, status: "delivered", units: 1 } : null;
+  }
+
+  async balance(): Promise<ProviderBalance> {
+    if (this.startingBalance === null) throw new Error("mock: no balance API");
+    const used = this.sent.reduce((n, m) => n + estimateSegments(m.text).segments, 0);
+    return { available: this.startingBalance - used, totalSent: this.sent.length };
   }
 }

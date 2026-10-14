@@ -53,6 +53,7 @@ export const env = {
       authToken: pick(o().aakashAuthToken, process.env.AAKASH_AUTH_TOKEN ?? ""),
       sendUrl: process.env.AAKASH_SEND_URL ?? "https://sms.aakashsms.com/sms/v3/send",
       reportUrl: process.env.AAKASH_REPORT_URL ?? "https://sms.aakashsms.com/sms/v3/report",
+      creditUrl: process.env.AAKASH_CREDIT_URL ?? "https://sms.aakashsms.com/sms/v1/credit",
     };
   },
 

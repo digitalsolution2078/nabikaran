@@ -1,4 +1,5 @@
 import { getDb, type Db } from "../../db";
+import { recordUsage, recordUsageToDb, type UsageRecorder } from "../usage";
 import { getSecret } from "../../services/secrets";
 import { getSetting } from "../../services/settings";
 
@@ -82,6 +83,18 @@ export function setEmailProviderForTests(p: EmailProvider | null | undefined) {
 
 let devMock: MockEmailProvider | null = null;
 
+/** Counts every email that is not a reminder for Admin → Message usage. */
+export function meteredEmailProvider(inner: EmailProvider, record: UsageRecorder = recordUsageToDb): EmailProvider {
+  return {
+    name: inner.name,
+    async send(m) {
+      const out = await inner.send(m);
+      await recordUsage(record, { channel: "email", key: m.idempotencyKey, provider: inner.name, outcome: out.kind, segments: 1, units: out.kind === "accepted" && out.units !== undefined ? out.units : null });
+      return out;
+    },
+  };
+}
+
 /** The configured provider, or null when email is not set up (no key, no sender, or switched off). */
 export async function getEmailProvider(db: Db = getDb()): Promise<EmailProvider | null> {
   if (override !== undefined) return override;
@@ -90,12 +103,12 @@ export async function getEmailProvider(db: Db = getDb()): Promise<EmailProvider 
       devMock = new MockEmailProvider();
       devMock.log = (line) => console.log(line);
     }
-    return devMock;
+    return meteredEmailProvider(devMock);
   }
   const [settings, saved] = await Promise.all([getSetting("email", db), getSecret("resend_api_key", db)]);
   const key = saved || process.env.RESEND_API_KEY || null;
   if (!settings.enabled || !key || !settings.from_email) return null;
-  return new ResendEmailProvider(key, `${settings.from_name} <${settings.from_email}>`, settings.reply_to || null);
+  return meteredEmailProvider(new ResendEmailProvider(key, `${settings.from_name} <${settings.from_email}>`, settings.reply_to || null));
 }
 
 /** Minimal, safe HTML version of a plain-text email. */

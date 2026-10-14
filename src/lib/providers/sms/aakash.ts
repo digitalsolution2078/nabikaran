@@ -1,4 +1,4 @@
-import type { ReportResult, SendOutcome, SmsProvider } from "./types";
+import type { ProviderBalance, ReportResult, SendOutcome, SmsProvider } from "./types";
 
 /**
  * Aakash SMS adapter (https://aakashsms.com/documentation/).
@@ -15,6 +15,8 @@ export interface AakashConfig {
   authToken: string;
   sendUrl: string;
   reportUrl: string;
+  /** Credit check (POST auth_token → available_credit, total_sms_sent). */
+  creditUrl?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -124,4 +126,38 @@ export class AakashSmsProvider implements SmsProvider {
       return { providerMessageId: id, status, units: Number.isFinite(units) ? units : undefined, raw: r };
     });
   }
+
+  async balance(): Promise<ProviderBalance> {
+    const res = await this.fetchImpl(this.cfg.creditUrl ?? "https://sms.aakashsms.com/sms/v1/credit", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ auth_token: this.cfg.authToken }),
+      signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 15_000),
+    });
+    const text = await res.text();
+    if (res.status === 401 || res.status === 403) throw new Error(`Aakash refused the token (http ${res.status})`);
+    if (!res.ok) throw new Error(`Aakash credit check failed (http ${res.status})`);
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw new Error("Aakash credit check: unreadable response");
+    }
+    const available = numberField(body, ["available_credit", "availableCredit", "credit", "balance", "remaining_credit"]);
+    if (available === undefined) throw new Error(`Aakash credit check: ${String(body.message ?? "no credit in response")}`.slice(0, 200));
+    return { available, totalSent: numberField(body, ["total_sms_sent", "totalSmsSent", "total_sent"]), raw: body };
+  }
+}
+
+/** The first numeric field found at the top level or under `data`. */
+function numberField(body: Record<string, unknown>, keys: string[]): number | undefined {
+  const scopes = [body, (body.data && typeof body.data === "object" ? body.data : {}) as Record<string, unknown>];
+  for (const scope of scopes) {
+    for (const k of keys) {
+      const v = scope[k];
+      const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v.replace(/,/g, "")) : NaN;
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return undefined;
 }

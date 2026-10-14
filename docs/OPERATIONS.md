@@ -640,3 +640,27 @@ Built for dealers, insurance agents and consultancies that track renewals (blueb
   - Over the limit, nothing is removed; adding stops with `record_limit` (403), and Free accounts get a link to Pro.
   - The admin card shows Free accounts at or near the limit: good people to offer Pro.
 - **Pricing page:** shows both limits.
+
+## 30. eSewa removed; staff add customers (migration `0025`)
+
+**eSewa** is gone from the wallet, the counter, Admin → Integrations and all copy. Migration `0025_remove_esewa_staff_customers` deletes the stored eSewa secret key and settings and cancels eSewa orders that never completed. Paid history stays in the ledger and reports. `ESEWA_*` lines in the server `.env` are ignored and can be removed. Online payment methods are now Khalti and Checkout by Fonepay (plus the static QR).
+
+**Add a customer** (Admin → Customers → Users → *Add customer*; permission `customers.create`: super admin, admin, finance, support, counter):
+- Mobile number (required), name, email, SMS language, and an optional welcome SMS with the sign-in link (1 SMS, Nabikaran's cost).
+- Credits in the same step:
+  - **Paid**: money received (cash, Khalti, Fonepay, bank, other). Recorded as a counter top-up with receipt number, daily counter limit and bonus tiers. Needs `counter.topup`.
+  - **Free**: complimentary credits with a reason. A super admin's credits are added at once; other roles create an adjustment request that a second admin approves (two-person rule).
+- If the number already has an account, the form links to it instead. If the credit step is refused (e.g. daily limit), the account still exists and the reason is shown.
+- The customer later signs in with an SMS code on that number. `users.created_by` records who added the account; *Recently added by staff* lists them with "signed in yes/no".
+
+**Counter:** when a number has no account, staff can create it right there (name optional, welcome SMS sent), then take the payment as usual.
+
+## 31. Message usage and SMS balance (migration `0026`)
+
+Admin → Overview → **Message usage** (`revenue.view`):
+- **SMS balance** from Aakash (credit API `AAKASH_CREDIT_URL`, default `https://sms.aakashsms.com/sms/v1/credit`), checked every hour by the reconciler and with *Check now*. It also shows "≈ days left" from the last 7 days of SMS use, and the history of checks. The admin dashboard shows the balance too, with a red banner when it is low.
+- **Low-balance alert:** below the level set on the page (default 500 credits), super admins get one app notification + email per day.
+- **By channel** for 7/30/90/365 days: SMS, WhatsApp, email and app notifications. Shows sent, failed, units (SMS parts), credits customers were charged (net of refunds), our cost (from the per-message costs a super admin enters) and the margin.
+- **Per day** stacked chart and **What was sent** (reminders, sign-in codes, nudges, low-credit alerts, Pro summaries, welcome, tests). Reminders come from the full message history. Other SMS and email are counted in `message_usage` from this update on.
+
+If the balance check fails, the page shows the error (e.g. token refused). Confirm the credit endpoint with Aakash if it reports "no credit in response".

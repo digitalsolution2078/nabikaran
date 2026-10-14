@@ -13,6 +13,8 @@ import { enabledGateways } from "@/lib/payments";
 import { can } from "@/lib/auth/rbac";
 import { formatPhoneLocal } from "@/lib/phone";
 import { lastLowCreditAlerts } from "@/lib/services/low-credit";
+import { balanceHistory } from "@/lib/services/message-usage";
+import { getSetting } from "@/lib/services/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +53,9 @@ function ChannelRow({ name, c, extra }: { name: string; c: ChannelOps; extra?: R
 export default async function AdminOverview() {
   await requireAdminPage();
   const [o, m, ops, clients, me, tickets] = await Promise.all([getOverview(), getMetrics(), getOps(), listClientsForAdmin(), getCurrentUser(), supportCounts().catch(() => ({ open: 0, waiting: 0 }))]);
+  const [checks, usageSet] = await Promise.all([balanceHistory(undefined, 5).catch(() => []), getSetting("usage").catch(() => null)]);
+  const smsBal = checks.find((c) => c.available !== null)?.available ?? null;
+  const smsLow = smsBal !== null && usageSet !== null && smsBal < usageSet.low_balance;
   const alerts = await lastLowCreditAlerts(ops.lowBalance.map((u) => u.id)).catch(() => new Map<string, { at: string; stage: string }>());
   const stale = ops.dispatcher.minutesSinceDispatch === null || ops.dispatcher.minutesSinceDispatch >= 3;
   const npr = (paisa: number) => `NPR ${(paisa / 100).toLocaleString("en-IN")}`;
@@ -70,6 +75,7 @@ export default async function AdminOverview() {
       {tickets.open > 0 && can(me?.role, "support.manage") && <div className="alert info"><Icon name="message" /> <span>{tickets.open} support ticket{tickets.open > 1 ? "s" : ""} waiting for an answer. <Link href="/admin/support">Open support →</Link></span></div>}
       {ops.sms.unknown + wa.unknown > 0 && <div className="alert warn"><Icon name="alert" /> <span>{ops.sms.unknown + wa.unknown} message(s) have an unknown outcome and are being reconciled. They are never re-sent blindly.</span></div>}
       {smsReportGap && <div className="alert warn"><Icon name="alert" /> <span><strong>No SMS delivery reports in 7 days.</strong> Aakash accepted {ops.sms.acceptedLast7d} SMS but no delivery status came back. Confirm the delivery-report API with Aakash (see docs/OPERATIONS.md); until then "accepted" is the strongest status we can show.</span></div>}
+      {smsLow && <div className="alert bad" role="alert"><Icon name="alert" /> <span><strong>SMS balance low:</strong> {Math.floor(smsBal!).toLocaleString("en-IN")} Aakash credits left. Recharge so reminders and sign-in codes keep going. {can(me?.role, "revenue.view") && <Link href="/admin/usage">Message usage →</Link>}</span></div>}
       {waProblems.length > 0 && <div className="alert warn"><Icon name="alert" /> <span><strong>WhatsApp configuration:</strong> {waProblems.join(" · ")}</span></div>}
 
       <h2>Message pipeline</h2>
@@ -77,6 +83,7 @@ export default async function AdminOverview() {
         <Stat label="Scheduled queue" value={ops.sms.scheduled + wa.scheduled} icon="clock" sub={`SMS ${ops.sms.scheduled} · WhatsApp ${wa.scheduled}`} href="/admin/messages?status=scheduled" />
         <Stat label="Failed" value={ops.sms.failed + wa.failed} icon="x" tone="bad" sub={`SMS ${ops.sms.failed} · WhatsApp ${wa.failed}`} href="/admin/messages?status=failed" />
         <Stat label="Unknown" value={ops.sms.unknown + wa.unknown} icon="alert" tone="bad" sub={`SMS ${ops.sms.unknown} · WhatsApp ${wa.unknown}`} href="/admin/messages?status=unknown" />
+        <Stat label="SMS balance" value={smsBal === null ? "—" : Math.floor(smsBal)} icon="message" tone={smsLow ? "bad" : undefined} sub={smsBal === null ? "not checked yet" : "Aakash credits left"} href={can(me?.role, "revenue.view") ? "/admin/usage" : undefined} />
         <Stat label="Pending top-ups" value={o.topups.pendingManual} icon="qr" tone="yellow" sub={`${o.topups.awaitingPayment} awaiting payment`} href="/admin/wallet/topups" />
       </div>
 
