@@ -88,14 +88,18 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         job_status: string; due_at_utc: string; renewal_status: string; label: string; category: string; expiry_at_utc: string; cycle_no: number; job_cycle: number;
         phone_e164: string; phone_verified_at: string | null; locale: string; user_status: string; reservation_status: string | null; held: string | null;
         email: string | null; email_verified_at: string | null;
+        client_id: string | null; client_name: string | null; client_phone: string | null; client_status: string | null; client_blocked: boolean; business_name: string | null;
         prior: number;
       }>(
         `select j.status as job_status, j.due_at_utc, i.status as renewal_status, i.label, i.category, i.expiry_at_utc, i.cycle_no, j.cycle_no as job_cycle,
                 u.phone_e164, u.phone_verified_at, u.locale, u.status as user_status, u.email, u.email_verified_at, r.status as reservation_status, r.held_credits::text as held,
+                i.client_id, c.name as client_name, c.phone_e164 as client_phone, c.status as client_status, u.business_name,
+                exists (select 1 from blocked_recipients b where b.phone_e164 = c.phone_e164) as client_blocked,
                 (select count(*) from sms_attempts a where a.job_id = j.id and a.api_state in ('pending','accepted'))::int as prior
            from reminder_jobs j
            join renewal_items i on i.id = j.renewal_id
            join users u on u.id = j.user_id
+           left join clients c on c.id = i.client_id
            left join credit_reservations r on r.reminder_job_id = j.id
           where j.id = $1 and j.lock_token = $2 for update of j`,
         [job.id, token],
@@ -110,6 +114,10 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       if (s.renewal_status !== "active" || s.cycle_no !== s.job_cycle) return fail("cancelled", "renewal not active or superseded");
       if (s.user_status !== "active" || !s.phone_verified_at) return fail("cancelled", "destination not verified");
       if (s.prior > 0) return fail("unknown", "prior attempt exists; reconcile", false);
+      // Business client reminder: the client must still be active and not blocked, and business tools on.
+      const forClient = Boolean(s.client_id) && job.channel === "sms";
+      if (forClient && (s.client_status !== "active" || !s.client_phone || !s.business_name)) return fail("cancelled", "client archived or business tools off; credits returned");
+      if (forClient && s.client_blocked) return fail("cancelled", "recipient blocked; credits returned");
       if (new Date(s.due_at_utc).getTime() > now.getTime()) return fail("scheduled", "not due", false);
       if (job.channel === "push") {
         // Free app notification: no credits, no provider attempt row.
@@ -117,7 +125,8 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         if (!d[0]?.n) return fail("failed", "No device has notifications turned on", false);
         const r = renderReminder({ label: s.label, fallbackLabel: categorySmsName(s.category), expiryAtUtc: new Date(s.expiry_at_utc), dueAtUtc: new Date(s.due_at_utc), locale: s.locale, category: s.category }, templates);
         await tx.query("update reminder_jobs set status = 'delivered', attempts = attempts + 1, lock_at = null, lock_token = null, last_error = null, updated_at = now() where id = $1", [job.id]);
-        return { ok: true as const, push: true as const, text: r.body };
+        // A client reminder's app notification goes to the owner: say which client it is for.
+        return { ok: true as const, push: true as const, text: s.client_id && s.client_name ? `For ${s.client_name}: ${r.body}` : r.body };
       }
       if (s.reservation_status !== "active") return fail("awaiting_credits", "no active reservation");
       const isWa = job.channel === "whatsapp";
@@ -139,11 +148,12 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         const w = renderWhatsApp(base, waTemplates);
         return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: w.preview, estimatedSegments: 1, wa: w, email: null };
       }
-      const rendered = renderReminder(base, templates);
+      // Client SMS: the business name goes after the label; the label shrinks first if the SMS would not fit.
+      const rendered = renderReminder(forClient ? { ...base, label: `${s.label} - ${s.business_name}` } : base, templates);
       if (isEmail) {
         return { ok: true as const, attemptNo, idempotencyKey, to: s.email!, text: rendered.body, estimatedSegments: 1, wa: null, email: { subject: `Reminder: ${s.label}`.slice(0, 120) } };
       }
-      return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: rendered.body, estimatedSegments: rendered.estimate.segments, wa: null, email: null };
+      return { ok: true as const, attemptNo, idempotencyKey, to: forClient ? s.client_phone! : s.phone_e164, text: rendered.body, estimatedSegments: rendered.estimate.segments, wa: null, email: null, clientName: forClient ? s.client_name : null };
     });
 
     if (!pre.ok) {
@@ -155,8 +165,10 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       summary.submitted++;
       continue;
     }
-    // Free web push alongside the message (once per occurrence, sent after the loop).
-    pushes.push({ userId: job.user_id, renewalId: job.renewal_id, occurrenceKey: `${job.renewal_id}:${job.cycle_no}:${new Date(job.due_at_utc).toISOString()}`, body: pre.text });
+    // Free web push alongside the message (once per occurrence, sent after the loop). For a client
+    // reminder the owner's copy says who it was sent to.
+    const sentTo = "clientName" in pre && pre.clientName ? `Sent to ${pre.clientName}: ` : "";
+    pushes.push({ userId: job.user_id, renewalId: job.renewal_id, occurrenceKey: `${job.renewal_id}:${job.cycle_no}:${new Date(job.due_at_utc).toISOString()}`, body: `${sentTo}${pre.text}` });
 
     // Exactly one provider call per attempt.
     const outcome = pre.email

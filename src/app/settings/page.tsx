@@ -13,6 +13,9 @@ import { SessionsCard } from "@/components/SessionsCard";
 import { twoFactorStatus, staffNeedsTwoFactor } from "@/lib/services/two-factor";
 import { PushManager } from "@/components/PushManager";
 import { NudgesToggle } from "@/components/NudgesToggle";
+import { BusinessCard } from "@/components/BusinessCard";
+import { businessName } from "@/lib/services/clients";
+import { getSetting } from "@/lib/services/settings";
 import { getDb } from "@/lib/db";
 import { EmailManager } from "@/components/EmailManager";
 import { CalendarSync } from "@/components/CalendarSync";
@@ -39,6 +42,9 @@ export default async function SettingsPage() {
     "select nudges_opt_out as off, exists (select 1 from renewal_items i where i.owner_user_id = u.id) as has from users u where u.id = $1",
     [user.id],
   );
+  const [bizName, bizSettings] = await Promise.all([businessName(user.id), getSetting("business")]);
+  // Shown when business accounts are offered, or to keep an existing business account manageable.
+  const biz = { show: bizSettings.enabled || Boolean(bizName), name: bizName };
   const nudge = { show: Boolean(nudgeRows[0] && !nudgeRows[0].has), on: !nudgeRows[0]?.off };
   return (
     <div className="stack">
@@ -60,6 +66,7 @@ export default async function SettingsPage() {
       {calendar && <CalendarSync initial={calendar} />}
       <PushManager />
       {nudge.show && <NudgesToggle initial={nudge.on} />}
+      {biz.show && <BusinessCard initial={biz.name} />}
       {staffMust && <TwoFactorManager initial={tfa} />}
       <PinManager initial={pin} />
       {!staffMust && <TwoFactorManager initial={tfa} />}

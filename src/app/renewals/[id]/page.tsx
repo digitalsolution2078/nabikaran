@@ -15,6 +15,7 @@ import { RenewalActions } from "@/components/RenewalActions";
 import { Icon, iconForCategory } from "@/components/Icon";
 import { formatDate, formatDateTime, otherCalendar, localizeNumber, daysUntil, offsetLabel } from "@/lib/i18n/format";
 import { categoryName } from "@/lib/categories";
+import { getDb } from "@/lib/db";
 import { getGroup } from "@/lib/services/groups";
 
 export const dynamic = "force-dynamic";
@@ -37,12 +38,13 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
   const awaiting = r.jobs.filter((j) => j.status === "awaiting_credits");
   const lifecycle = r.status === "paused" ? "paused" : r.status === "cancelled" ? "cancelled" : d < 0 ? "expired" : "active";
   const pendingCredits = pending.reduce((x, j) => x + j.estimatedCredits, 0);
+  const clientName = r.clientId ? (await getDb().query<{ name: string }>("select name from clients where id = $1 and owner_user_id = $2", [r.clientId, user.id])).rows[0]?.name ?? null : null;
   return (
     <div className="stack">
       <Link href="/renewals" className="small">← {t("rem.title")}</Link>
       <div className="card">
         <div className="row between">
-          <span className="row"><span className="avatar-icon"><Icon name={iconForCategory(r.category)} /></span><span><h1 className="mb-0">{r.label}</h1><span className="small muted">{categoryName(r.category, prefs.lang)}{r.familyMemberLabel ? ` · ${r.familyMemberLabel}` : ""}{groupName ? ` · ${groupName}` : ""}{r.repeatYearly ? ` · ↻ ${t("grp.repeatYearly")}` : r.repeatMonths ? ` · ↻ ${t(`sub.cycle.${r.repeatMonths}` as MessageKey)}` : ` · ${t("rem.cycle")} ${n(r.cycleNo)}`}{r.subscription?.amount != null ? ` · ${r.subscription.currency} ${r.subscription.amount}` : ""}{r.subscription?.paymentMethod ? ` · ${r.subscription.paymentMethod}` : ""}</span></span></span>
+          <span className="row"><span className="avatar-icon"><Icon name={iconForCategory(r.category)} /></span><span><h1 className="mb-0">{r.label}</h1><span className="small muted">{categoryName(r.category, prefs.lang)}{r.familyMemberLabel ? ` · ${r.familyMemberLabel}` : ""}{clientName ? ` · ${t("clients.title")}: ${clientName}` : ""}{groupName ? ` · ${groupName}` : ""}{r.repeatYearly ? ` · ↻ ${t("grp.repeatYearly")}` : r.repeatMonths ? ` · ↻ ${t(`sub.cycle.${r.repeatMonths}` as MessageKey)}` : ` · ${t("rem.cycle")} ${n(r.cycleNo)}`}{r.subscription?.amount != null ? ` · ${r.subscription.currency} ${r.subscription.amount}` : ""}{r.subscription?.paymentMethod ? ` · ${r.subscription.paymentMethod}` : ""}</span></span></span>
           <StatusBadge status={lifecycle} />
         </div>
         <div className="stat-grid mt">

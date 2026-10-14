@@ -18,6 +18,7 @@ import { CATEGORIES, categorySmsName, isOccasion } from "../categories";
 import { anchorFromInput, anchorToString, nextEveryMonths, nextOccurrence, parseAnchor, type Anchor } from "../recurrence";
 import { emailConfigured } from "./email-config";
 import { deviceCount } from "../services/push";
+import { assertClientReminder } from "../services/clients";
 export { CATEGORIES };
 
 export const SUB_CURRENCIES = ["NPR", "USD", "INR", "EUR", "GBP", "AUD"] as const;
@@ -37,6 +38,8 @@ export const reminderInputSchema = z.object({
   channels: z.array(z.enum(["sms", "whatsapp", "email", "push"])).min(1).max(4).default(["sms"]).transform((c) => [...new Set(c)] as Channel[]),
   /** Required (true) the first time a user picks WhatsApp: consent to business-initiated WhatsApp messages. */
   whatsappConsent: z.boolean().optional(),
+  /** Business accounts: the reminder is for this client (SMS goes to the client). Omitted on edit = keep; null = for me. */
+  clientId: z.string().uuid().nullable().optional(),
   /** Optional group (e.g. "Birthdays"). Omitted on edit = keep; null = remove from group. */
   groupId: z.string().uuid().nullable().optional(),
   /** Repeat every year on the same day (birthdays, anniversaries, yearly renewals). Omitted on edit = keep. */
@@ -79,6 +82,7 @@ export interface RenewalRow {
   channels?: string[] | null;
   template_slug?: string | null;
   group_id?: string | null;
+  client_id?: string | null;
   repeat_yearly?: boolean;
   repeat_anchor?: string | null;
   repeat_months?: number | null;
@@ -188,6 +192,7 @@ export function toReminderDTO(r: RenewalRow, jobs: JobRow[]): ReminderDTO {
     channels: normalizeChannels(r.channels),
     templateSlug: r.template_slug ?? null,
     groupId: r.group_id ?? null,
+    clientId: r.client_id ?? null,
     repeatYearly: Boolean(r.repeat_yearly),
     repeatMonths: r.repeat_months ?? null,
     subscription: (r.sub_amount !== null && r.sub_amount !== undefined) || r.sub_payment_method || r.sub_is_trial || (r.cancel_notice_days !== null && r.cancel_notice_days !== undefined) || r.category === "subscription" || r.category === "free_trial"
@@ -737,14 +742,15 @@ export async function createReminderIn(tx: Db, p: Principal, input: ReminderInpu
   const sched = resolveSchedule(input, repeatYearly, now, repeatMonths);
   const expiryAtUtc = sched.expiryAtUtc;
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
+  await assertClientReminder(tx, p.userId, input.clientId, normalizeChannels(input.channels));
   const channels = await prepareChannels(tx, p, input);
   await assertOwnGroup(tx, p.userId, input.groupId);
   const { rows } = await tx.query<RenewalRow>(
     `insert into renewal_items (owner_user_id, category, label, expiry_at_utc, local_time, date_input_calendar, date_input_raw, notes, family_member_label, template_slug, channels, group_id, repeat_yearly, repeat_anchor,
-       repeat_months, sub_amount, sub_currency, sub_payment_method, sub_auto_renew, sub_is_trial, cancel_notice_days)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) returning *`,
+       repeat_months, sub_amount, sub_currency, sub_payment_method, sub_auto_renew, sub_is_trial, cancel_notice_days, client_id)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,(select slug from document_templates where slug = $10),$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) returning *`,
     [p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, input.templateSlug ?? null, channels,
-      input.groupId ?? null, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null, repeatMonths, ...subColumns(input.subscription)],
+      input.groupId ?? null, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null, repeatMonths, ...subColumns(input.subscription), input.clientId ?? null],
   );
   const renewal = rows[0];
   const repeats = repeatYearly || Boolean(repeatMonths);
@@ -793,6 +799,8 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
   const sched = resolveSchedule(input, repeatYearly, now, repeatMonths);
   const expiryAtUtc = sched.expiryAtUtc;
   const plan = planReminders(expiryAtUtc, input.offsets.map((offsetMinutes) => ({ offsetMinutes })), now);
+  const clientId = input.clientId === undefined ? e0.client_id ?? null : input.clientId;
+  await assertClientReminder(tx, p.userId, clientId, normalizeChannels(input.channels));
   const channels = await prepareChannels(tx, p, input);
   await assertOwnGroup(tx, p.userId, groupId);
   const cancelled = await cancelUnsentJobs(tx, renewalId, "superseded by edit");
@@ -800,10 +808,10 @@ export async function updateReminderIn(tx: Db, p: Principal, renewalId: string, 
     `update renewal_items set category=$3, label=$4, expiry_at_utc=$5, local_time=$6, date_input_calendar=$7, date_input_raw=$8, notes=$9,
        family_member_label=$10, channels=$11, template_slug = coalesce((select slug from document_templates where slug = $12), template_slug),
        group_id=$13, repeat_yearly=$14, repeat_anchor=$15, repeat_months=$16, sub_amount=$17, sub_currency=$18, sub_payment_method=$19, sub_auto_renew=$20, sub_is_trial=$21, cancel_notice_days=$22,
-       status='active', cycle_no = cycle_no + 1, updated_at = now()
+       client_id=$23, status='active', cycle_no = cycle_no + 1, updated_at = now()
      where id = $1 and owner_user_id = $2 returning *`,
     [renewalId, p.userId, input.category, input.label, expiryAtUtc.toISOString(), input.localTime, input.calendar, sched.raw, input.notes ?? null, input.familyMemberLabel ?? null, channels, input.templateSlug ?? null,
-      groupId, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null, repeatMonths, ...sub],
+      groupId, repeatYearly, sched.anchor ? anchorToString(sched.anchor) : null, repeatMonths, ...sub, clientId],
   );
   const renewal = rows[0];
   const repeats = repeatYearly || Boolean(repeatMonths);

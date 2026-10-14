@@ -7,6 +7,7 @@ import { ChannelBadges } from "@/components/ChannelBadge";
 import { Icon, iconForCategory } from "@/components/Icon";
 import { formatDate, formatDateTime, daysUntil, localizeNumber } from "@/lib/i18n/format";
 import { categoryName } from "@/lib/categories";
+import { businessName, listClients } from "@/lib/services/clients";
 import { listGroups } from "@/lib/services/groups";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export const metadata = { title: "Reminders" };
 
 const FILTERS: RenewalFilter[] = ["active", "due", "awaiting", "expired", "paused", "all"];
 
-export default async function RenewalsPage({ searchParams }: { searchParams: Promise<{ filter?: string; status?: string; q?: string; group?: string; imported?: string }> }) {
+export default async function RenewalsPage({ searchParams }: { searchParams: Promise<{ filter?: string; status?: string; q?: string; group?: string; imported?: string; client?: string }> }) {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login?next=/renewals");
   const sp = await searchParams;
@@ -24,21 +25,23 @@ export default async function RenewalsPage({ searchParams }: { searchParams: Pro
   const groups = await listGroups(user.id);
   const group = groups.find((g) => g.id === sp.group) ?? null;
   const imported = Number(sp.imported ?? 0);
-  const rows = await listRenewalsForUser(user.id, { filter, q, groupId: group?.id ?? null });
+  const clients = (await businessName(user.id)) ? await listClients(user.id) : [];
+  const client = clients.find((c) => c.id === sp.client) ?? null;
+  const rows = await listRenewalsForUser(user.id, { filter, q, groupId: group?.id ?? null, clientId: client?.id ?? null });
   const n = (v: number) => localizeNumber(v, prefs.lang);
   const label: Record<RenewalFilter, string> = {
     active: t("status.active"), due: t("dash.dueSoon"), awaiting: t("dash.awaiting"), expired: t("dash.expired"), paused: t("status.paused"), all: t("rem.filterAll"),
   };
   const other = { ...prefs, date: prefs.date === "BS" ? "AD" : "BS" } as const;
-  const qs = (f: string, g: string | null = group?.id ?? null) => `/renewals?filter=${f}${q ? `&q=${encodeURIComponent(q)}` : ""}${g ? `&group=${g}` : ""}`;
+  const qs = (f: string, g: string | null = group?.id ?? null, c: string | null = client?.id ?? null) => `/renewals?filter=${f}${q ? `&q=${encodeURIComponent(q)}` : ""}${g ? `&group=${g}` : ""}${c ? `&client=${c}` : ""}`;
 
   return (
     <div className="stack">
       <div className="page-head">
-        <div><h1>{group ? group.name : t("rem.title")}</h1>{group && <p><Link href="/renewals">← {t("rem.title")}</Link></p>}</div>
+        <div><h1>{client ? client.name : group ? group.name : t("rem.title")}</h1>{(group || client) && <p><Link href="/renewals">← {t("rem.title")}</Link>{client && <> · <Link href="/clients">{t("nav.clients")}</Link></>}</p>}</div>
         <div className="row">
           <Link className="btn btn-secondary" href={group ? `/renewals/import?group=${group.id}` : "/renewals/import"}><Icon name="upload" size={16} /> {t("imp.short")}</Link>
-          <Link className="btn btn-primary" href={group ? `/renewals/new?group=${group.id}` : "/renewals/new"}><Icon name="plus" /> {t("rem.add")}</Link>
+          <Link className="btn btn-primary" href={client ? `/renewals/new?client=${client.id}` : group ? `/renewals/new?group=${group.id}` : "/renewals/new"}><Icon name="plus" /> {t("rem.add")}</Link>
         </div>
       </div>
 
@@ -53,6 +56,7 @@ export default async function RenewalsPage({ searchParams }: { searchParams: Pro
       <form className="search-row" role="search" action="/renewals">
         <input type="hidden" name="filter" value={filter} />
         {group && <input type="hidden" name="group" value={group.id} />}
+        {client && <input type="hidden" name="client" value={client.id} />}
         <div className="input-affix"><span><Icon name="search" size={16} /></span><input type="search" name="q" defaultValue={q} placeholder={t("rem.searchPlaceholder")} aria-label={t("rem.searchPlaceholder")} /></div>
         <button className="btn btn-secondary" type="submit">{t("rem.search")}</button>
       </form>
@@ -80,7 +84,7 @@ export default async function RenewalsPage({ searchParams }: { searchParams: Pro
                 <Link href={`/renewals/${r.id}`} className="renewal-row">
                   <span className="avatar-icon"><Icon name={iconForCategory(r.category)} /></span>
                   <span className="rr-main">
-                    <span className="rr-title">{r.label}{r.repeatYearly && <span className="muted" title={t("grp.repeatYearly")}> ↻</span>}{!group && r.groupName && <span className="rr-group">{r.groupName}</span>}</span>
+                    <span className="rr-title">{r.label}{r.repeatYearly && <span className="muted" title={t("grp.repeatYearly")}> ↻</span>}{!group && r.groupName && <span className="rr-group">{r.groupName}</span>}{!client && r.clientName && <span className="rr-group rr-client"><Icon name="users" size={12} /> {r.clientName}</span>}</span>
                     <span className="rr-meta">{categoryName(r.category, prefs.lang)}{r.familyMemberLabel ? ` · ${r.familyMemberLabel}` : ""}</span>
                     <span className="rr-meta">
                       <strong>{formatDate(r.expiryAt, prefs)}</strong> · {formatDate(r.expiryAt, other)}

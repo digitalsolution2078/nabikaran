@@ -11,6 +11,7 @@ import { planReminders } from "../scheduler";
 import { renderReminder } from "../sms/templates";
 import { CATEGORIES, categorySmsName } from "../categories";
 import { MAX_IMPORT_BYTES, parseImport, type ParsedRow, type RowError } from "../csv-import";
+import { businessName, clientForImport } from "./clients";
 import { createGroupIn, groupInputSchema } from "./groups";
 
 export const importRequestSchema = z.object({
@@ -24,12 +25,14 @@ export const importRequestSchema = z.object({
     offsetsDays: z.array(z.number().int().min(0).max(1825)).min(1).max(10),
     repeatYearly: z.boolean(),
   }),
+  /** Business accounts: the clients in this file agreed to receive reminder SMS (required when rows have a client phone). */
+  clientConsent: z.boolean().optional(),
   /** Import the valid rows and skip the rest (required when some rows have errors). */
   skipInvalid: z.boolean().optional(),
 });
 export type ImportRequest = z.infer<typeof importRequestSchema>;
 
-export type ImportRowError = RowError | "past_date" | "no_messages";
+export type ImportRowError = RowError | "past_date" | "no_messages" | "client_needs_business";
 
 export interface ImportRowPreview {
   line: number;
@@ -46,6 +49,8 @@ export interface ImportRowPreview {
   smsSample: string | null;
   labelAdjusted: boolean;
   duplicate: boolean;
+  /** Business accounts: the client this row is for (name · number). */
+  client: string | null;
   errors: ImportRowError[];
 }
 
@@ -79,12 +84,15 @@ function toReminderInput(r: ParsedRow) {
 
 async function buildPreview(p: Principal, req: ImportRequest, db: Db, now: Date): Promise<{ preview: ImportPreview; parsed: ParsedRow[] }> {
   const parsed = parseImport(req.csv, req.defaults);
-  const [pricing, templates, wallet] = await Promise.all([getActivePricing(db, "sms"), loadTemplates(db), readWallet(p.userId, db)]);
+  const [pricing, templates, wallet, business] = await Promise.all([getActivePricing(db, "sms"), loadTemplates(db), readWallet(p.userId, db), businessName(p.userId, db)]);
   const rows: ImportRowPreview[] = parsed.rows.map((r) => {
     const out: ImportRowPreview = {
       line: r.line, label: r.label, inputDate: r.date, calendar: r.calendar, category: r.category, repeatYearly: r.repeatYearly,
-      nextDate: null, nextAtUtc: null, messages: 0, credits: 0, smsSample: null, labelAdjusted: false, duplicate: r.duplicate, errors: [...r.errors],
+      nextDate: null, nextAtUtc: null, messages: 0, credits: 0, smsSample: null, labelAdjusted: false, duplicate: r.duplicate,
+      client: r.clientPhone ? `${r.clientName ?? ""} · ${r.clientPhone.replace(/^\+977/, "")}`.replace(/^ · /, "") : null,
+      errors: [...r.errors],
     };
+    if (r.clientPhone && !business) out.errors.push("client_needs_business");
     if (out.errors.length) return out;
     try {
       const s = resolveSchedule({ calendar: r.calendar, expiryDate: r.date, localTime: r.localTime }, r.repeatYearly, now);
@@ -165,10 +173,14 @@ export async function commitImport(
       }
 
       const ok = new Set(preview.rows.filter((r) => r.errors.length === 0).map((r) => r.line));
+      if (parsed.some((r) => ok.has(r.line) && r.clientPhone) && !req.clientConsent) {
+        throw new HttpError(400, "Confirm that the clients in this file agreed to receive reminder SMS.", "consent_required");
+      }
       let created = 0;
       for (const r of parsed) {
         if (!ok.has(r.line)) continue;
-        await createReminderIn(tx, p, { ...toReminderInput(r), groupId }, now, { via: "import" });
+        const clientId = r.clientPhone ? await clientForImport(tx, p.userId, r.clientName ?? "", r.clientPhone) : null;
+        await createReminderIn(tx, p, { ...toReminderInput(r), groupId, clientId }, now, { via: "import" });
         created++;
       }
       await audit(tx, p, "reminder.import", groupId ? { type: "reminder_group", id: groupId } : null, {

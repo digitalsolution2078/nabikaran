@@ -605,3 +605,21 @@ People who signed up but never added a reminder get, by account age:
 - Customers can turn the tips off in Settings; the switch is shown until they add a reminder (`users.nudges_opt_out`).
 - **Settings:** Admin → Settings → **First-reminder nudges** (days, SMS on/off, SMS text up to 160 characters with `{link}`, window). The same card shows people nudged, how many then added a reminder, and the SMS sent in the last 30 days.
 - Each nudge is in the audit log as `nudge.sent` (stage, channels).
+
+## 28. Business accounts: reminders for clients (migration `0024`)
+
+Built for dealers, insurance agents and consultancies that track renewals (bluebook, insurance, licence, company and tax renewals) for their own clients.
+
+- **Turn on:** Settings → **Business tools**. The business name (2–20 English characters) is shown in every client SMS. Once on, **Clients** appears in the menu.
+- **Clients:** `/clients` lets the business add (name, mobile, note), search, edit and archive clients. Adding a client requires a tick that the client agreed to receive reminder SMS. A client with active reminders cannot be archived.
+- **Reminders:** the add/edit form has "Who is this reminder for?" (Me / a client).
+  - A client reminder goes **by SMS to the client's phone**, with the business name after the label. The SMS still fits one message: the label is shortened first if needed.
+  - The business pays from its wallet at normal SMS prices.
+  - The business gets a free app-notification copy ("Sent to Hari: …").
+  - WhatsApp and email are not used for clients, because they need the recipient's own opt-in.
+- **List and filter:** the reminders list shows the client name and filters with `?client=`.
+- **Import:** Excel / CSV import accepts `client` and `client phone` columns. Clients are created or reused by number. A tick that the clients agreed is required. A bad number is a row error; without business tools, client rows are flagged.
+- **Complaints:** Admin → Settings → **Business accounts** → *Block number*. That number's pending client reminders are cancelled (credits go back to the business), and no business can add it again. Use *Unblock* to reverse it.
+- **Admin settings:** business accounts on/off and the most clients per account (default 1000). The card shows the number of business accounts, clients and active client reminders. The admin user page shows each account's business name and counts.
+- **Audit log:** `business.enabled` / `business.disabled`, `client.create` / `client.update` / `client.archive`, `recipient.block` / `recipient.unblock`.
+- **Data export:** includes the account's clients.

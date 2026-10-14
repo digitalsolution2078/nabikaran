@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
 import { getUserDetail, listNotes, listSmsLog, listUserAudit } from "@/lib/services/admin-console";
+import { businessSummary } from "@/lib/services/clients";
 import { getStatement, listTopups } from "@/lib/services/wallet-report";
 import { ChannelBadge } from "@/components/ChannelBadge";
 import { NoteForm } from "@/components/admin/NoteForm";
@@ -30,6 +31,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
   const [st, topups, msgs, notes, auditRows, plans, ban, tfa, mcp] = await Promise.all([getStatement(id, undefined, 100), listTopups(id), listSmsLog(null, 100, undefined, null, id), listNotes(id), listUserAudit(id), planHistory(id), banInfo(id), twoFactorStatus(id), listMcpConnectionsForAdmin({ userId: id })]);
   const u = d.user;
   const self = me.id === u.id;
+  const biz = await businessSummary(u.id);
   return (
     <div className="stack">
       <Link href="/admin/users" className="small">← Users</Link>
@@ -43,6 +45,7 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
           <div className="stat"><div className="label">Reserved</div><div className="value">{u.reserved}</div></div>
           <div className="stat"><div className="label">Active reminders</div><div className="value">{u.activeReminders}</div></div>
         </div>
+        {biz.name && <p className="small mt mb-0"><strong>Business account:</strong> {biz.name} · {biz.clients} client(s) · {biz.reminders} active client reminder(s)</p>}
       </section>
 
       <section className="card" id="ban">

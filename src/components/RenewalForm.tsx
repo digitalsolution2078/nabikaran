@@ -45,6 +45,14 @@ export interface RenewalFormValues {
   repeatYearly: boolean;
   /** Repeat every N months (1–11); yearly uses repeatYearly. */
   repeatMonths?: number | null;
+  /** Business accounts: the client this reminder is for (SMS goes to them). */
+  clientId?: string | null;
+}
+
+export interface ClientOption {
+  id: string;
+  name: string;
+  phone: string;
 }
 
 export interface GroupOption {
@@ -77,7 +85,7 @@ interface Shortfall {
   locked?: boolean;
 }
 
-export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false }, groups = [], initialGroupId = null, emailAvailable = false }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean }; groups?: GroupOption[]; initialGroupId?: string | null; emailAvailable?: boolean }) {
+export function RenewalForm({ templates, initial, renewalId, initialTemplate, topupMin = 20, whatsapp = { available: false, optedIn: false }, groups = [], initialGroupId = null, emailAvailable = false, clients = [], initialClientId = null }: { templates: TemplateOption[]; initial?: Partial<RenewalFormValues>; renewalId?: string; initialTemplate?: string | null; topupMin?: number; whatsapp?: { available: boolean; optedIn: boolean }; groups?: GroupOption[]; initialGroupId?: string | null; emailAvailable?: boolean; clients?: ClientOption[]; initialClientId?: string | null }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const lang = prefs.lang;
@@ -102,8 +110,11 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     channels: ["sms"],
     groupId: startGroup?.id ?? null,
     repeatYearly: preOccasion ? preselected?.category !== "event" : false,
+    clientId: clients.some((c) => c.id === initialClientId) ? initialClientId : null,
     ...initial,
+    ...(clients.some((c) => c.id === initialClientId) && !initial?.channels ? { channels: ["sms"] as RenewalFormValues["channels"] } : {}),
   });
+  const forClient = clients.find((c) => c.id === v.clientId) ?? null;
   const [custom, setCustom] = useState({ days: 0, hours: 0, minutes: 0 });
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => crypto.randomUUID());
@@ -410,6 +421,16 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             </div>
             <span className="hint">{v.repeatYearly || v.repeatMonths ? t("grp.repeatHint") : ""}</span>
           </div>
+          {clients.length > 0 && (
+            <div className="field">
+              <label htmlFor="for-client">{t("clients.for")}</label>
+              <select id="for-client" value={v.clientId ?? ""} onChange={(e) => { const id = e.target.value || null; setV((x) => ({ ...x, clientId: id, channels: id ? ["sms"] : x.channels })); }}>
+                <option value="">{t("clients.forMe")}</option>
+                {clients.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.phone.replace(/^\+977/, "")}</option>)}
+              </select>
+              {forClient && <span className="hint">{t("clients.forHint", { name: forClient.name })}</span>}
+            </div>
+          )}
           {groups.length > 0 && (
             <div className="field">
               <label htmlFor="group">{t("grp.group")}</label>
@@ -479,6 +500,9 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
             <button type="button" className="btn btn-secondary btn-sm" disabled={v.offsets.includes(offsetFromParts(custom.days, custom.hours, custom.minutes))} onClick={() => toggle(offsetFromParts(custom.days, custom.hours, custom.minutes))}>{t("rem.addCustom")}</button>
           </fieldset>
 
+          {forClient ? (
+            <div className="alert info mt"><Icon name="message" /> <span>{t("clients.smsOnlyHint", { name: forClient.name })}</span></div>
+          ) : (
           <fieldset className="mt">
             <legend className="label">{t("rem.deliveryChannel")}</legend>
             <div className="choice-row" role="radiogroup">
@@ -511,6 +535,7 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
               <label className="row small mt"><input type="checkbox" checked={Boolean(v.whatsappConsent)} onChange={(e) => set("whatsappConsent", e.target.checked)} /> {t("channel.waConsent")}</label>
             )}
           </fieldset>
+          )}
           {error && <div className="alert bad mt" role="alert">{error}</div>}
           <div className="row between mt">
             <button type="button" className="btn btn-secondary" onClick={() => setStep(1)}>{t("rem.back")}</button>

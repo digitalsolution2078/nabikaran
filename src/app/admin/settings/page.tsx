@@ -11,6 +11,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { GrowthSettings } from "@/components/admin/GrowthSettings";
 import { referralReport } from "@/lib/services/referrals";
 import { nudgeReport } from "@/lib/services/nudges";
+import { businessStats, listBlockedRecipients } from "@/lib/services/clients";
+import { BusinessAdmin } from "@/components/admin/BusinessAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,7 @@ export default async function AdminSettings() {
   await requireAdminPage();
   const me = await getCurrentUser();
   if (!can(me?.role, "settings.manage")) redirect("/admin");
-  const [topup, qr, signin, referral, pin, report, admins, lowCredit, nudges, nudgeStats] = await Promise.all([
+  const [topup, qr, signin, referral, pin, report, admins, lowCredit, nudges, nudgeStats, business, blocked, bizStats] = await Promise.all([
     getSetting("topup"),
     getSetting("manual_qr"),
     getSetting("signin"),
@@ -29,11 +31,15 @@ export default async function AdminSettings() {
     getSetting("low_credit"),
     getSetting("nudges"),
     nudgeReport(),
+    getSetting("business"),
+    listBlockedRecipients(),
+    businessStats(),
   ]);
   return (
     <div className="stack">
       <SettingsEditor topup={topup} qr={qr} signin={signin} dynamicQr={fonepayEnabled()} />
       <GrowthSettings referral={referral} pin={pin} lowCredit={lowCredit} nudges={nudges} nudgeStats={nudgeStats} />
+      <BusinessAdmin settings={business} blocked={blocked} stats={bizStats} canBlock={can(me?.role, "users.ban")} />
       <section className="card">
         <h2>Referral results</h2>
         <div className="grid grid-3">

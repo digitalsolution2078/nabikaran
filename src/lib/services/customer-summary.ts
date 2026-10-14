@@ -119,10 +119,13 @@ export interface RenewalListRow {
   groupId: string | null;
   groupName: string | null;
   repeatYearly: boolean;
+  /** Business accounts: the client this reminder is for. */
+  clientId: string | null;
+  clientName: string | null;
 }
 
 /** Customer renewals list with filters and search (label, family member, notes). */
-export async function listRenewalsForUser(userId: string, opts: { filter?: RenewalFilter; q?: string; limit?: number; groupId?: string | null } = {}, db: Db = getDb()): Promise<RenewalListRow[]> {
+export async function listRenewalsForUser(userId: string, opts: { filter?: RenewalFilter; q?: string; limit?: number; groupId?: string | null; clientId?: string | null } = {}, db: Db = getDb()): Promise<RenewalListRow[]> {
   const filter = opts.filter ?? "active";
   const where: string[] = ["i.owner_user_id = $1", "i.status <> 'deleted'"];
   const params: unknown[] = [userId];
@@ -136,19 +139,23 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
     params.push(opts.groupId);
     where.push(`i.group_id = $${params.length}`);
   }
+  if (opts.clientId && /^[0-9a-f-]{36}$/i.test(opts.clientId)) {
+    params.push(opts.clientId);
+    where.push(`i.client_id = $${params.length}`);
+  }
   const q = (opts.q ?? "").trim().slice(0, 60);
   if (q) {
     params.push(`%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`);
-    where.push(`(i.label ilike $${params.length} or coalesce(i.family_member_label,'') ilike $${params.length} or coalesce(i.notes,'') ilike $${params.length})`);
+    where.push(`(i.label ilike $${params.length} or coalesce(i.family_member_label,'') ilike $${params.length} or coalesce(i.notes,'') ilike $${params.length} or coalesce(c.name,'') ilike $${params.length})`);
   }
   params.push(Math.min(opts.limit ?? 200, 500));
   const { rows } = await db.query<{
     id: string; label: string; category: string; family_member_label: string | null; status: RenewalListRow["status"]; expiry_at_utc: unknown;
     channels: string[] | null; next_at: unknown; next_channel: string | null; pending: string; awaiting: string; held: string;
-    group_id: string | null; group_name: string | null; repeat_yearly: boolean;
+    group_id: string | null; group_name: string | null; repeat_yearly: boolean; client_id: string | null; client_name: string | null;
   }>(
     `select i.id, i.label, i.category, i.family_member_label, i.status, i.expiry_at_utc, i.channels,
-            i.group_id, g.name as group_name, i.repeat_yearly,
+            i.group_id, g.name as group_name, i.repeat_yearly, i.client_id, c.name as client_name,
             n.due_at_utc as next_at, n.channel as next_channel,
             (select count(*) from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status in ('scheduled','planned','awaiting_credits'))::text as pending,
             (select count(*) from reminder_jobs j where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status = 'awaiting_credits')::text as awaiting,
@@ -156,6 +163,7 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
               where j.renewal_id = i.id and r.status = 'active')::text as held
        from renewal_items i
        left join reminder_groups g on g.id = i.group_id
+       left join clients c on c.id = i.client_id
        left join lateral (
          select j.due_at_utc, j.channel from reminder_jobs j
           where j.renewal_id = i.id and j.cycle_no = i.cycle_no and j.status in ('scheduled','planned') and j.due_at_utc > now()
@@ -176,6 +184,7 @@ export async function listRenewalsForUser(userId: string, opts: { filter?: Renew
       pendingMessages: Number(r.pending), awaitingMessages: Number(r.awaiting), heldCredits: Number(r.held),
       expired: new Date(expiryAt).getTime() < now,
       groupId: r.group_id, groupName: r.group_name, repeatYearly: Boolean(r.repeat_yearly),
+      clientId: r.client_id, clientName: r.client_name,
     };
   });
 }

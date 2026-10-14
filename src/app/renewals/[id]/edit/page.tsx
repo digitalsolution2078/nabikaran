@@ -11,6 +11,7 @@ import { getDb } from "@/lib/db";
 import { emailReminderAvailable } from "@/lib/services/email-auth";
 import { listGroups } from "@/lib/services/groups";
 import { RenewalForm } from "@/components/RenewalForm";
+import { businessName, listClients } from "@/lib/services/clients";
 import { LockNotice } from "@/components/LockNotice";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,7 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
           whatsapp={whatsapp}
           emailAvailable={await emailReminderAvailable(user.id)}
           groups={groups}
+          clients={(await businessName(user.id)) ? (await listClients(user.id)).map((c) => ({ id: c.id, name: c.name, phone: c.phone })) : []}
           initial={{
             category: r.category,
             label: r.label,
@@ -61,6 +63,7 @@ export default async function EditRenewal({ params }: { params: Promise<{ id: st
             groupId: r.groupId,
             repeatYearly: r.repeatYearly,
             repeatMonths: r.repeatMonths,
+            clientId: r.clientId,
           }}
         />
       )}

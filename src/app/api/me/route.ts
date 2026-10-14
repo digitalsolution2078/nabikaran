@@ -31,15 +31,16 @@ export async function POST(req: Request) {
     const { action } = await parseBody(req, z.object({ action: z.enum(["export", "delete"]) }));
     const db = getDb();
     if (action === "export") {
-      const [renewals, jobs, ledger, orders, qr, consent] = await Promise.all([
+      const [renewals, jobs, ledger, orders, qr, consent, clients] = await Promise.all([
         db.query("select * from renewal_items where owner_user_id = $1", [user.id]),
         db.query("select * from reminder_jobs where user_id = $1", [user.id]),
         db.query("select * from wallet_ledger where user_id = $1 order by created_at", [user.id]),
         db.query("select id, gateway, order_reference, amount_paisa, credits, status, created_at, paid_at from payment_orders where user_id = $1", [user.id]),
         db.query("select id, reference, amount_paisa, credits, status, payer_txn_ref, created_at, decided_at from manual_topup_requests where user_id = $1", [user.id]),
         db.query("select whatsapp_opt_in_at from users where id = $1", [user.id]),
+        db.query("select id, name, phone_e164, note, status, consent_at, created_at from clients where owner_user_id = $1", [user.id]),
       ]);
-      return json({ exportedAt: new Date().toISOString(), user, whatsappOptInAt: consent.rows[0]?.whatsapp_opt_in_at ?? null, renewals: renewals.rows, jobs: jobs.rows, ledger: ledger.rows, orders: orders.rows, qrTopups: qr.rows });
+      return json({ exportedAt: new Date().toISOString(), user, whatsappOptInAt: consent.rows[0]?.whatsapp_opt_in_at ?? null, renewals: renewals.rows, jobs: jobs.rows, ledger: ledger.rows, orders: orders.rows, qrTopups: qr.rows, clients: clients.rows });
     }
     // Account closure request: scheduled sends are cancelled and holds released; ledger/payment
     // records are retained for accounting (see /privacy). Unused prepaid credits are handled
