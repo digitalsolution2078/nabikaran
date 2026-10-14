@@ -54,6 +54,8 @@ export interface ReminderDTO {
   channels: Channel[];
   templateSlug: string | null;
   groupId: string | null;
+  /** Business accounts: the client this reminder is for (SMS goes to them). */
+  clientId: string | null;
   repeatYearly: boolean;
   /** Pro: repeats every 1, 3 or 6 months. */
   repeatMonths: number | null;

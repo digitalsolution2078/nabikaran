@@ -36,6 +36,7 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [skip, setSkip] = useState(false);
+  const [clientConsent, setClientConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [key, setKey] = useState(() => crypto.randomUUID());
@@ -76,7 +77,7 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ groupId: string | null; created: number }>("/api/renewals/import", { method: "POST", json: { ...request, skipInvalid: skip, idempotencyKey: key } });
+      const r = await api<{ groupId: string | null; created: number }>("/api/renewals/import", { method: "POST", json: { ...request, skipInvalid: skip, clientConsent, idempotencyKey: key } });
       router.push(r.groupId ? `/renewals?filter=all&group=${r.groupId}&imported=${r.created}` : `/renewals?filter=all&imported=${r.created}`);
       router.refresh();
     } catch (e) {
@@ -203,7 +204,7 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
                 {preview.rows.map((r) => (
                   <tr key={r.line} className={r.errors.length ? "row-bad" : ""}>
                     <td className="num">{n(r.line)}</td>
-                    <td>{r.label || "—"}{r.labelAdjusted && <span className="small muted"> · {t("imp.nameShortened")}</span>}</td>
+                    <td>{r.label || "—"}{r.labelAdjusted && <span className="small muted"> · {t("imp.nameShortened")}</span>}{r.client && <span className="small muted"><br />{t("imp.forClient", { client: r.client })}</span>}</td>
                     <td className="nowrap">{r.nextDate ? `${r.nextDate} ${r.calendar}` : r.inputDate || "—"}{r.repeatYearly && r.nextDate ? " ↻" : ""}</td>
                     <td className="num">{n(r.messages)}</td>
                     <td className="num">{n(r.credits)}</td>
@@ -223,6 +224,9 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
               <pre className="sms">{preview.rows.find((r) => r.smsSample)!.smsSample}</pre>
             </>
           )}
+          {preview.rows.some((r) => r.client && r.errors.length === 0) && (
+            <label className="row small alert info mt"><input type="checkbox" checked={clientConsent} onChange={(e) => setClientConsent(e.target.checked)} /> <span>{t("imp.clientConsent")}</span></label>
+          )}
           {preview.invalidRows > 0 && (
             <label className="row small alert warn mt"><input type="checkbox" checked={skip} onChange={(e) => setSkip(e.target.checked)} /> <span>{t("imp.skipInvalid", { n: n(preview.invalidRows) })}</span></label>
           )}
@@ -234,7 +238,7 @@ export function BulkImport({ groups, initialGroupId, topupMin = 20 }: { groups: 
             {!preview.sufficient ? (
               <a className="btn btn-accent" href={`/wallet?amount=${shortfall}&next=${encodeURIComponent("/renewals/import")}`}><Icon name="wallet" size={16} /> {t("topup.cta", { amount: n(shortfall) })}</a>
             ) : <span />}
-            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.validRows === 0 || !preview.sufficient || (preview.invalidRows > 0 && !skip) || preview.tooMany} onClick={commit}>
+            <button type="button" className="btn btn-primary btn-lg" disabled={busy || preview.validRows === 0 || !preview.sufficient || (preview.invalidRows > 0 && !skip) || preview.tooMany || (preview.rows.some((r) => r.client && r.errors.length === 0) && !clientConsent)} onClick={commit}>
               {busy ? <span className="spinner" /> : <Icon name="check" size={18} />} {t("imp.import", { n: n(preview.validRows) })}
             </button>
           </div>

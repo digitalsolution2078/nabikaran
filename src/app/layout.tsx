@@ -11,6 +11,7 @@ import { getPlanState } from "@/lib/services/plans";
 import { getSetting } from "@/lib/services/settings";
 import { MotionRoot } from "@/components/motion/MotionRoot";
 import { jakarta, mukta } from "./fonts";
+import { businessName } from "@/lib/services/clients";
 import { translate } from "@/lib/i18n/dict";
 
 export const metadata: Metadata = {
@@ -30,13 +31,13 @@ export const viewport: Viewport = { themeColor: "#55239a", width: "device-width"
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getRequestContext();
-  const [wallet, plan, offer] = ctx.user
-    ? await Promise.all([readWallet(ctx.user.id).catch(() => null), getPlanState(ctx.user.id).catch(() => null), getSetting("pro").catch(() => null)])
-    : [null, null, null];
+  const [wallet, plan, offer, business] = ctx.user
+    ? await Promise.all([readWallet(ctx.user.id).catch(() => null), getPlanState(ctx.user.id).catch(() => null), getSetting("pro").catch(() => null), businessName(ctx.user.id).catch(() => null)])
+    : [null, null, null, null];
   const shellUser = ctx.user
     ? {
         name: ctx.user.displayName, phoneLocal: formatPhoneLocal(ctx.user.phoneE164), isAdmin: isAdminRole(ctx.user.role), availableCredits: wallet?.available ?? 0,
-        pro: plan?.tier === "pro", proOffer: Boolean(offer?.enabled),
+        pro: plan?.tier === "pro", proOffer: Boolean(offer?.enabled), business: Boolean(business),
         plan: plan?.tier === "pro"
           ? { kind: plan.kind, endsAt: plan.endsAt, left: plan.allowances.length ? Object.fromEntries(plan.allowances.map((a) => [a.channel, a.left])) as Record<"sms" | "whatsapp" | "email", number> : null }
           : null,

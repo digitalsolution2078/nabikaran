@@ -6,13 +6,15 @@
  *                          Ram Sharma,2052-04-15
  * Optional columns:        calendar (AD/BS), category, time (HH:MM),
  *                          remind (days before, e.g. "7;1;0"), repeat (yes/no),
- *                          notes, for (family member)
+ *                          notes, for (family member),
+ *                          client, client phone (business accounts: the SMS goes to the client)
  */
 import { CATEGORIES, CATEGORY_INFO, type Category } from "./categories";
 import { parseIsoDate } from "./time";
 import { parseBsInput } from "./bs-date";
 import { anchorFromInput } from "./recurrence";
 import { MAX_REMINDERS_PER_CYCLE } from "./scheduler";
+import { normalizeNepalPhone } from "./phone";
 
 export const MAX_IMPORT_ROWS = 300;
 export const MAX_IMPORT_BYTES = 200_000;
@@ -27,7 +29,7 @@ export interface ImportDefaults {
 
 export type RowError =
   | "missing_name" | "name_too_long" | "missing_date" | "bad_date" | "bad_calendar"
-  | "bad_category" | "bad_time" | "bad_remind" | "bad_repeat";
+  | "bad_category" | "bad_time" | "bad_remind" | "bad_repeat" | "bad_phone";
 
 export interface ParsedRow {
   /** 1-based line number in the file (for messages). */
@@ -41,6 +43,9 @@ export interface ParsedRow {
   repeatYearly: boolean;
   notes: string | null;
   familyMemberLabel: string | null;
+  /** Business accounts: client name and mobile (E.164) when the file has them. */
+  clientName: string | null;
+  clientPhone: string | null;
   errors: RowError[];
   duplicate: boolean;
 }
@@ -90,6 +95,8 @@ const HEADER_ALIASES: Record<string, string[]> = {
   repeat: ["repeat", "yearly", "repeat yearly", "repeat_yearly", "every year"],
   notes: ["notes", "note", "remarks"],
   for: ["for", "family", "member", "family member"],
+  client: ["client", "client name", "customer", "customer name", "ग्राहक"],
+  phone: ["client phone", "client mobile", "phone", "mobile", "customer phone", "customer mobile", "मोबाइल", "फोन"],
 };
 
 function headerMap(cells: string[]): Record<string, number> | null {
@@ -190,7 +197,10 @@ export function parseImport(text: string, defaults: ImportDefaults): ParseResult
     }
     const offsets = [...new Set(offsetsDays)].map((d) => d * 1440);
 
-    const key = `${label.toLowerCase()}|${date}`;
+    const rawPhone = latinDigits(get("phone"));
+    const client = { name: get("client").replace(/\s+/g, " ").slice(0, 80) || null, phone: rawPhone ? normalizeNepalPhone(rawPhone) : null };
+    if (rawPhone && !client.phone) errors.push("bad_phone");
+    const key = `${label.toLowerCase()}|${date}|${client.phone ?? ""}`;
     const duplicate = seen.has(key);
     seen.set(key, idx);
     return {
@@ -198,6 +208,7 @@ export function parseImport(text: string, defaults: ImportDefaults): ParseResult
       label, date, calendar, category, localTime, offsets, repeatYearly,
       notes: get("notes").slice(0, 500) || null,
       familyMemberLabel: get("for").slice(0, 60) || null,
+      clientName: client.name, clientPhone: client.phone,
       errors, duplicate,
     };
   });

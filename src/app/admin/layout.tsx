@@ -3,6 +3,20 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { isAdminRole, can } from "@/lib/auth/rbac";
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { staffNeedsTwoFactor } from "@/lib/services/two-factor";
+import { getDb } from "@/lib/db";
+
+/** Work waiting for staff, shown as counts in the admin menu. */
+async function waitingCounts(): Promise<{ support: number; topups: number }> {
+  try {
+    const { rows } = await getDb().query<{ support: number; topups: number }>(
+      `select (select count(*) from support_tickets where status = 'open')::int as support,
+              (select count(*) from manual_topup_requests where status = 'pending')::int as topups`,
+    );
+    return rows[0] ?? { support: 0, topups: 0 };
+  } catch {
+    return { support: 0, topups: 0 };
+  }
+}
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin" };
@@ -20,13 +34,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (await staffNeedsTwoFactor(user)) redirect("/settings?staff2fa=1#two-factor");
   return (
     <div>
-      <div className="page-head">
-        <div>
-          <h1>Admin</h1>
-          <p>Signed in as {user.displayName ?? user.phoneE164} · <span className="badge info">{user.role.replace("_", " ")}</span></p>
-        </div>
+      <div className="admin-head">
+        <h1>Admin</h1>
+        <span className="small muted">{user.displayName ?? user.phoneE164} · <span className="badge info">{user.role.replace("_", " ")}</span></span>
       </div>
-      <AdminTabs superAdmin={can(user.role, "settings.manage")} coupons={can(user.role, "coupons.manage")} counter={can(user.role, "counter.topup")} support={can(user.role, "support.manage")} revenue={can(user.role, "revenue.view")} />
+      <AdminTabs superAdmin={can(user.role, "settings.manage")} coupons={can(user.role, "coupons.manage")} counter={can(user.role, "counter.topup")} support={can(user.role, "support.manage")} revenue={can(user.role, "revenue.view")}
+        counts={await waitingCounts()} />
       {children}
     </div>
   );
