@@ -98,8 +98,6 @@ export const integrationSettingsSchema = z.object({
   sms_provider: z.enum(["env", "aakash", "mock"]),
   payment_gateway: z.enum(["env", "khalti", "none", "mock"]),
   khalti_env: z.enum(["env", "live", "test"]),
-  esewa_mode: z.enum(["env", "off", "live", "test"]).default("env"),
-  esewa_product_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only").default(""),
   fonepay_mode: z.enum(["env", "off", "live", "test", "mock"]),
   fonepay_merchant_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only"),
   whatsapp_provider: z.enum(["env", "off", "meta", "mock"]),
@@ -188,7 +186,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   // Off until an admin turns it on (after setting up email in Admin → Pro & email).
   pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 0, allowance_whatsapp: 0, allowance_email: 0, monthly_credits: 30 },
   email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
-  integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", esewa_mode: "env", esewa_product_code: "", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
+  integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
   codes: { gifts_enabled: true, gift_min_npr: 50, gift_max_npr: 5000, counter_daily_limit_npr: 50000 },
   low_credit: { enabled: true, sms_last_call: true, last_call_days: 2 },
   nudges: {

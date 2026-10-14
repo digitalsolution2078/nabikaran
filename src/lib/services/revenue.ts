@@ -4,7 +4,7 @@ import { roundCredits } from "../core/wallet";
 /**
  * Revenue dashboard (Admin → Revenue). Money in = rupees actually received:
  * approved QR / Fonepay / counter top-ups and gift-card sales, plus paid
- * gateway orders (Khalti, eSewa) minus refunded ones. Credits (1 credit =
+ * gateway orders (Khalti, Fonepay) minus refunded ones. Credits (1 credit =
  * NPR 1) show how that prepaid value was used: messages sent, promotions
  * given, and what customers still hold. All days are Nepal days.
  */
@@ -143,7 +143,7 @@ export async function revenueReport(range: RevenueRange, db: Db = getDb()): Prom
     payments += r.n;
   }
   for (const r of orders.rows) {
-    const label = r.gateway === "esewa" ? "eSewa" : r.gateway === "khalti" ? "Khalti" : r.gateway === "fonepay" ? "Fonepay checkout" : r.gateway;
+    const label = r.gateway === "khalti" ? "Khalti" : r.gateway === "fonepay" ? "Fonepay checkout" : r.gateway;
     const cur = byMethod.get(label) ?? { method: label, npr: 0, count: 0 };
     cur.npr += Number(r.npr);
     cur.count += r.n;

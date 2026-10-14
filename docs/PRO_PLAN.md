@@ -96,7 +96,7 @@ Scale check: 1,000 Pro users bring in about NPR 10 lakh a year in revenue, with 
 
 1. **Subscription item.** A reminder that also stores:
    - service name, amount, currency (NPR/USD/INR) and billing cycle (weekly, monthly, quarterly, half-yearly, yearly or custom days);
-   - next charge date, payment method (eSewa, Khalti, card ending 1234, bank) and an auto-renew yes/no flag;
+   - next charge date, payment method (Khalti, Fonepay, card ending 1234, bank) and an auto-renew yes/no flag;
    - free-trial end date, a "cancel before" date, and an account email or notes.
 2. **Recurrence engine.** It currently repeats **yearly only**. Extend `src/lib/recurrence.ts` and `rolloverYearly` to N months or N days, with month-end clamping (Jan 31 → Feb 28). It must work in both AD and BS.
 3. **Dashboard.**

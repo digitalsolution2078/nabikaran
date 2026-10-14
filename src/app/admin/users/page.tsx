@@ -5,6 +5,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { formatPhoneLocal } from "@/lib/phone";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
+import { recentStaffCustomers, staffCustomerAbilities } from "@/lib/services/staff-customers";
+import { AddCustomer } from "@/components/admin/AddCustomer";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +14,11 @@ export default async function AdminUsers({ searchParams }: { searchParams: Promi
   await requireAdminPage();
   const { q = "" } = await searchParams;
   const [users, me] = await Promise.all([searchUsers(q, 100), getCurrentUser()]);
+  const may = staffCustomerAbilities(me?.role);
+  const recent = may.create ? await recentStaffCustomers(10) : [];
   return (
     <div className="stack">
+      {may.create && <AddCustomer can={may} recent={recent} />}
       {can(me?.role, "customers.export") && (
         <div className="card row between">
           <span><strong>Customer data</strong><br /><span className="small muted">CSV with phone, name, wallet, top-ups, reminders, groups, referral and PIN status. Contains personal data: every download is recorded in the audit log.</span></span>

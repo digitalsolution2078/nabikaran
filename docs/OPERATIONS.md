@@ -434,7 +434,7 @@ Counter staff **cannot open the admin console or any admin API**. They only have
 
 What staff can do:
 
-- **Top up a customer.** Look up the customer by mobile number, then enter the amount received, how they paid (cash, eSewa, Khalti, Fonepay, bank or other), the receipt number and a note.
+- **Top up a customer.** Look up the customer by mobile number, then enter the amount received, how they paid (cash, Khalti, Fonepay, bank or other), the receipt number and a note.
   - Confirming credits the wallet immediately as a normal **top-up**, so it counts for referrals and releases held messages.
   - The customer gets a push notification.
 - **Sell a gift card** for cash. The printable receipt shows the code, which works immediately.
@@ -549,13 +549,13 @@ Customers are not forced; for them the app stays optional.
 
 **Top-up bonus (`0020_topup_bonus`).** Tiers (default NPR 500+ 3%, 1,000+ 5%, 2,500+ 8%, 5,000+ 10%) are edited in Admin → Channels & pricing. The bonus is fixed when the top-up request or payment order is created, applies to QR, gateway and counter wallet top-ups (not gift cards or coupons), and is posted as a separate `bonus` ledger line. A refunded gateway payment reverses the top-up and its bonus together. Remove every tier to switch the bonus off.
 
-**eSewa (automatic top-ups).** Admin → Integrations → eSewa: mode (Off / Test / Live), product (merchant) code and secret key from the eSewa merchant account. Customers then see eSewa next to Khalti. Checkout is eSewa ePay v2: our `/pay/esewa/{order}` page posts the signed form to eSewa; after payment eSewa redirects to `/api/payments/esewa/return`, and credits (plus any top-up bonus) are added only after eSewa's status API reports `COMPLETE` with the exact amount. Orders that never return are re-checked by the reconciler for 7 days. Fonepay is already automatic through the dynamic QR (Admin → Integrations → Fonepay dynamic QR, Live, four credentials from Fonepay/the bank).
+**eSewa removed (`0025_remove_esewa`).** eSewa is no longer a payment method anywhere (wallet, counter, admin). The migration deletes its stored secret key and settings and cancels eSewa orders that never completed; paid eSewa history stays in the ledger and reports. `ESEWA_*` lines in the server `.env` are ignored and can be deleted.
 
 **Pro monthly credits (`0021_pro_monthly_credits`).** Pro now gives flexible credits instead of fixed SMS/WhatsApp/email counts: 30 credits every plan month by default (Admin → Pro & email → "Credits every plan month"; 30 credits ≈ 20 SMS, 30 WhatsApp or 100 emails). The amount is fixed per plan when it is bought (`user_plans.monthly_credits`). The reconciler gives each active paid/granted plan its month's credits (`pro_credit` ledger line) and, when a plan month ends, takes back what was not spent on messages (`pro_expiry`) — never more than the free balance, so paid top-ups and credits held for scheduled messages are safe. Trials give Pro features only. Plans bought before this change keep their included messages. The migration switches the saved Pro offer to 30 credits/month with 0 included messages.
 
 ## 24. Revenue dashboard and "log out all devices" (migration `0022`)
 
-**Admin → Revenue** (`revenue.view`: finance, admin, super admin, auditor). For a preset or custom range (Nepal days): money in (QR, Fonepay, counter by method, Khalti, eSewa, gift-card sales, minus refunds), money in per day, payment-method split, messages and credits used per channel, promotions given (top-up bonus, referrals, coupons, Pro monthly credits net of expiry, adjustments), sign-in fees, Pro sold/trials/paying, new and paying customers, and the credits customers hold (prepaid liability). "Download CSV" exports the same range.
+**Admin → Revenue** (`revenue.view`: finance, admin, super admin, auditor). For a preset or custom range (Nepal days): money in (QR, Fonepay, counter by method, Khalti, gift-card sales, minus refunds), money in per day, payment-method split, messages and credits used per channel, promotions given (top-up bonus, referrals, coupons, Pro monthly credits net of expiry, adjustments), sign-in fees, Pro sold/trials/paying, new and paying customers, and the credits customers hold (prepaid liability). "Download CSV" exports the same range.
 
 **Log out all devices.** Customers: Settings → Signed-in devices → "Log out all other devices" (this device stays signed in). Admins with `users.ban`: customer page → Account access → "Log out all devices". Sessions issued before `users.sessions_valid_after` are refused.
 
@@ -578,7 +578,7 @@ Every message is funded when it is saved, so a reminder shows **Waiting for cred
 
 ## 26. Checkout by Fonepay (migration `0023`)
 
-Fonepay is an online payment method next to Khalti and eSewa. The customer picks **Fonepay** on the wallet page, pays on Fonepay's checkout page (QR or mobile banking) and is sent back to `/api/payments/fonepay/return`.
+Fonepay is an online payment method next to Khalti. The customer picks **Fonepay** on the wallet page, pays on Fonepay's checkout page (QR or mobile banking) and is sent back to `/api/payments/fonepay/return`.
 
 - **Setup:** Admin → Integrations → **Checkout by Fonepay**. Enter the merchant code (PID) and the secret key, choose **test** (Fonepay dev server) and make a test payment, then switch to **live**. Give Fonepay the return URL `https://nabikaran.org/api/payments/fonepay/return`.
 - **Request:** `GET clientapi.fonepay.com/api/merchantRequest` with PID, MD=P, PRN (our order reference), AMT, CRN=NPR, DT (MM/DD/YYYY), R1, R2, RU and `DV = HMAC-SHA512(secret, "PID,MD,PRN,AMT,CRN,DT,R1,R2,RU")`.

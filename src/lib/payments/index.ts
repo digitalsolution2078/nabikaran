@@ -1,15 +1,14 @@
 import { env } from "../env";
 import { integrationsVersion } from "../integrations";
 import { KhaltiGateway } from "./khalti";
-import { EsewaGateway } from "./esewa";
 import { FonepayCheckoutGateway } from "./fonepay";
 import { MockGateway } from "./mock";
 import type { GatewayName, PaymentGateway } from "./types";
 
 /**
  * Online payment gateways. Khalti (or the mock in development) comes from
- * PAYMENT_GATEWAY / Admin → Integrations; eSewa and Checkout by Fonepay are
- * switched on separately, so customers can pick any of them at checkout.
+ * PAYMENT_GATEWAY / Admin → Integrations; Checkout by Fonepay is switched on
+ * separately, so customers can pick either at checkout.
  */
 let cache: Partial<Record<GatewayName, PaymentGateway>> = {};
 let forced: Partial<Record<GatewayName, PaymentGateway>> = {};
@@ -32,7 +31,6 @@ export function enabledGateways(): GatewayName[] {
   const out: GatewayName[] = [];
   if (env.paymentGateway === "khalti") out.push("khalti");
   if (env.paymentGateway === "mock") out.push("mock");
-  if (env.esewa.mode === "live" || env.esewa.mode === "test") out.push("esewa");
   if (fonepayCheckoutReady()) out.push("fonepay");
   return out;
 }
@@ -50,15 +48,14 @@ function build(name: GatewayName): PaymentGateway | undefined {
     const f = env.fonepay;
     return fonepayCheckoutReady() ? new FonepayCheckoutGateway({ merchantCode: f.merchantCode, secretKey: f.secretKey, checkoutUrl: f.checkoutUrl, verifyUrl: f.verifyUrl, appUrl: env.appUrl }) : undefined;
   }
-  const e = env.esewa;
-  return e.mode === "off" ? undefined : new EsewaGateway({ ...e, appUrl: env.appUrl });
+  return undefined;
 }
 
 /** A gateway by name (or the primary one), or throws when it is not switched on. */
 export function getPaymentGateway(name?: GatewayName): PaymentGateway {
   if (!name) {
     if (forcedPrimary) return forcedPrimary;
-    name = env.paymentGateway === "khalti" ? "khalti" : env.paymentGateway === "mock" ? "mock" : "esewa";
+    name = env.paymentGateway === "mock" ? "mock" : "khalti";
   }
   if (forced[name]) return forced[name]!;
   if (builtAt !== integrationsVersion()) {

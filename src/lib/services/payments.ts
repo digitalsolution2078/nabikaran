@@ -84,7 +84,7 @@ async function createOrder(user: { id: string; phoneE164: string }, amountPaisa:
     await db.query("insert into audit_events (action, target_type, target_id, json_detail_redacted) values ('payment.initiate_failed','payment_order',$1,$2)", [
       order.id, JSON.stringify({ gateway: gateway.name, error: (e as Error).message.slice(0, 300) }),
     ]);
-    const label = gateway.name === "esewa" ? "eSewa" : gateway.name === "fonepay" ? "Fonepay" : "Khalti";
+    const label = gateway.name === "fonepay" ? "Fonepay" : "Khalti";
     throw new HttpError(502, `${label} could not start the payment right now. Please try again in a moment, or pay by QR.`, "payment_start_failed");
   }
   await db.query("update payment_orders set gateway_ref = $2, payment_url = $3, status = 'pending', updated_at = now() where id = $1", [

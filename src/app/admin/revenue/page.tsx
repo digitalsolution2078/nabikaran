@@ -33,7 +33,7 @@ export default async function AdminRevenue({ searchParams }: { searchParams: Pro
           <a className="btn btn-ghost btn-sm" href={csvHref}>Download CSV</a>
         </form>
       </div>
-      <p className="small muted mb-0">{range.from} → {range.to} (Nepal time). Money in = rupees received (QR, Fonepay, counter, Khalti, eSewa, gift-card sales) minus refunds. 1 credit = NPR 1.</p>
+      <p className="small muted mb-0">{range.from} → {range.to} (Nepal time). Money in = rupees received (QR, Fonepay, counter, Khalti, gift-card sales) minus refunds. 1 credit = NPR 1.</p>
 
       <div className="stat-grid">
         <div className="stat stat-hero"><div className="label">Money in</div><div className="value">{npr(r.moneyIn.totalNpr)}</div><div className="sub">{r.moneyIn.payments} payments{r.moneyIn.refundsNpr ? ` · ${npr(r.moneyIn.refundsNpr)} refunded` : ""}</div></div>

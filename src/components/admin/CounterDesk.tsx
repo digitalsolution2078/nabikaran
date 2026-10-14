@@ -1,13 +1,13 @@
 "use client";
 import { useState } from "react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { Icon } from "../Icon";
 
 type Log = { day: string; entries: Array<{ id: string; reference: string; at: string; amountNpr: number; method: string; receipt: string | null; kind: "wallet" | "gift"; customer: string | null; staff: string }>; totals: Array<{ method: string; amountNpr: number; count: number }>; totalNpr: number };
 type Customer = { id: string; phone: string; name: string | null; available: number };
 type Done = { kind: "wallet" | "gift"; reference: string; amountNpr: number; credits: number; bonus?: number; method: string; receipt: string; at: string; phone?: string; name?: string | null; balance?: number; code?: string; toName?: string };
 
-const METHODS: Array<[string, string]> = [["cash", "Cash"], ["esewa", "eSewa"], ["khalti", "Khalti"], ["fonepay", "Fonepay / bank QR"], ["bank", "Bank transfer"], ["other", "Other"]];
+const METHODS: Array<[string, string]> = [["cash", "Cash"], ["khalti", "Khalti"], ["fonepay", "Fonepay / bank QR"], ["bank", "Bank transfer"], ["other", "Other"]];
 const methodLabel = (m: string) => METHODS.find(([k]) => k === m)?.[1] ?? m;
 const npr = (n: number) => `NPR ${n.toLocaleString("en-IN")}`;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kathmandu" });
@@ -21,6 +21,8 @@ export function CounterDesk({ initialLog, canSeeAll, gift }: { initialLog: Log; 
   const [key, setKey] = useState(newKey);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [newName, setNewName] = useState("");
   const [done, setDone] = useState<Done | null>(null);
   const [log, setLog] = useState(initialLog);
   const [all, setAll] = useState(false);
@@ -33,9 +35,27 @@ export function CounterDesk({ initialLog, canSeeAll, gift }: { initialLog: Log; 
     e.preventDefault();
     setErr(null);
     setCustomer(null);
+    setMissing(false);
     setBusy(true);
     try {
       setCustomer(await api<Customer>(`/api/admin/counter?phone=${encodeURIComponent(phone)}`));
+    } catch (e2) {
+      setErr((e2 as Error).message);
+      setMissing((e2 as ApiError).code === "customer_not_found");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Walk-in without an account: create it here, then take the payment as usual. */
+  async function createAccount() {
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await api<{ customer: Customer }>("/api/admin/customers", { method: "POST", json: { phone, name: newName.trim() || null, credit: { kind: "none" }, welcomeSms: true, idempotencyKey: newKey() } });
+      setCustomer(r.customer);
+      setMissing(false);
+      setNewName("");
     } catch (e2) {
       setErr((e2 as Error).message);
     } finally {
@@ -82,7 +102,7 @@ export function CounterDesk({ initialLog, canSeeAll, gift }: { initialLog: Log; 
             <form className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }} onSubmit={find}>
               <div className="field mb-0 grow" style={{ minWidth: 200 }}>
                 <label htmlFor="ct-phone">Customer mobile number</label>
-                <input id="ct-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setCustomer(null); }} placeholder="98XXXXXXXX" />
+                <input id="ct-phone" type="tel" inputMode="tel" value={phone} onChange={(e) => { setPhone(e.target.value); setCustomer(null); setMissing(false); }} placeholder="98XXXXXXXX" />
               </div>
               <button className="btn btn-outline" disabled={busy || phone.replace(/\D/g, "").length < 10}>Find</button>
             </form>
@@ -120,6 +140,16 @@ export function CounterDesk({ initialLog, canSeeAll, gift }: { initialLog: Log; 
             </form>
           )}
           {tab === "topup" && !customer && err && <div className="alert bad mt" role="alert">{err}</div>}
+          {tab === "topup" && !customer && missing && (
+            <div className="row mt" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div className="field mb-0 grow" style={{ minWidth: 200 }}>
+                <label htmlFor="ct-newname">Customer name (optional)</label>
+                <input id="ct-newname" value={newName} maxLength={60} onChange={(e) => setNewName(e.target.value)} />
+              </div>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={createAccount}><Icon name="plus" size={16} /> Create account</button>
+              <span className="hint" style={{ flexBasis: "100%" }}>Creates the account and sends a welcome SMS. The customer signs in later with an SMS code on this number.</span>
+            </div>
+          )}
         </section>
 
         <section className="card print-area" aria-live="polite">

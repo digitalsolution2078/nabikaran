@@ -32,9 +32,9 @@ export interface LookupResult {
   raw?: unknown;
 }
 
-export type GatewayName = "khalti" | "esewa" | "fonepay" | "mock";
+export type GatewayName = "khalti" | "fonepay" | "mock";
 
-/** What we know about the order when looking it up (eSewa's status API needs the amount). */
+/** What we know about the order when looking it up (a gateway's status API may need the amount). */
 export interface LookupContext {
   amountPaisa: number;
   orderReference: string;

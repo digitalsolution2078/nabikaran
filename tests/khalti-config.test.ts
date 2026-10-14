@@ -14,7 +14,7 @@ afterAll(async () => {
   await close();
 });
 
-const base = { sms_provider: "env", payment_gateway: "khalti", esewa_mode: "env", esewa_product_code: "", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" } as const;
+const base = { sms_provider: "env", payment_gateway: "khalti", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" } as const;
 
 describe("Khalti environment", () => {
   it("live uses khalti.com (production API), test uses the dev.khalti.com sandbox", () => {

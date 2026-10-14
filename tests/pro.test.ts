@@ -299,7 +299,7 @@ describe("Pro subscription manager", () => {
     expect(new Date(reminder.expiry.utc).getTime()).toBeGreaterThan(Date.now());
     expect(reminder.repeatMonths).toBe(1);
     expect(reminder.subscription).toEqual({ amount: 15.49, currency: "USD", paymentMethod: "Card ••1234", autoRenew: true, isTrial: false, cancelNoticeDays: null });
-    await createReminder(p, { category: "subscription", label: "WorldLink", calendar: "AD", expiryDate: inDays(20), offsets: [1440], repeatYearly: true, subscription: { amount: 12000, currency: "NPR", paymentMethod: "eSewa", autoRenew: false }, ...base }, {}, db);
+    await createReminder(p, { category: "subscription", label: "WorldLink", calendar: "AD", expiryDate: inDays(20), offsets: [1440], repeatYearly: true, subscription: { amount: 12000, currency: "NPR", paymentMethod: "Khalti", autoRenew: false }, ...base }, {}, db);
     const view = await listSubscriptions(u, db);
     expect(view.items).toHaveLength(2);
     expect(view.totals).toEqual(expect.arrayContaining([{ currency: "NPR", monthly: 1000, yearly: 12000 }, { currency: "USD", monthly: 15.49, yearly: expect.closeTo(185.88, 2) }]));
@@ -455,7 +455,7 @@ describe("Spec: email summaries and Pro-ending notices", () => {
     await buyPro(u, "k-dig-000001", db);
     await db.query("update users set email = 'digest@example.com', email_verified_at = now() where id = $1", [u]);
     await createReminder(principalFor(u), { category: "subscription", label: "Spotify", calendar: "AD", expiryDate: inDays(10), offsets: [1440], repeatMonths: 1,
-      subscription: { amount: 599, currency: "NPR", paymentMethod: "eSewa", autoRenew: true, cancelNoticeDays: 3 }, ...base }, {}, db);
+      subscription: { amount: 599, currency: "NPR", paymentMethod: "Khalti", autoRenew: true, cancelNoticeDays: 3 }, ...base }, {}, db);
     const night = new Date("2026-10-10T18:00:00Z"); // 23:45 in Nepal
     expect(await runDigests(db, night)).toBe(0);
     // The next moment that is Nepal daytime (and after the plan started).

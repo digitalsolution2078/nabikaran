@@ -67,23 +67,6 @@ export const env = {
   },
 
   /**
-   * eSewa ePay v2. "test" uses eSewa's public UAT merchant (EPAYTEST) unless a
-   * product code and secret are set; "live" needs both from the eSewa merchant
-   * account. "off" (default) hides eSewa.
-   */
-  get esewa() {
-    const mode = pick(o().esewaMode, process.env.ESEWA_MODE ?? "off") as "off" | "live" | "test";
-    const test = mode !== "live";
-    return {
-      mode,
-      productCode: pick(o().esewaProductCode, process.env.ESEWA_PRODUCT_CODE ?? (test ? "EPAYTEST" : "")),
-      secretKey: pick(o().esewaSecretKey, process.env.ESEWA_SECRET_KEY ?? (test ? "8gBm/:&EnhH.1/q" : "")),
-      formUrl: test ? "https://rc-epay.esewa.com.np/api/epay/main/v2/form" : "https://epay.esewa.com.np/api/epay/main/v2/form",
-      statusUrl: test ? "https://rc.esewa.com.np/api/epay/transaction/status/" : "https://esewa.com.np/api/epay/transaction/status/",
-    };
-  },
-
-  /**
    * Fonepay. The merchant product is "Checkout by Fonepay" (web checkout):
    * "live" / "test" need the merchant code (PID) and secret key; "test" uses
    * Fonepay's dev server. The older dynamic-QR merchant API is used only when

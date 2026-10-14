@@ -231,7 +231,7 @@ export function createMcpServer(): McpServer {
         subscription: z.object({
           amount: z.number().min(0).max(100_000_000).nullable().default(null).describe("What one renewal costs, as the user stated it. Never estimate."),
           currency: z.enum(SUB_CURRENCIES).default("NPR"),
-          payment_method: z.string().max(40).nullable().default(null).describe("e.g. 'eSewa', 'Khalti', 'Visa ending 1234'. Never ask for full card numbers."),
+          payment_method: z.string().max(40).nullable().default(null).describe("e.g. 'Khalti', 'Fonepay', 'Visa ending 1234'. Never ask for full card numbers."),
           auto_renew: z.boolean().nullable().default(null),
           is_trial: z.boolean().default(false).describe("The date is when a free trial turns into a paid subscription."),
           cancel_notice_days: z.number().int().min(0).max(90).nullable().default(null).describe("The provider needs cancelling this many days before renewal: adds a 'last day to cancel' reminder."),
