@@ -21,6 +21,13 @@ export interface ReportResult {
   raw?: unknown;
 }
 
+/** The SMS account balance at the provider (Aakash: SMS credits left). */
+export interface ProviderBalance {
+  available: number;
+  totalSent?: number;
+  raw?: unknown;
+}
+
 export interface SmsProvider {
   readonly name: string;
   send(input: { to: string; text: string; idempotencyKey: string }): Promise<SendOutcome>;
@@ -32,4 +39,6 @@ export interface SmsProvider {
    * client references return null (manual action required).
    */
   findByClientRef?(idempotencyKey: string): Promise<ReportResult | null>;
+  /** Credits left on the provider account; providers without a balance API leave it out. */
+  balance?(): Promise<ProviderBalance>;
 }

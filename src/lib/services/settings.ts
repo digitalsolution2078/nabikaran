@@ -98,8 +98,6 @@ export const integrationSettingsSchema = z.object({
   sms_provider: z.enum(["env", "aakash", "mock"]),
   payment_gateway: z.enum(["env", "khalti", "none", "mock"]),
   khalti_env: z.enum(["env", "live", "test"]),
-  esewa_mode: z.enum(["env", "off", "live", "test"]).default("env"),
-  esewa_product_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only").default(""),
   fonepay_mode: z.enum(["env", "off", "live", "test", "mock"]),
   fonepay_merchant_code: z.string().trim().max(40).regex(/^[A-Za-z0-9_-]*$/, "Letters and digits only"),
   whatsapp_provider: z.enum(["env", "off", "meta", "mock"]),
@@ -158,6 +156,15 @@ export const limitsSettingsSchema = z.object({
   pro_records: z.number().int().min(1).max(1000000),
 }).refine((v) => v.pro_records >= v.free_records, "the Pro limit must be at least the free limit");
 
+/** Admin → Message usage: low-balance alert for the SMS provider account, and what each message costs us (for the margin view). */
+export const usageSettingsSchema = z.object({
+  alert: z.boolean(),
+  low_balance: z.number().int().min(0).max(10000000),
+  sms_cost: z.number().min(0).max(100),
+  whatsapp_cost: z.number().min(0).max(100),
+  email_cost: z.number().min(0).max(100),
+});
+
 export const NUDGE_LINK = "nabikaran.org/renewals/new";
 
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
@@ -174,11 +181,12 @@ export type LowCreditSettings = z.infer<typeof lowCreditSettingsSchema>;
 export type NudgeSettings = z.infer<typeof nudgeSettingsSchema>;
 export type BusinessSettings = z.infer<typeof businessSettingsSchema>;
 export type LimitsSettings = z.infer<typeof limitsSettingsSchema>;
+export type UsageSettings = z.infer<typeof usageSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema, nudges: nudgeSettingsSchema, business: businessSettingsSchema, limits: limitsSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema, nudges: nudgeSettingsSchema, business: businessSettingsSchema, limits: limitsSettingsSchema, usage: usageSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings; nudges: NudgeSettings; business: BusinessSettings; limits: LimitsSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings; nudges: NudgeSettings; business: BusinessSettings; limits: LimitsSettings; usage: UsageSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
@@ -188,7 +196,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   // Off until an admin turns it on (after setting up email in Admin → Pro & email).
   pro: { enabled: false, price_npr: 1000, duration_days: 365, trial_enabled: true, trial_days: 7, allowance_sms: 0, allowance_whatsapp: 0, allowance_email: 0, monthly_credits: 30 },
   email: { enabled: false, from_name: "Nabikaran", from_email: "", reply_to: "" },
-  integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", esewa_mode: "env", esewa_product_code: "", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
+  integrations: { sms_provider: "env", payment_gateway: "env", khalti_env: "env", fonepay_mode: "env", fonepay_merchant_code: "", whatsapp_provider: "env" },
   codes: { gifts_enabled: true, gift_min_npr: 50, gift_max_npr: 5000, counter_daily_limit_npr: 50000 },
   low_credit: { enabled: true, sms_last_call: true, last_call_days: 2 },
   nudges: {
@@ -197,6 +205,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   },
   business: { enabled: true, max_clients: 1000 },
   limits: { free_records: 150, pro_records: 10000 },
+  usage: { alert: true, low_balance: 500, sms_cost: 0, whatsapp_cost: 0, email_cost: 0 },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

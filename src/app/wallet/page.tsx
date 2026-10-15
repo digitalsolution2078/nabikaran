@@ -45,7 +45,7 @@ export default async function WalletPage({ searchParams }: { searchParams: Promi
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <section className="card" id="add">
           <h2>{t("wallet.addCredits")}</h2>
-          <AddCredits initialAmount={amount && /^\d{1,6}$/.test(amount) ? Math.min(limits.max_npr, Math.max(limits.min_npr, Number(amount))) : undefined} min={limits.min_npr} max={limits.max_npr} quick={limits.quick_amounts} qrEnabled={qr.enabled} khaltiEnabled={enabledGateways().some((g) => g === "khalti" || g === "mock")} esewaEnabled={enabledGateways().includes("esewa")} fonepayEnabled={enabledGateways().includes("fonepay")} qrAutomatic={fonepayEnabled()} tiers={tiers} />
+          <AddCredits initialAmount={amount && /^\d{1,6}$/.test(amount) ? Math.min(limits.max_npr, Math.max(limits.min_npr, Number(amount))) : undefined} min={limits.min_npr} max={limits.max_npr} quick={limits.quick_amounts} qrEnabled={qr.enabled} khaltiEnabled={enabledGateways().some((g) => g === "khalti" || g === "mock")} fonepayEnabled={enabledGateways().includes("fonepay")} qrAutomatic={fonepayEnabled()} tiers={tiers} />
         </section>
         <div className="stack">
           {usage && (

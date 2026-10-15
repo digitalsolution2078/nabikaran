@@ -87,6 +87,8 @@ img { max-width: 100%; }
 .logo { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-head); font-weight: 800; color: var(--fg); text-decoration: none !important; }
 .logo-mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--brand-500), var(--brand-600) 55%, var(--brand-900)); display: grid; place-items: center; color: #fff; font-weight: 800; box-shadow: 0 4px 12px -4px var(--brand-700); position: relative; }
 .logo-mark::after { content: ""; position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); }
+.brand-logo { display: block; height: 34px; width: auto; max-width: 100%; }
+.mobile-logo .brand-logo { height: 28px; }
 .logo small { display: block; font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--muted); margin-top: -2px; }
 
 /* ---------- Layout: app shell ---------- */
@@ -956,3 +958,13 @@ a.chip { text-decoration: none !important; }
 /* "Remind me" switch in the add / edit form. */
 .remind-switch { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); cursor: pointer; }
 .remind-switch input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--brand-600); }
+
+/* Admin → Message usage: stacked bars per channel */
+.use-col { flex-direction: column; justify-content: flex-end; }
+.use-seg { display: block; width: 100%; }
+.use-seg:first-child { border-radius: 4px 4px 0 0; }
+.use-sms { background: var(--brand-500); }
+.use-whatsapp { background: var(--ok); }
+.use-email { background: var(--accent-orange); }
+.use-push { background: var(--info); }
+.use-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }

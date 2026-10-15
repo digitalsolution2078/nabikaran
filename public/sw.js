@@ -3,8 +3,8 @@
 // - Page navigations: always network; if the network is down, show /offline.html.
 // - Never caches API responses or page HTML: balances, reminders and payments must always be live,
 //   and a shared phone must never show another person's data from cache.
-const VERSION = "nabikaran-v7";
-const PRECACHE = ["/offline.html", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
+const VERSION = "nabikaran-v8";
+const PRECACHE = ["/offline.html", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/brand/nabikaran-logo.webp"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(PRECACHE)));

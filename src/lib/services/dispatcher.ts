@@ -21,6 +21,7 @@ import { liftExpiredBans } from "./bans";
 import { runProCredits } from "./plans";
 import { runLowCreditAlerts } from "./low-credit";
 import { runNudges } from "./nudges";
+import { runSmsBalanceWatch } from "./message-usage";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -255,6 +256,7 @@ export interface ReconcileSummary {
   proCreditsExpired?: number;
   lowCreditAlerts?: number;
   nudges?: number;
+  smsBalanceAlerts?: number;
 }
 
 /**
@@ -385,6 +387,8 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   out.lowCreditAlerts = await runLowCreditAlerts(db, now).catch((e) => { console.warn(`[low-credit] ${(e as Error).message}`); return 0; });
   // 8. "Set your first reminder" nudges for new sign-ups with no reminders.
   out.nudges = await runNudges(db, now).catch((e) => { console.warn(`[nudge] ${(e as Error).message}`); return 0; });
+  // 9. SMS provider balance (hourly) and the low-balance alert to super admins.
+  out.smsBalanceAlerts = await runSmsBalanceWatch(db, now).catch((e) => { console.warn(`[sms-balance] ${(e as Error).message}`); return 0; });
   return out;
 }
 

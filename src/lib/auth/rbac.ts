@@ -32,6 +32,7 @@ export type Permission =
   | "notes.write"             // support notes on a customer
   | "oauth.manage"            // MCP client kill-switch
   | "customers.export"        // download the full customer list (personal data)
+  | "customers.create"        // add a customer account (walk-in, phone call)
   | "plans.grant"             // give, extend or revoke Pro for a customer
   | "counter.topup"           // credit a customer's wallet for cash / payment taken in person
   | "coupons.manage"          // create, download and disable coupon codes
@@ -42,15 +43,15 @@ export type Permission =
 const MATRIX: Record<Role, readonly Permission[]> = {
   user: [],
   auditor: ["admin.view", "revenue.view"],
-  counter: ["counter.topup"],
+  counter: ["counter.topup", "customers.create"],
   content: ["admin.view", "templates.manage"],
-  support: ["admin.view", "notes.write", "adjustments.request", "support.manage"],
-  finance: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "counter.topup", "support.manage", "revenue.view"],
-  admin: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "templates.manage", "notes.write", "oauth.manage", "counter.topup", "coupons.manage", "users.ban", "support.manage", "revenue.view"],
+  support: ["admin.view", "notes.write", "adjustments.request", "support.manage", "customers.create"],
+  finance: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "counter.topup", "support.manage", "revenue.view", "customers.create"],
+  admin: ["admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "templates.manage", "notes.write", "oauth.manage", "counter.topup", "coupons.manage", "users.ban", "support.manage", "revenue.view", "customers.create"],
   super_admin: [
     "admin.view", "topups.decide", "adjustments.request", "adjustments.approve", "adjustments.direct",
     "templates.manage", "sms.manage", "whatsapp.manage", "settings.manage", "roles.manage", "notes.write", "oauth.manage",
-    "customers.export", "plans.grant", "counter.topup", "coupons.manage", "users.ban", "support.manage", "revenue.view",
+    "customers.export", "customers.create", "plans.grant", "counter.topup", "coupons.manage", "users.ban", "support.manage", "revenue.view",
   ],
 };
 

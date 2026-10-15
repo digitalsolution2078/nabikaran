@@ -15,7 +15,7 @@ import { sendPushToUser } from "./push";
  * reconciled per person per day. Staff cannot credit their own wallet, and
  * non-super-admins have a daily limit (Admin → Settings, "codes").
  */
-export const COUNTER_METHODS = ["cash", "esewa", "khalti", "fonepay", "bank", "other"] as const;
+export const COUNTER_METHODS = ["cash", "khalti", "fonepay", "bank", "other"] as const;
 export type CounterMethod = (typeof COUNTER_METHODS)[number];
 
 export interface CounterCustomer {
@@ -29,7 +29,7 @@ export async function counterLookup(phone: string, db: Db = getDb()): Promise<Co
   const e164 = normalizeNepalPhone(phone);
   if (!e164) throw new HttpError(400, "Enter a valid Nepali mobile number.", "invalid_phone");
   const { rows } = await db.query<{ id: string; display_name: string | null; status: string }>("select id, display_name, status from users where phone_e164 = $1", [e164]);
-  if (!rows[0] || rows[0].status !== "active") throw new HttpError(404, "No active Nabikaran account for this number. Ask the customer to sign up first.", "customer_not_found");
+  if (!rows[0] || rows[0].status !== "active") throw new HttpError(404, "No active Nabikaran account for this number yet.", "customer_not_found");
   const w = await readWallet(rows[0].id, db);
   return { id: rows[0].id, phone: e164, name: rows[0].display_name, available: w.available };
 }

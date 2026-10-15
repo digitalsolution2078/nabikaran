@@ -33,7 +33,7 @@ describe("support tickets", () => {
   it("a signed-in customer opens, sees and answers their own ticket only", async () => {
     const uid = await createUser(db, "+9779841001001");
     const other = await createUser(db, "+9779841001002");
-    const t = await createTicket(uid, { category: "payment", subject: "Top-up missing", body: "Paid NPR 500 by eSewa, txn 123" }, { contentType: "image/png", bytes: png }, db);
+    const t = await createTicket(uid, { category: "payment", subject: "Top-up missing", body: "Paid NPR 500 by Khalti, txn 123" }, { contentType: "image/png", bytes: png }, db);
     expect(t.ref).toMatch(/^NB-\d{4,}$/);
     expect(t.guestToken).toBeNull();
     expect((await listMyTickets(uid, db)).map((x) => x.id)).toEqual([t.id]);

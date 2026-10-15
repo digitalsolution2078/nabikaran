@@ -53,6 +53,7 @@ export const env = {
       authToken: pick(o().aakashAuthToken, process.env.AAKASH_AUTH_TOKEN ?? ""),
       sendUrl: process.env.AAKASH_SEND_URL ?? "https://sms.aakashsms.com/sms/v3/send",
       reportUrl: process.env.AAKASH_REPORT_URL ?? "https://sms.aakashsms.com/sms/v3/report",
+      creditUrl: process.env.AAKASH_CREDIT_URL ?? "https://sms.aakashsms.com/sms/v1/credit",
     };
   },
 
@@ -63,23 +64,6 @@ export const env = {
     return {
       secretKey: pick(o().khaltiSecretKey, process.env.KHALTI_SECRET_KEY ?? ""),
       baseUrl: khaltiBase(pick(o().khaltiBaseUrl, process.env.KHALTI_BASE_URL ?? (isProd ? "https://khalti.com" : "https://dev.khalti.com"))),
-    };
-  },
-
-  /**
-   * eSewa ePay v2. "test" uses eSewa's public UAT merchant (EPAYTEST) unless a
-   * product code and secret are set; "live" needs both from the eSewa merchant
-   * account. "off" (default) hides eSewa.
-   */
-  get esewa() {
-    const mode = pick(o().esewaMode, process.env.ESEWA_MODE ?? "off") as "off" | "live" | "test";
-    const test = mode !== "live";
-    return {
-      mode,
-      productCode: pick(o().esewaProductCode, process.env.ESEWA_PRODUCT_CODE ?? (test ? "EPAYTEST" : "")),
-      secretKey: pick(o().esewaSecretKey, process.env.ESEWA_SECRET_KEY ?? (test ? "8gBm/:&EnhH.1/q" : "")),
-      formUrl: test ? "https://rc-epay.esewa.com.np/api/epay/main/v2/form" : "https://epay.esewa.com.np/api/epay/main/v2/form",
-      statusUrl: test ? "https://rc.esewa.com.np/api/epay/transaction/status/" : "https://esewa.com.np/api/epay/transaction/status/",
     };
   },
 

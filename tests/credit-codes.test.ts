@@ -143,7 +143,7 @@ describe("counter", () => {
     // Same receipt number cannot be used twice.
     await expect(counterTopup({ id: counter }, { phone: "9841000980", amountNpr: 100, method: "cash", receipt: "B-101", idempotencyKey: "k-counter-2" }, db)).rejects.toMatchObject({ code: "receipt_used" });
     // Daily limit (1000 set above): 600 used, 500 more is refused.
-    await expect(counterTopup({ id: counter }, { phone: "9841000980", amountNpr: 500, method: "esewa", idempotencyKey: "k-counter-3" }, db)).rejects.toMatchObject({ code: "daily_limit" });
+    await expect(counterTopup({ id: counter }, { phone: "9841000980", amountNpr: 500, method: "khalti", idempotencyKey: "k-counter-3" }, db)).rejects.toMatchObject({ code: "daily_limit" });
     // Super admins have no limit; nobody can credit themselves.
     await counterTopup(A(), { phone: "9841000980", amountNpr: 5000, method: "bank", idempotencyKey: "k-counter-4" }, db);
     await expect(counterTopup({ id: counter }, { phone: "9841000962", amountNpr: 100, method: "cash", idempotencyKey: "k-counter-5" }, db)).rejects.toMatchObject({ code: "self_topup" });

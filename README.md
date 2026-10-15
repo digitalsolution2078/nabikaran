@@ -6,7 +6,7 @@ Nepal-first web app: save expiry dates (AD or Bikram Sambat), buy prepaid SMS cr
 
 - Next.js 16 (App Router, PWA) · TypeScript · React 19
 - PostgreSQL (Supabase) — all money/dispatch invariants live in SQL functions (`supabase/migrations/0001_init.sql`)
-- Aakash SMS (provider adapter, replaceable) · Khalti KPG-2 (eSewa phase 2)
+- Aakash SMS (provider adapter, replaceable) · Khalti KPG-2 · Checkout by Fonepay
 - Vitest + PGlite: tests run the real migration in-process, no DB server needed
 
 ## Run locally

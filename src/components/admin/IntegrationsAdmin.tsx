@@ -103,19 +103,6 @@ export function IntegrationsAdmin({ initial, isProd, webhookUrl, khaltiReturnUrl
       </section>
 
       <section className="card">
-        <div className="row between" style={{ flexWrap: "wrap", gap: 8 }}><h2 style={{ margin: 0 }}>eSewa</h2>{statusBadge("esewa")}</div>
-        <p className="small muted">Online top-ups from the eSewa wallet (ePay v2), shown next to Khalti. Credits are added automatically after eSewa confirms the payment on its status API. &quot;Test&quot; uses eSewa&apos;s public test merchant (EPAYTEST) unless you enter your own code and key. Success/failure URL: <span className="mono">{khaltiReturnUrl.replace(/\/wallet$/, "")}/api/payments/esewa/return</span></p>
-        <div className="grid grid-2">
-          {select("int-es", "esewa_mode", ["env", "off", "test", "live"], "Mode")}
-          <div className="field"><label htmlFor="int-esp">Product (merchant) code</label><input id="int-esp" type="text" value={s.esewa_product_code ?? ""} onChange={(e) => setS({ ...s, esewa_product_code: e.target.value })} placeholder="e.g. EPAYTEST — empty uses the server value" /></div>
-          <SecretField k="esewa_secret_key" label="Secret key" st={st.secrets.esewa_secret_key} onSaved={reload} setMsg={setMsg} />
-        </div>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveModes("eSewa settings")}>Save eSewa settings</button>
-        </div>
-      </section>
-
-      <section className="card">
         <div className="row between" style={{ flexWrap: "wrap", gap: 8 }}><h2 style={{ margin: 0 }}>Checkout by Fonepay</h2>{statusBadge("fonepay")}</div>
         <p className="small muted">Customers pay on Fonepay&apos;s checkout page (scan the QR or use mobile banking) and credits are added automatically after Fonepay confirms. You need the <strong>merchant code (PID)</strong> and <strong>secret key</strong> from Fonepay. Use &quot;test&quot; with Fonepay&apos;s test credentials first, then &quot;live&quot;. Return URL to give Fonepay: <code>https://nabikaran.org/api/payments/fonepay/return</code>. With &quot;Off&quot;, the static QR and admin verification keep working.</p>
         <div className="grid grid-2">

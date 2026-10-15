@@ -1,7 +1,7 @@
 import { getDb, type Db } from "../db";
 import { readWallet, type WalletView } from "../core/wallet";
 
-const gatewayLabel = (g: string) => (g === "khalti" ? "Khalti" : g === "esewa" ? "eSewa" : g === "fonepay" ? "Fonepay" : g);
+const gatewayLabel = (g: string) => (g === "khalti" ? "Khalti" : g === "fonepay" ? "Fonepay" : g);
 
 /**
  * Finance-grade view of the append-only ledger. Every row is classified:

@@ -1,6 +1,8 @@
 import { getDb, type Db } from "../../db";
+import { recordUsage, recordUsageToDb, type UsageRecorder } from "../usage";
 import { getSecret } from "../../services/secrets";
 import { getSetting } from "../../services/settings";
+import { env } from "../../env";
 
 /**
  * Email sending. Resend (https://resend.com) in production; an in-memory mock
@@ -82,6 +84,18 @@ export function setEmailProviderForTests(p: EmailProvider | null | undefined) {
 
 let devMock: MockEmailProvider | null = null;
 
+/** Counts every email that is not a reminder for Admin → Message usage. */
+export function meteredEmailProvider(inner: EmailProvider, record: UsageRecorder = recordUsageToDb): EmailProvider {
+  return {
+    name: inner.name,
+    async send(m) {
+      const out = await inner.send(m);
+      await recordUsage(record, { channel: "email", key: m.idempotencyKey, provider: inner.name, outcome: out.kind, segments: 1, units: out.kind === "accepted" && out.units !== undefined ? out.units : null });
+      return out;
+    },
+  };
+}
+
 /** The configured provider, or null when email is not set up (no key, no sender, or switched off). */
 export async function getEmailProvider(db: Db = getDb()): Promise<EmailProvider | null> {
   if (override !== undefined) return override;
@@ -90,12 +104,12 @@ export async function getEmailProvider(db: Db = getDb()): Promise<EmailProvider 
       devMock = new MockEmailProvider();
       devMock.log = (line) => console.log(line);
     }
-    return devMock;
+    return meteredEmailProvider(devMock);
   }
   const [settings, saved] = await Promise.all([getSetting("email", db), getSecret("resend_api_key", db)]);
   const key = saved || process.env.RESEND_API_KEY || null;
   if (!settings.enabled || !key || !settings.from_email) return null;
-  return new ResendEmailProvider(key, `${settings.from_name} <${settings.from_email}>`, settings.reply_to || null);
+  return meteredEmailProvider(new ResendEmailProvider(key, `${settings.from_name} <${settings.from_email}>`, settings.reply_to || null));
 }
 
 /** Minimal, safe HTML version of a plain-text email. */
@@ -103,5 +117,6 @@ export function textToHtml(text: string, link?: { href: string; label: string })
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const paras = text.split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
   const btn = link ? `<p style="margin:18px 0"><a href="${esc(link.href)}" style="background:#55239a;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;display:inline-block">${esc(link.label)}</a></p>` : "";
-  return `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#0f172a;max-width:520px">${paras}${btn}<p style="margin-top:24px;font-size:12px;color:#64748b">Nabikaran · nabikaran.org</p></div>`;
+  const logo = `<p style="margin:0 0 18px"><img src="${esc(env.appUrl.replace(/\/$/, ""))}/brand/nabikaran-logo.png" alt="Nabikaran" width="168" height="36" style="display:block;border:0;height:36px;width:168px"></p>`;
+  return `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#0f172a;max-width:520px">${logo}${paras}${btn}<p style="margin-top:24px;font-size:12px;color:#64748b">Nabikaran · nabikaran.org</p></div>`;
 }
