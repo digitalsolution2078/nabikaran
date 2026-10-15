@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "../api";
 import { Icon } from "../Icon";
 
-type Abilities = { paid: boolean; freeDirect: boolean; freeRequest: boolean };
+type Abilities = { paid: boolean; freeDirect: boolean; freeRequest: boolean; business?: boolean };
 type Recent = { id: string; phone: string; name: string | null; createdAt: string; staff: string | null; signedIn: boolean };
 type Result = {
   customer: { id: string; phone: string; name: string | null; available: number };
@@ -15,7 +15,7 @@ type Result = {
 
 const METHODS: Array<[string, string]> = [["cash", "Cash"], ["khalti", "Khalti"], ["fonepay", "Fonepay / bank QR"], ["bank", "Bank transfer"], ["other", "Other"]];
 const newKey = () => (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).replace(/-/g, "").slice(0, 32);
-const empty = { phone: "", name: "", email: "", locale: "ne-NP", kind: "none", amount: "", method: "cash", receipt: "", credits: "", reason: "", sms: true };
+const empty = { phone: "", name: "", email: "", locale: "ne-NP", kind: "none", amount: "", method: "cash", receipt: "", credits: "", reason: "", sms: true, biz: false, bizName: "" };
 
 /** Admin → Users: add a customer account and, optionally, paid or free credits in one step. */
 export function AddCustomer({ can, recent }: { can: Abilities; recent: Recent[] }) {
@@ -42,7 +42,7 @@ export function AddCustomer({ can, recent }: { can: Abilities; recent: Recent[] 
         : f.kind === "free" ? { kind: "free", credits, reason: f.reason.trim() } : { kind: "none" };
       const r = await api<Result>("/api/admin/customers", {
         method: "POST",
-        json: { phone: f.phone, name: f.name.trim() || null, email: f.email.trim() || null, locale: f.locale, credit, welcomeSms: f.sms, idempotencyKey: key },
+        json: { phone: f.phone, name: f.name.trim() || null, email: f.email.trim() || null, locale: f.locale, credit, welcomeSms: f.sms, business: f.biz ? { name: f.bizName.trim() } : null, idempotencyKey: key },
       });
       setDone(r);
       setF(empty);
@@ -122,10 +122,16 @@ export function AddCustomer({ can, recent }: { can: Abilities; recent: Recent[] 
             </div>
           )}
 
+          {can.business && (
+            <div className="mt">
+              <label className="row small"><input type="checkbox" checked={f.biz} onChange={(e) => setF({ ...f, biz: e.target.checked })} /> Business account: give business tools (reminders for their clients)</label>
+              {f.biz && <div className="field mt"><label htmlFor="ac-biz">Business name (shown in client SMS)</label><input id="ac-biz" value={f.bizName} maxLength={20} onChange={(e) => setF({ ...f, bizName: e.target.value })} placeholder="e.g. Ram Motors" required /><span className="hint">2–20 English letters.</span></div>}
+            </div>
+          )}
           <label className="row small mt"><input type="checkbox" checked={f.sms} onChange={(e) => setF({ ...f, sms: e.target.checked })} /> Send a welcome SMS with the sign-in link (1 SMS, paid by Nabikaran)</label>
           {err && <div className="alert bad mt" role="alert">{err.text}{err.existingId && <> <Link href={`/admin/users/${err.existingId}`}>Open that account →</Link></>}</div>}
           <div className="row mt" style={{ gap: 8 }}>
-            <button className="btn btn-primary" disabled={busy || f.phone.replace(/\D/g, "").length < 10 || !creditOk}>{busy ? <span className="spinner" /> : <Icon name="check" size={16} />} Create account</button>
+            <button className="btn btn-primary" disabled={busy || f.phone.replace(/\D/g, "").length < 10 || !creditOk || (f.biz && f.bizName.trim().length < 2)}>{busy ? <span className="spinner" /> : <Icon name="check" size={16} />} Create account</button>
             <button type="button" className="btn btn-ghost" onClick={() => { setOpen(false); setErr(null); }}>Close</button>
           </div>
         </form>

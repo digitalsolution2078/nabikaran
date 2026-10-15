@@ -9,6 +9,7 @@ import { readWallet } from "../core/wallet";
 import { COUNTER_METHODS, counterTopup } from "./counter";
 import { requestWalletAdjustment } from "./admin";
 import { directAdjustment } from "./admin-console";
+import { businessNameSchema } from "./clients";
 
 /**
  * Staff add a customer account (walk-in, phone call, a business signing up its
@@ -38,6 +39,8 @@ export const staffCustomerSchema = z.object({
     z.object({ kind: z.literal("free"), credits: z.number().int().min(1).max(100000), reason: z.string().trim().min(3).max(200) }),
   ]).default({ kind: "none" }),
   welcomeSms: z.boolean().default(false),
+  /** Give business tools (clients) with this business name; admins only. */
+  business: z.object({ name: z.string().trim().max(40) }).nullable().default(null),
   idempotencyKey: z.string().min(8).max(64),
 });
 export type StaffCustomerInput = z.infer<typeof staffCustomerSchema>;
@@ -59,12 +62,16 @@ export function staffCustomerAbilities(role: Role | string | null | undefined) {
     paid: can(role, "counter.topup"),
     freeDirect: can(role, "adjustments.direct"),
     freeRequest: can(role, "adjustments.request"),
+    business: can(role, "business.grant"),
   };
 }
 
 export async function createCustomerByStaff(actor: { id: string; role: string }, input: StaffCustomerInput, db: Db = getDb()): Promise<StaffCustomerResult> {
   const may = staffCustomerAbilities(actor.role);
   if (!may.create) throw new HttpError(403, "You cannot add customers.", "forbidden");
+  if (input.business && !may.business) throw new HttpError(403, "Only an admin can give business tools.", "forbidden");
+  const bizName = input.business ? businessNameSchema.safeParse(input.business.name) : null;
+  if (bizName && !bizName.success) throw new HttpError(400, bizName.error.issues[0].message, "invalid_business_name");
   if (input.credit.kind === "paid" && !may.paid) throw new HttpError(403, "Your role cannot take payments. Add the account without credit.", "forbidden");
   if (input.credit.kind === "free" && !may.freeDirect && !may.freeRequest) throw new HttpError(403, "Your role cannot give free credits.", "forbidden");
   const phone = normalizeNepalPhone(input.phone);
@@ -79,11 +86,11 @@ export async function createCustomerByStaff(actor: { id: string; role: string },
       if (e[0]) throw new HttpError(409, "This email is already used by another account.", "email_taken");
     }
     const { rows } = await tx.query<{ id: string }>(
-      "insert into users (phone_e164, display_name, email, locale, created_by) values ($1, $2, $3, $4, $5) returning id",
-      [phone, name, input.email, input.locale, actor.id],
+      "insert into users (phone_e164, display_name, email, locale, created_by, business_allowed, business_name) values ($1, $2, $3, $4, $5, $6, $7) returning id",
+      [phone, name, input.email, input.locale, actor.id, Boolean(bizName), bizName?.success ? bizName.data : null],
     );
     await tx.query("insert into wallets (user_id) values ($1) on conflict do nothing", [rows[0].id]);
-    await audit(tx, { userId: actor.id, via: "web", scopes: [], locale: "en" }, "customer.created_by_staff", { type: "user", id: rows[0].id }, { credit: input.credit.kind, welcomeSms: input.welcomeSms });
+    await audit(tx, { userId: actor.id, via: "web", scopes: [], locale: "en" }, "customer.created_by_staff", { type: "user", id: rows[0].id }, { credit: input.credit.kind, welcomeSms: input.welcomeSms, business: bizName?.success ? bizName.data : null });
     return rows[0].id;
   });
 

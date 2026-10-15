@@ -664,3 +664,11 @@ Admin → Overview → **Message usage** (`revenue.view`):
 - **Per day** stacked chart and **What was sent** (reminders, sign-in codes, nudges, low-credit alerts, Pro summaries, welcome, tests). Reminders come from the full message history. Other SMS and email are counted in `message_usage` from this update on.
 
 If the balance check fails, the page shows the error (e.g. token refused). Confirm the credit endpoint with Aakash if it reports "no credit in response".
+
+## 32. Business tools need admin approval (migration `0027`)
+
+Business tools (clients, client reminder SMS) are no longer self-service. `users.business_allowed` must be on:
+- **Give:** Customers → Users → open the customer → **Business tools** → optional business name → *Give business tools* (permission `business.grant`: admin, super admin). Or tick **Business account** when adding a customer.
+- **Customers without access** see a *Request business tools* button in Settings that opens Support.
+- **Take away:** *Turn off*. Clients are kept. Their pending reminders are cancelled with credits returned when they fall due, and new clients cannot be added.
+- Accounts that already had a business name before this update keep access (the migration grants it).

@@ -40,14 +40,43 @@ export const clientInputSchema = z.object({
 
 const iso = (v: unknown) => (v ? (v instanceof Date ? v : new Date(String(v))).toISOString() : null);
 
+/** The business name when business tools are on (an admin allowed the account and the owner set a name). */
 export async function businessName(userId: string, db: Db = getDb()): Promise<string | null> {
-  const { rows } = await db.query<{ business_name: string | null }>("select business_name from users where id = $1", [userId]);
-  return rows[0]?.business_name ?? null;
+  const { rows } = await db.query<{ business_name: string | null; business_allowed: boolean }>("select business_name, business_allowed from users where id = $1", [userId]);
+  return rows[0]?.business_allowed ? rows[0].business_name ?? null : null;
+}
+
+/** Whether an admin has given this account business tools. */
+export async function businessAllowed(userId: string, db: Db = getDb()): Promise<boolean> {
+  const { rows } = await db.query<{ business_allowed: boolean }>("select business_allowed from users where id = $1", [userId]);
+  return Boolean(rows[0]?.business_allowed);
+}
+
+/**
+ * Admin: give or take away business tools. Taking them away keeps the
+ * clients; their pending reminders are cancelled with credits returned when
+ * they fall due (the dispatcher refuses client reminders without access).
+ */
+export async function setBusinessAccess(actor: { id: string }, userId: string, allowed: boolean, name: string | null | undefined, db: Db = getDb()): Promise<{ allowed: boolean; name: string | null }> {
+  let clean: string | null | undefined = undefined;
+  if (name !== undefined && name !== null && name !== "") {
+    const parsed = businessNameSchema.safeParse(name);
+    if (!parsed.success) throw new HttpError(400, parsed.error.issues[0].message, "invalid_business_name");
+    clean = parsed.data;
+  }
+  const { rows } = await db.query<{ business_allowed: boolean; business_name: string | null }>(
+    "update users set business_allowed = $2, business_name = coalesce($3, business_name), updated_at = now() where id = $1 returning business_allowed, business_name",
+    [userId, allowed, clean ?? null],
+  );
+  if (!rows[0]) throw new HttpError(404, "Customer not found", "not_found");
+  await audit(db, webPrincipal({ id: actor.id, locale: "en" }), allowed ? "business.access_granted" : "business.access_revoked", { type: "user", id: userId }, { name: rows[0].business_name });
+  return { allowed: rows[0].business_allowed, name: rows[0].business_name };
 }
 
 /** Switch business tools on (with the name shown in client SMS) or off (null). */
 export async function setBusinessName(userId: string, name: string | null, db: Db = getDb()): Promise<string | null> {
   if (name !== null) {
+    if (!(await businessAllowed(userId, db))) throw new HttpError(403, "Business tools are given by Nabikaran. Contact support to request them.", "business_not_allowed");
     const s = await getSetting("business", db);
     if (!s.enabled) throw new HttpError(403, "Business accounts are not available right now.", "business_disabled");
     const parsed = businessNameSchema.safeParse(name);
@@ -175,7 +204,7 @@ export async function clientForImport(tx: Db, userId: string, name: string, phon
 
 export async function businessStats(db: Db = getDb()): Promise<{ accounts: number; clients: number; reminders: number }> {
   const { rows } = await db.query<{ accounts: number; clients: number; reminders: number }>(
-    `select (select count(*) from users where business_name is not null)::int as accounts,
+    `select (select count(*) from users where business_name is not null and business_allowed)::int as accounts,
             (select count(*) from clients where status = 'active')::int as clients,
             (select count(*) from renewal_items where client_id is not null and status = 'active')::int as reminders`,
   );
@@ -183,15 +212,15 @@ export async function businessStats(db: Db = getDb()): Promise<{ accounts: numbe
 }
 
 /** Admin user page: the account's business name and client count. */
-export async function businessSummary(userId: string, db: Db = getDb()): Promise<{ name: string | null; clients: number; reminders: number }> {
-  const { rows } = await db.query<{ name: string | null; clients: number; reminders: number }>(
-    `select u.business_name as name,
+export async function businessSummary(userId: string, db: Db = getDb()): Promise<{ name: string | null; allowed: boolean; clients: number; reminders: number }> {
+  const { rows } = await db.query<{ name: string | null; allowed: boolean; clients: number; reminders: number }>(
+    `select u.business_name as name, u.business_allowed as allowed,
             (select count(*) from clients c where c.owner_user_id = u.id and c.status = 'active')::int as clients,
             (select count(*) from renewal_items i where i.owner_user_id = u.id and i.client_id is not null and i.status = 'active')::int as reminders
        from users u where u.id = $1`,
     [userId],
   );
-  return rows[0] ?? { name: null, clients: 0, reminders: 0 };
+  return rows[0] ?? { name: null, allowed: false, clients: 0, reminders: 0 };
 }
 
 // ---- admin: numbers that must not receive client reminders -----------------

@@ -94,7 +94,7 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       }>(
         `select j.status as job_status, j.due_at_utc, i.status as renewal_status, i.label, i.category, i.expiry_at_utc, i.cycle_no, j.cycle_no as job_cycle,
                 u.phone_e164, u.phone_verified_at, u.locale, u.status as user_status, u.email, u.email_verified_at, r.status as reservation_status, r.held_credits::text as held,
-                i.client_id, c.name as client_name, c.phone_e164 as client_phone, c.status as client_status, u.business_name,
+                i.client_id, c.name as client_name, c.phone_e164 as client_phone, c.status as client_status, case when u.business_allowed then u.business_name end as business_name,
                 exists (select 1 from blocked_recipients b where b.phone_e164 = c.phone_e164) as client_blocked,
                 (select count(*) from sms_attempts a where a.job_id = j.id and a.api_state in ('pending','accepted'))::int as prior
            from reminder_jobs j

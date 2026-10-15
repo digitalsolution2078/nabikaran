@@ -134,4 +134,10 @@ export const ENSURE_STEPS: EnsureStep[] = [
       "select (to_regclass('public.message_usage') is not null and to_regclass('public.sms_balance_checks') is not null) as ok",
     sql: "-- 0026: Message usage. Balance checks of the SMS provider account (Aakash\n-- credits left) and a count of every SMS and email that is not a reminder\n-- (sign-in codes, nudges, alerts, digests, welcome, tests); reminder SMS,\n-- WhatsApp and email are already in sms_attempts. Additive, re-runnable.\n\ncreate table if not exists message_usage (\n  id         bigint generated always as identity primary key,\n  channel    text not null check (channel in ('sms','whatsapp','email')),\n  kind       text not null,\n  provider   text not null,\n  outcome    text not null check (outcome in ('accepted','rejected','unknown')),\n  segments   int not null default 1,\n  units      numeric(10,2),\n  created_at timestamptz not null default now()\n);\ncreate index if not exists message_usage_created_idx on message_usage (created_at);\n\ncreate table if not exists sms_balance_checks (\n  id         bigint generated always as identity primary key,\n  provider   text not null,\n  available  numeric(14,2),\n  total_sent numeric(14,0),\n  error_text text,\n  checked_at timestamptz not null default now()\n);\ncreate index if not exists sms_balance_checks_at_idx on sms_balance_checks (checked_at desc);\n",
   },
+  {
+    name: "0027_business_access",
+    check:
+      "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'business_allowed') as ok",
+    sql: "-- 0027: Business tools need an admin's approval. Accounts already using them\n-- keep access. Additive, re-runnable.\nalter table users add column if not exists business_allowed boolean not null default false;\nupdate users set business_allowed = true where business_name is not null and not business_allowed;\n",
+  },
 ];
