@@ -30,7 +30,7 @@ export function BusinessAdmin({ settings, blocked, stats, canBlock }: { settings
   return (
     <section className="card">
       <h2>Business accounts (clients)</h2>
-      <p className="small muted">Dealers, insurance agents and consultancies keep reminders for their clients. Client reminders go by SMS to the client&apos;s phone, signed with the business name; the business pays from its wallet. Businesses confirm each client agreed to receive the SMS.</p>
+      <p className="small muted">Dealers, insurance agents and consultancies keep reminders for their clients. Client reminders go by SMS to the client&apos;s phone, signed with the business name; the business pays from its wallet. Businesses confirm each client agreed to receive the SMS. Business tools are given per customer: Customers → Users → open the customer → Business tools (or tick &quot;Business account&quot; when adding a customer).</p>
       <div className="grid grid-3">
         <div className="stat"><div className="label">Business accounts</div><div className="value">{stats.accounts}</div></div>
         <div className="stat"><div className="label">Clients</div><div className="value">{stats.clients}</div></div>

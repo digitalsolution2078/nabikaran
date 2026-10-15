@@ -6,6 +6,7 @@ import { setSmsProviderForTests } from "@/lib/providers/sms";
 import { createCustomerByStaff, recentStaffCustomers, staffCustomerSchema } from "@/lib/services/staff-customers";
 import { approveWalletAdjustment } from "@/lib/services/admin";
 import { counterLookup } from "@/lib/services/counter";
+import { businessName } from "@/lib/services/clients";
 
 let db: Db;
 let close: () => Promise<void> = async () => undefined;
@@ -68,6 +69,12 @@ describe("staff add customers", () => {
     const { rows: req } = await db.query<{ id: string }>("select id from wallet_adjustment_requests where user_id = $1", [asked.customer.id]);
     await approveWalletAdjustment(staff.admin.id, req[0].id, db);
     expect((await wallet(db, asked.customer.id)).available).toBe(20);
+  });
+
+  it("an admin can add a business account in one step; counter staff cannot", async () => {
+    const r = await createCustomerByStaff(staff.admin, input({ phone: "9851009010", business: { name: "Sita Motors" } }), db);
+    expect(await businessName(r.customer.id, db)).toBe("Sita Motors");
+    expect(await code(createCustomerByStaff(staff.counter, input({ phone: "9851009011", business: { name: "Hari Motors" } }), db))).toBe("forbidden");
   });
 
   it("roles decide what is allowed", async () => {

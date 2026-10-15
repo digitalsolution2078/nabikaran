@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getRequestContext } from "@/lib/i18n/server";
 import { SettingsForm } from "@/components/SettingsForm";
@@ -14,7 +15,7 @@ import { twoFactorStatus, staffNeedsTwoFactor } from "@/lib/services/two-factor"
 import { PushManager } from "@/components/PushManager";
 import { NudgesToggle } from "@/components/NudgesToggle";
 import { BusinessCard } from "@/components/BusinessCard";
-import { businessName } from "@/lib/services/clients";
+import { businessAllowed, businessName } from "@/lib/services/clients";
 import { getSetting } from "@/lib/services/settings";
 import { getDb } from "@/lib/db";
 import { EmailManager } from "@/components/EmailManager";
@@ -42,9 +43,9 @@ export default async function SettingsPage() {
     "select nudges_opt_out as off, exists (select 1 from renewal_items i where i.owner_user_id = u.id) as has from users u where u.id = $1",
     [user.id],
   );
-  const [bizName, bizSettings] = await Promise.all([businessName(user.id), getSetting("business")]);
-  // Shown when business accounts are offered, or to keep an existing business account manageable.
-  const biz = { show: bizSettings.enabled || Boolean(bizName), name: bizName };
+  const [bizName, bizAllowed, bizSettings] = await Promise.all([businessName(user.id), businessAllowed(user.id), getSetting("business")]);
+  // Business tools are given by an admin; others see how to ask for them.
+  const biz = { show: bizAllowed && (bizSettings.enabled || Boolean(bizName)), request: !bizAllowed && bizSettings.enabled, name: bizName };
   const nudge = { show: Boolean(nudgeRows[0] && !nudgeRows[0].has), on: !nudgeRows[0]?.off };
   return (
     <div className="stack">
@@ -67,6 +68,13 @@ export default async function SettingsPage() {
       <PushManager />
       {nudge.show && <NudgesToggle initial={nudge.on} />}
       {biz.show && <BusinessCard initial={biz.name} />}
+      {biz.request && (
+        <section className="card">
+          <h2>{t("biz.title")}</h2>
+          <p className="muted">{t("biz.request")}</p>
+          <Link className="btn btn-secondary btn-sm" href="/support">{t("biz.requestCta")}</Link>
+        </section>
+      )}
       {staffMust && <TwoFactorManager initial={tfa} />}
       <PinManager initial={pin} />
       {!staffMust && <TwoFactorManager initial={tfa} />}

@@ -6,7 +6,7 @@ import { setSmsProviderForTests } from "@/lib/providers/sms";
 import { savePushSubscription, setPushSender } from "@/lib/services/push";
 import { createReminder, setReminderStatus, updateReminder } from "@/lib/core/reminders";
 import { runDispatcher } from "@/lib/services/dispatcher";
-import { archiveClient, blockRecipient, createClient, listClients, setBusinessName, unblockRecipient, updateClient } from "@/lib/services/clients";
+import { archiveClient, blockRecipient, businessName, createClient, listClients, setBusinessAccess, setBusinessName, unblockRecipient, updateClient } from "@/lib/services/clients";
 
 let db: Db;
 let close: () => Promise<void> = async () => undefined;
@@ -39,6 +39,13 @@ afterAll(async () => {
 const code = async (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code ?? String(e));
 
 describe("business accounts: clients", () => {
+  it("business tools are given by an admin; the customer cannot switch them on alone", async () => {
+    expect(await code(setBusinessName(owner, "Ram Motors", db))).toBe("business_not_allowed");
+    await setBusinessAccess({ id: admin }, owner, true, undefined, db);
+    await setBusinessAccess({ id: admin }, other, true, undefined, db);
+    expect(await businessName(owner, db)).toBeNull(); // allowed, but no name yet
+  });
+
   it("business tools need a short plain business name; clients need business tools and consent", async () => {
     expect(await code(createClient(owner, { name: "Hari", phone: "9851000001", note: null, consent: true }, db))).toBe("business_required");
     expect(await code(setBusinessName(owner, "न", db))).toBe("invalid_business_name");
@@ -131,6 +138,21 @@ describe("business accounts: Excel / CSV import with client columns", () => {
     const clients = await listClients(owner, {}, db);
     expect(clients.find((c) => c.phone === "+9779851000010")!.activeReminders).toBe(2);
     expect(clients.find((c) => c.phone === "+9779851000011")!.activeReminders).toBe(1);
+  });
+
+  it("taking business tools away stops client reminders: they are cancelled when due, credits returned", async () => {
+    const c = await createClient(owner, { name: "Laxmi", phone: "9851000020", note: null, consent: true }, db);
+    const { reminder } = await createReminder(principalFor(owner), { category: "other", label: "Tax", calendar: "AD", expiryDate: inDays(5), offsets: [1440], channels: ["sms"], clientId: c.id, ...base }, {}, db);
+    const held = (await wallet(db, owner)).reserved;
+    await setBusinessAccess({ id: admin }, owner, false, undefined, db);
+    expect(await businessName(owner, db)).toBeNull();
+    expect(await code(createClient(owner, { name: "New", phone: "9851000099", note: null, consent: true }, db))).toBe("business_required");
+    await db.query("update reminder_jobs set due_at_utc = now() - interval '1 minute' where renewal_id = $1", [reminder.id]);
+    await runDispatcher(db, new Date());
+    expect(sms.sent.some((m) => m.to === "+9779851000020")).toBe(false);
+    expect((await wallet(db, owner)).reserved).toBeLessThan(held);
+    await setBusinessAccess({ id: admin }, owner, true, undefined, db);
+    expect(await businessName(owner, db)).toBe("Ram Motors");
   });
 
   it("without business tools, client rows are flagged", async () => {

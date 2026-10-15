@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/rbac";
 import { getUserDetail, listNotes, listSmsLog, listUserAudit } from "@/lib/services/admin-console";
 import { businessSummary } from "@/lib/services/clients";
+import { BusinessAccess } from "@/components/admin/BusinessAccess";
 import { getStatement, listTopups } from "@/lib/services/wallet-report";
 import { ChannelBadge } from "@/components/ChannelBadge";
 import { NoteForm } from "@/components/admin/NoteForm";
@@ -45,8 +46,17 @@ export default async function AdminUserDetail({ params }: { params: Promise<{ id
           <div className="stat"><div className="label">Reserved</div><div className="value">{u.reserved}</div></div>
           <div className="stat"><div className="label">Active reminders</div><div className="value">{u.activeReminders}</div></div>
         </div>
-        {biz.name && <p className="small mt mb-0"><strong>Business account:</strong> {biz.name} · {biz.clients} client(s) · {biz.reminders} active client reminder(s)</p>}
+        {biz.allowed && biz.name && <p className="small mt mb-0"><strong>Business account:</strong> {biz.name} · {biz.clients} client(s) · {biz.reminders} active client reminder(s)</p>}
       </section>
+
+      {(biz.allowed || can(me.role, "business.grant")) && (
+        <section className="card" id="business">
+          <h2>Business tools</h2>
+          {can(me.role, "business.grant")
+            ? <BusinessAccess userId={u.id} allowed={biz.allowed} name={biz.name} clients={biz.clients} reminders={biz.reminders} />
+            : <p className="small muted mb-0">On{biz.name ? ` · ${biz.name}` : ""} · {biz.clients} client(s). Only an admin can change this.</p>}
+        </section>
+      )}
 
       <section className="card" id="ban">
         <h2>Account access</h2>
