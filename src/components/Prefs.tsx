@@ -86,8 +86,8 @@ function OnboardingPrefs({ onDone }: { onDone: (p: Prefs) => void }) {
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="prefs-title">
       <div className="modal">
         <div className="logo" style={{ marginBottom: 14 }}>
-          <span className="logo-mark">न</span>
-          <span>Nabikaran<small>नवीकरण</small></span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/nabikaran-logo.webp" alt="Nabikaran" width={158} height={34} className="brand-logo" />
         </div>
         <h2 id="prefs-title">{t("prefs.title")}</h2>
         <p className="muted">{t("prefs.subtitle")}</p>

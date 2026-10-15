@@ -2,6 +2,7 @@ import { getDb, type Db } from "../../db";
 import { recordUsage, recordUsageToDb, type UsageRecorder } from "../usage";
 import { getSecret } from "../../services/secrets";
 import { getSetting } from "../../services/settings";
+import { env } from "../../env";
 
 /**
  * Email sending. Resend (https://resend.com) in production; an in-memory mock
@@ -116,5 +117,6 @@ export function textToHtml(text: string, link?: { href: string; label: string })
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const paras = text.split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
   const btn = link ? `<p style="margin:18px 0"><a href="${esc(link.href)}" style="background:#55239a;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;display:inline-block">${esc(link.label)}</a></p>` : "";
-  return `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#0f172a;max-width:520px">${paras}${btn}<p style="margin-top:24px;font-size:12px;color:#64748b">Nabikaran · nabikaran.org</p></div>`;
+  const logo = `<p style="margin:0 0 18px"><img src="${esc(env.appUrl.replace(/\/$/, ""))}/brand/nabikaran-logo.png" alt="Nabikaran" width="168" height="36" style="display:block;border:0;height:36px;width:168px"></p>`;
+  return `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#0f172a;max-width:520px">${logo}${paras}${btn}<p style="margin-top:24px;font-size:12px;color:#64748b">Nabikaran · nabikaran.org</p></div>`;
 }

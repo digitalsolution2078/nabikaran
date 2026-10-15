@@ -45,11 +45,16 @@ const NAV: { href: string; icon: IconName; key: MessageKey }[] = [
   { href: "/settings", icon: "settings", key: "nav.settings" },
 ];
 
+/** The full Nabikaran logo (mark + wordmark). The square app icon stays in public/icon-*.png. */
+export function BrandLogo({ height = 34 }: { height?: number }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/brand/nabikaran-logo.webp" alt="Nabikaran" width={Math.round(height * 900 / 193)} height={height} className="brand-logo" />;
+}
+
 export function Logo({ href = "/" }: { href?: string }) {
   return (
     <Link href={href} className="logo" aria-label="Nabikaran home">
-      <span className="logo-mark" aria-hidden>न</span>
-      <span>Nabikaran<small>नवीकरण</small></span>
+      <BrandLogo />
     </Link>
   );
 }

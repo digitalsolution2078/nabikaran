@@ -87,6 +87,8 @@ img { max-width: 100%; }
 .logo { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-head); font-weight: 800; color: var(--fg); text-decoration: none !important; }
 .logo-mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--brand-500), var(--brand-600) 55%, var(--brand-900)); display: grid; place-items: center; color: #fff; font-weight: 800; box-shadow: 0 4px 12px -4px var(--brand-700); position: relative; }
 .logo-mark::after { content: ""; position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); }
+.brand-logo { display: block; height: 34px; width: auto; max-width: 100%; }
+.mobile-logo .brand-logo { height: 28px; }
 .logo small { display: block; font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--muted); margin-top: -2px; }
 
 /* ---------- Layout: app shell ---------- */
