@@ -63,10 +63,12 @@ function isActive(path: string, href: string) {
   return path === href || path.startsWith(`${href}/`);
 }
 
-export function Shell({ user, clockIso, children }: { user: ShellUser | null; clockIso: string; children: React.ReactNode }) {
+export interface CompanyInfo { name: string; pan: string; address: string; phone: string; email: string }
+
+export function Shell({ user, clockIso, children, company }: { user: ShellUser | null; clockIso: string; children: React.ReactNode; company?: CompanyInfo | null }) {
   const path = usePathname() ?? "/";
   const inApp = Boolean(user) && APP_PREFIXES.some((p) => isActive(path, p));
-  return inApp && user ? <AppShell user={user} path={path} clockIso={clockIso}>{children}</AppShell> : <PublicShell signedIn={Boolean(user)}>{children}</PublicShell>;
+  return inApp && user ? <AppShell user={user} path={path} clockIso={clockIso}>{children}</AppShell> : <PublicShell signedIn={Boolean(user)} company={company}>{children}</PublicShell>;
 }
 
 function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: string; clockIso: string; children: React.ReactNode }) {
@@ -140,7 +142,7 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
   );
 }
 
-function PublicShell({ signedIn, children }: { signedIn: boolean; children: React.ReactNode }) {
+function PublicShell({ signedIn, children, company }: { signedIn: boolean; children: React.ReactNode; company?: CompanyInfo | null }) {
   const { t } = usePrefs();
   return (
     <>
@@ -164,6 +166,12 @@ function PublicShell({ signedIn, children }: { signedIn: boolean; children: Reac
       </header>
       <main className="pub-main" id="main">{children}</main>
       <footer className="pub-footer">
+        {company && (
+          <div className="inner trust">
+            <span className="trust-co"><strong>{company.name}</strong>{company.pan ? ` · PAN ${company.pan}` : ""}<br /><span className="small muted">{company.address}{company.phone ? ` · ${company.phone}` : ""}{company.email ? ` · ${company.email}` : ""}</span></span>
+            <span className="trust-pay small muted">{t("foot.pay")}: <span className="pay-badge">Khalti</span> <span className="pay-badge">Fonepay</span> <span className="pay-badge">QR</span> · {t("foot.secure")}</span>
+          </div>
+        )}
         <div className="inner">
           <span>© {new Date().getFullYear()} Nabikaran · nabikaran.org</span>
           <span className="row">
