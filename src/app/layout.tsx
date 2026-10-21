@@ -10,6 +10,7 @@ import { isAdminRole } from "@/lib/auth/rbac";
 import { getPlanState } from "@/lib/services/plans";
 import { getSetting } from "@/lib/services/settings";
 import { MotionRoot } from "@/components/motion/MotionRoot";
+import { SourceCapture } from "@/components/SourceCapture";
 import { jakarta, mukta } from "./fonts";
 import { businessName } from "@/lib/services/clients";
 import { translate } from "@/lib/i18n/dict";
@@ -52,6 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </PrefsProvider>
         <SwRegister />
         <MotionRoot />
+        <SourceCapture />
       </body>
     </html>
   );

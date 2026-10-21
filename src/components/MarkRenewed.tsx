@@ -5,8 +5,8 @@ import { api, ApiError } from "./api";
 import { usePrefs } from "./Prefs";
 import { Icon } from "./Icon";
 
-/** Pro: record a completed renewal; a one-time reminder moves to the new expiry date. */
-export function MarkRenewed({ id, repeats, calendar, suggestedNext, currency = "NPR" }: { id: string; repeats: boolean; calendar: "AD" | "BS"; suggestedNext: string; currency?: string }) {
+/** Record a completed renewal (free); a one-time reminder moves to the new expiry date. The cost field is Pro. */
+export function MarkRenewed({ id, repeats, calendar, suggestedNext, currency = "NPR", pro = false }: { id: string; repeats: boolean; calendar: "AD" | "BS"; suggestedNext: string; currency?: string; pro?: boolean }) {
   const { t } = usePrefs();
   const router = useRouter();
   const today = new Date(Date.now() + 345 * 60_000).toISOString().slice(0, 10);
@@ -51,7 +51,11 @@ export function MarkRenewed({ id, repeats, calendar, suggestedNext, currency = "
       {repeats && <p className="hint">{t("renew.repeatNote")}</p>}
       <div className="grid grid-2">
         <div className="field"><label htmlFor="rn-on">{t("renew.on")}</label><input id="rn-on" type="date" value={f.on} onChange={(e) => setF({ ...f, on: e.target.value })} required /></div>
-        <div className="field"><label htmlFor="rn-amt">{t("renew.cost")} ({currency})</label><input id="rn-amt" type="number" min={0} step="0.01" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></div>
+        <div className="field">
+          <label htmlFor="rn-amt">{t("renew.cost")} ({currency})</label>
+          <input id="rn-amt" type="number" min={0} step="0.01" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} disabled={!pro} placeholder={pro ? "" : "Pro"} />
+          {!pro && <span className="hint">{t("renew.costPro")}</span>}
+        </div>
         {!repeats && (
           <div className="field">
             <label htmlFor="rn-next">{t("renew.next")} ({calendar})</label>

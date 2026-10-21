@@ -283,10 +283,12 @@ describe("Pro email: verification, sign-in and email reminders", () => {
 });
 
 describe("Pro subscription manager", () => {
-  it("Basic accounts cannot save subscription details", async () => {
+  it("Basic accounts can track a subscription (amount, date); trial and cancel-by alerts need Pro", async () => {
     const b = await createUser(db, "+9779841000930");
     await fund(db, b, 50);
-    await expect(createReminder(principalFor(b), { category: "subscription", label: "Netflix", calendar: "AD", expiryDate: inDays(10), offsets: [1440], repeatMonths: 1, subscription: { amount: 15.49, currency: "USD", paymentMethod: "Card", autoRenew: true }, ...base }, {}, db))
+    const r = await createReminder(principalFor(b), { category: "subscription", label: "Netflix", calendar: "AD", expiryDate: inDays(10), offsets: [1440], repeatMonths: 1, subscription: { amount: 15.49, currency: "USD", paymentMethod: "Card", autoRenew: true }, ...base }, {}, db);
+    expect(r.reminder.subscription).toMatchObject({ amount: 15.49, currency: "USD" });
+    await expect(createReminder(principalFor(b), { category: "subscription", label: "Spotify", calendar: "AD", expiryDate: inDays(10), offsets: [1440], repeatMonths: 1, subscription: { amount: 2, currency: "USD", paymentMethod: null, autoRenew: true, isTrial: true, cancelNoticeDays: 3 }, ...base }, {}, db))
       .rejects.toMatchObject({ status: 403, code: "pro_required" });
   });
 
@@ -409,7 +411,11 @@ describe("Spec: recurrence for every plan, trials, cancel-by, history, credit pe
     await fund(db, u, 1100);
     const { markRenewed } = await import("@/lib/core/reminders");
     const { reminder } = await createReminder(principalFor(u), { category: "bluebook", label: "Ba 2 Pa 1234", calendar: "AD", expiryDate: inDays(20), offsets: [7 * 1440], ...base }, {}, db);
-    await expect(markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0), nextExpiryDate: inDays(385) }, db)).rejects.toMatchObject({ code: "pro_required" });
+    // Free: marking renewed (no cost) works on Basic; recording the cost needs Pro.
+    await expect(markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0), amount: 100, nextExpiryDate: inDays(385) }, db)).rejects.toMatchObject({ code: "pro_required" });
+    const free = await markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0), nextExpiryDate: inDays(380) }, db);
+    expect(free.reminder.inputDate).toBe(inDays(380));
+    expect(free.history).toHaveLength(1);
     await buyPro(u, "k-renew-0001", db);
     await expect(markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0) }, db)).rejects.toMatchObject({ code: "next_expiry_required" });
     const r = await markRenewed(principalFor(u), reminder.id, { renewedOn: inDays(0), amount: 2500, currency: "NPR", note: "Yatayat office", nextExpiryDate: inDays(385) }, db);

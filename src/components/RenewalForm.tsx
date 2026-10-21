@@ -107,7 +107,8 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
     familyMemberLabel: "",
     offsets: preselected?.default_offsets ?? [30 * 1440, 7 * 1440, 1440, 0],
     templateSlug: preselected?.slug ?? null,
-    channels: ["sms"],
+    // App notification is free; SMS/WhatsApp are opt-in add-ons that use credits.
+    channels: ["push"],
     groupId: startGroup?.id ?? null,
     repeatYearly: preOccasion ? preselected?.category !== "event" : false,
     clientId: clients.some((c) => c.id === initialClientId) ? initialClientId : null,
@@ -182,7 +183,8 @@ export function RenewalForm({ templates, initial, renewalId, initialTemplate, to
       offsets: tpl.default_offsets,
       templateSlug: tpl.slug,
       channels: occ ? ["sms", ...old.channels.filter((c) => c === "email")] : renewalId ? old.channels : tplChannels.length ? tplChannels : ["sms"],
-      repeatYearly: renewalId ? old.repeatYearly : occ ? tpl.category !== "event" : false,
+      // Vehicle, licence and insurance renewals come round every year: repeat by default so the record never dies.
+      repeatYearly: renewalId ? old.repeatYearly : occ ? tpl.category !== "event" : ["vehicle", "insurance"].includes(tpl.group_key),
       repeatMonths: renewalId ? old.repeatMonths ?? null : null,
       localTime: !renewalId && occ ? "08:00" : old.localTime,
     }));

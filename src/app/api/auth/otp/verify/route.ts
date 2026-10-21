@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { PREFS_COOKIE, decodePrefs, encodePrefs } from "@/lib/i18n/prefs";
 import { REFERRAL_COOKIE, attachReferral } from "@/lib/services/referrals";
+import { SOURCE_COOKIE, cleanSource } from "@/lib/services/funnel";
 
 const schema = z.object({ phone: z.string().min(7).max(20), code: z.string().length(6), ref: z.string().max(12).optional() });
 
@@ -25,6 +26,12 @@ export async function POST(req: Request) {
       await attachReferral(userId, jar0.get(REFERRAL_COOKIE)?.value ?? ref).catch((e) => console.error("[referral] attach failed", e));
     }
     if (jar0.get(REFERRAL_COOKIE)) jar0.delete(REFERRAL_COOKIE);
+    if (isNew) {
+      // Where this sign-up came from (utm_source or a referral code seen on the first visit).
+      const src = cleanSource(jar0.get(SOURCE_COOKIE)?.value) ?? (ref ? "referral" : null);
+      if (src) await getDb().query("update users set signup_source = $2 where id = $1 and signup_source is null", [userId, src]).catch(() => undefined);
+    }
+    if (jar0.get(SOURCE_COOKIE)) jar0.delete(SOURCE_COOKIE);
     // Preference sync: a choice made as a guest wins for new accounts; otherwise the
     // profile wins and is copied into the cookie for this browser.
     const jar = await cookies();

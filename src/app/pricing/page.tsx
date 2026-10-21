@@ -46,7 +46,7 @@ export default async function PricingPage() {
     ["price.row.ai", true, true],
     ...(pro.monthly_credits > 0 ? [["price.row.monthlyCredits", false, t("price.includedCredits", { n: n(pro.monthly_credits) })] as [MessageKey, boolean | string, boolean | string]] : []),
     ...(pro.allowance_sms + pro.allowance_whatsapp + pro.allowance_email > 0 ? [["price.row.included", false, t("price.includedShort", { sms: n(pro.allowance_sms), wa: n(pro.allowance_whatsapp), email: n(pro.allowance_email) })] as [MessageKey, boolean | string, boolean | string]] : []),
-    ["price.row.subs", false, true],
+    ["price.row.subs", true, true],
     ["price.row.alerts", false, true],
     ["price.row.insights", false, true],
     ["price.row.email", false, true],
@@ -71,7 +71,7 @@ export default async function PricingPage() {
           <div className="price-big">{t("price.free")}</div>
           <p className="small muted">{t("price.basicSub")}</p>
           <ul className="check-list">
-            <li><strong>{t("price.recordsFree", { n: n(limits.free_records) })}</strong></li><li>{t("price.b1")}</li><li>{t("price.b2")}</li><li>{t("price.b3")}</li><li>{t("price.b4")}</li>
+            <li><strong>{t("price.recordsFree", { n: n(limits.free_records) })}</strong></li><li>{t("price.b1")}</li><li>{t("price.b2")}</li><li>{t("price.b3")}</li><li>{t("price.b4")}</li><li>{t("price.b5")}</li>
           </ul>
           <Link href={basicCta.href} className="btn btn-secondary btn-block">{basicCta.label}</Link>
         </section>

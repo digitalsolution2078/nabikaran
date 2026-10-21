@@ -165,6 +165,13 @@ export const usageSettingsSchema = z.object({
   email_cost: z.number().min(0).max(100),
 });
 
+/** "Did you renew?" follow-ups after a one-time record expires (app notification + email, free). */
+export const followupSettingsSchema = z.object({
+  enabled: z.boolean(),
+  days: z.array(z.number().int().min(1).max(365)).min(1).max(4),
+  tax_days: z.number().int().min(1).max(365),
+});
+
 export const NUDGE_LINK = "nabikaran.org/renewals/new";
 
 export type TopupSettings = z.infer<typeof topupSettingsSchema>;
@@ -182,11 +189,12 @@ export type NudgeSettings = z.infer<typeof nudgeSettingsSchema>;
 export type BusinessSettings = z.infer<typeof businessSettingsSchema>;
 export type LimitsSettings = z.infer<typeof limitsSettingsSchema>;
 export type UsageSettings = z.infer<typeof usageSettingsSchema>;
+export type FollowupSettings = z.infer<typeof followupSettingsSchema>;
 
-const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema, nudges: nudgeSettingsSchema, business: businessSettingsSchema, limits: limitsSettingsSchema, usage: usageSettingsSchema } as const;
+const SCHEMAS = { topup: topupSettingsSchema, manual_qr: manualQrSettingsSchema, signin: signinSettingsSchema, whatsapp: whatsappSettingsSchema, referral: referralSettingsSchema, pin: pinSettingsSchema, pro: proSettingsSchema, email: emailSettingsSchema, integrations: integrationSettingsSchema, codes: codesSettingsSchema, low_credit: lowCreditSettingsSchema, nudges: nudgeSettingsSchema, business: businessSettingsSchema, limits: limitsSettingsSchema, usage: usageSettingsSchema, followups: followupSettingsSchema } as const;
 type Key = keyof typeof SCHEMAS;
 
-const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings; nudges: NudgeSettings; business: BusinessSettings; limits: LimitsSettings; usage: UsageSettings } = {
+const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: SigninSettings; whatsapp: WhatsappSettings; referral: ReferralSettings; pin: PinSettings; pro: ProSettings; email: EmailSettings; integrations: IntegrationSettings; codes: CodesSettings; low_credit: LowCreditSettings; nudges: NudgeSettings; business: BusinessSettings; limits: LimitsSettings; usage: UsageSettings; followups: FollowupSettings } = {
   topup: { min_npr: 20, max_npr: 10000, quick_amounts: [50, 100, 250, 500, 1000] },
   manual_qr: { enabled: true, image_path: "/payments/fonepay-qr.png", network: "Fonepay", merchant_name: "NARIKOT DIGITAL PRIVATE LIMITED", terminal_id: "2222010021806804", verified: false },
   signin: { fee_credits: 1, min_balance: -5, charge_staff: false },
@@ -206,6 +214,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
   business: { enabled: true, max_clients: 1000 },
   limits: { free_records: 150, pro_records: 10000 },
   usage: { alert: true, low_balance: 500, sms_cost: 0, whatsapp_cost: 0, email_cost: 0 },
+  followups: { enabled: true, days: [3, 30], tax_days: 80 },
 };
 
 export async function getSetting<K extends Key>(key: K, db: Db = getDb()): Promise<(typeof DEFAULTS)[K]> {

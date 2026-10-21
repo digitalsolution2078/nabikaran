@@ -235,7 +235,7 @@ export function createMcpServer(): McpServer {
           auto_renew: z.boolean().nullable().default(null),
           is_trial: z.boolean().default(false).describe("The date is when a free trial turns into a paid subscription."),
           cancel_notice_days: z.number().int().min(0).max(90).nullable().default(null).describe("The provider needs cancelling this many days before renewal: adds a 'last day to cancel' reminder."),
-        }).nullable().optional().describe("PRO ONLY. Makes this a tracked subscription (category subscription or free_trial). Basic accounts get pro_required with an upgrade_url."),
+        }).nullable().optional().describe("Makes this a tracked subscription (amount, currency, payment method, auto-renew are free). is_trial and cancel_notice_days are PRO ONLY: Basic accounts get pro_required with an upgrade_url."),
         use_credits: z.boolean().optional().describe("Pro: set true only after the user agreed to use wallet credits when confirm_reminder returned credits_permission_required."),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },

@@ -94,6 +94,25 @@ services:
       - ./deploy/cron.sh:/cron.sh:ro
     entrypoint: ["sh", "/cron.sh"]
     networks: [internal]
+
+  # Nightly database backup (02:30 Nepal time) into the same folder deploys use.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER:-nabikaran}
+      POSTGRES_DB: ${POSTGRES_DB:-nabikaran}
+      KEEP_DAILY: 14
+      KEEP_WEEKLY: 8
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - ${BACKUP_DIR:-/root/backups/nabikaran}:/backups
+    entrypoint: ["sh", "/backup.sh"]
+    networks: [internal]
     logging:
       driver: json-file
       options: { max-size: "5m", max-file: "3" }

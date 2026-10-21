@@ -26,8 +26,8 @@ export interface ShellUser {
 
 const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding", "/pro", "/subscriptions", "/insights", "/history", "/support", "/clients"];
 
+const SUBS_NAV = { href: "/subscriptions", icon: "repeat" as IconName, key: "nav.subscriptions" as MessageKey };
 const PRO_NAV: { href: string; icon: IconName; key: MessageKey }[] = [
-  { href: "/subscriptions", icon: "repeat", key: "nav.subscriptions" },
   { href: "/insights", icon: "chart", key: "nav.insights" },
   { href: "/history", icon: "clock", key: "nav.history" },
 ];
@@ -81,14 +81,13 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
     <div className={`app${user.pro ? " is-pro" : ""}`}>
       <aside className="sidebar" aria-label="Main navigation">
         <Logo href="/dashboard" />
-        {[...NAV.slice(0, 2), ...(user.business ? [{ href: "/clients", icon: "users" as IconName, key: "nav.clients" as MessageKey }] : []), ...(user.pro ? PRO_NAV : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
+        {[...NAV.slice(0, 2), ...(user.business ? [{ href: "/clients", icon: "users" as IconName, key: "nav.clients" as MessageKey }] : []), SUBS_NAV, ...(user.pro ? PRO_NAV : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
           <Link key={n.href} href={n.href} className={`side-link ${isActive(path, n.href) && !path.startsWith("/renewals/new") ? "active" : ""}`} aria-current={isActive(path, n.href) ? "page" : undefined}>
             <Icon name={n.icon} /> {t(n.key)}
           </Link>
         ))}
         <Link href="/renewals/new" className="btn btn-primary" style={{ margin: "10px 4px 0" }}><Icon name="plus" /> {t("dash.addReminder")}</Link>
-        {user.pro && <Link href="/subscriptions#add" className="btn btn-secondary btn-sm" style={{ margin: "6px 4px 10px" }}><Icon name="repeat" size={14} /> {t("sub.addSub")}</Link>}
-        {!user.pro && <span style={{ height: 10 }} />}
+        <Link href="/subscriptions#add" className="btn btn-secondary btn-sm" style={{ margin: "6px 4px 10px" }}><Icon name="repeat" size={14} /> {t("sub.addSub")}</Link>
         {user.isAdmin && (
           <>
             <div className="side-section">Admin</div>

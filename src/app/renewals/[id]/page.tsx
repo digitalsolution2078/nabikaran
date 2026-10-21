@@ -28,7 +28,7 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
   if (!r) notFound();
   const d = daysUntil(r.expiry.utc);
   const [history, group, pro] = await Promise.all([listRenewalHistory(user.id, r.id), r.groupId ? getGroup(user.id, r.groupId) : Promise.resolve(null), isPro(user.id)]);
-  const renewals = pro ? (await listRenewals(user.id)).filter((h) => h.renewalId === r.id) : [];
+  const renewals = (await listRenewals(user.id)).filter((h) => h.renewalId === r.id);
   // Suggested new expiry for "Mark as renewed": one year after the current date, in the reminder's calendar.
   const cur = (r.inputDate ?? r.expiry.ad).split("-").map(Number);
   const suggestedNext = cur.length === 3 ? `${cur[0] + 1}-${String(cur[1]).padStart(2, "0")}-${String(cur[2]).padStart(2, "0")}` : "";
@@ -58,8 +58,8 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
           {pro && r.status === "active" && (
             <a className="btn btn-ghost btn-sm" href={googleTemplateLink({ label: r.label, expiryUtc: r.expiry.utc, details: `Nabikaran reminder` })} target="_blank" rel="noopener noreferrer"><Icon name="calendar" size={14} /> {t("cal.addOne")}</a>
           )}
-          {pro && r.status === "active" && !r.linkedTo && (
-            <MarkRenewed id={r.id} repeats={r.repeatYearly || Boolean(r.repeatMonths)} calendar={r.inputCalendar} suggestedNext={suggestedNext} currency={r.subscription?.currency ?? "NPR"} />
+          {r.status === "active" && !r.linkedTo && (
+            <MarkRenewed id={r.id} repeats={r.repeatYearly || Boolean(r.repeatMonths)} calendar={r.inputCalendar} suggestedNext={suggestedNext} currency={r.subscription?.currency ?? "NPR"} pro={pro} />
           )}
         </div>
         {r.linkedTo && <p className="hint mb-0 mt"><Icon name="info" size={12} /> <Link href={`/renewals/${r.linkedTo}`}>{t("sub.cancelNotice")} →</Link></p>}
@@ -67,7 +67,7 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
 
       {renewals.length > 0 && (
         <section className="card">
-          <h2>{t("hist.title")} <ProBadge small /></h2>
+          <h2>{t("hist.title")}</h2>
           <div className="list">
             {renewals.map((h) => (
               <div key={h.id} className="list-item">
