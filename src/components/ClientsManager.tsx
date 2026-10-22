@@ -19,7 +19,7 @@ export interface ClientItem {
 const local = (e164: string) => e164.replace(/^\+977/, "");
 
 /** Business accounts: add, find, edit and archive clients. */
-export function ClientsManager({ initial, businessName }: { initial: ClientItem[]; businessName: string }) {
+export function ClientsManager({ initial, businessName, family = false }: { initial: ClientItem[]; businessName: string; family?: boolean }) {
   const router = useRouter();
   const { t, prefs } = usePrefs();
   const [q, setQ] = useState("");
@@ -70,7 +70,7 @@ export function ClientsManager({ initial, businessName }: { initial: ClientItem[
           <div className="field"><label htmlFor="c-note">{t("clients.note")}</label><input id="c-note" type="text" maxLength={300} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={t("clients.notePh")} /></div>
           <label className="row small" style={{ alignItems: "flex-start", gap: 8, marginBottom: 12 }}>
             <input type="checkbox" checked={form.consent} onChange={(e) => setForm({ ...form, consent: e.target.checked })} />
-            <span>{t("clients.consent", { business: businessName })}</span>
+            <span>{family ? t("fam.consent") : t("clients.consent", { business: businessName })}</span>
           </label>
           <button className="btn btn-primary" type="submit" disabled={busy || !form.consent || !form.name.trim() || !form.phone.trim()}>{t("clients.addBtn")}</button>
         </form>

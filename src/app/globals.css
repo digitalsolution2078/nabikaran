@@ -988,3 +988,7 @@ a.chip { text-decoration: none !important; }
 .onboard-steps li { display: flex; align-items: center; gap: 12px; font-weight: 500; }
 .onboard-steps .num { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-100); color: var(--brand-700); font-weight: 800; }
 @media (min-width: 700px) { .onboard-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* Settings: section headings */
+.set-h { margin: 18px 0 -4px; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.set-h:first-of-type { margin-top: 4px; }

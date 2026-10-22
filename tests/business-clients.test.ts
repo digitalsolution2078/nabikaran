@@ -39,6 +39,23 @@ afterAll(async () => {
 const code = async (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code ?? String(e));
 
 describe("business accounts: clients", () => {
+  it("a personal account can add up to 2 family numbers; the SMS is signed with the owner's name", async () => {
+    await db.query("update users set display_name = 'Sita Rai' where id = $1", [owner]);
+    const mum = await createClient(owner, { name: "Aama", phone: "9851000101", note: null, consent: true }, db);
+    await createClient(owner, { name: "Buwa", phone: "9851000102", note: null, consent: true }, db);
+    expect(await code(createClient(owner, { name: "Kaka", phone: "9851000103", note: null, consent: true }, db))).toBe("family_limit");
+    await savePushSubscription(owner, { endpoint: "https://fcm.googleapis.com/fcm/send/owner0", keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) } }, "test", db);
+    const { reminder } = await createReminder(principalFor(owner), { category: "other", label: "Aama passport", calendar: "AD", expiryDate: inDays(10), offsets: [1440], channels: ["sms"], clientId: mum.id, ...base }, {}, db);
+    await db.query("update reminder_jobs set due_at_utc = now() - interval '1 minute' where renewal_id = $1", [reminder.id]);
+    await runDispatcher(db, new Date());
+    const toMum = sms.sent.filter((m) => m.to === "+9779851000101");
+    expect(toMum).toHaveLength(1);
+    expect(toMum[0].text).toContain("Sita Rai");
+    await setReminderStatus(principalFor(owner), reminder.id, "delete", {}, db);
+    await archiveClient(owner, mum.id, db);
+    await archiveClient(owner, (await listClients(owner, {}, db)).find((c) => c.name === "Buwa")!.id, db);
+  });
+
   it("business tools are given by an admin; the customer cannot switch them on alone", async () => {
     expect(await code(setBusinessName(owner, "Ram Motors", db))).toBe("business_not_allowed");
     await setBusinessAccess({ id: admin }, owner, true, undefined, db);
@@ -46,8 +63,7 @@ describe("business accounts: clients", () => {
     expect(await businessName(owner, db)).toBeNull(); // allowed, but no name yet
   });
 
-  it("business tools need a short plain business name; clients need business tools and consent", async () => {
-    expect(await code(createClient(owner, { name: "Hari", phone: "9851000001", note: null, consent: true }, db))).toBe("business_required");
+  it("business tools need a short plain business name; clients need consent", async () => {
     expect(await code(setBusinessName(owner, "न", db))).toBe("invalid_business_name");
     expect(await code(setBusinessName(owner, "A very long business name here", db))).toBe("invalid_business_name");
     expect(await setBusinessName(owner, "Ram Motors", db)).toBe("Ram Motors");
@@ -68,7 +84,7 @@ describe("business accounts: clients", () => {
     // Only SMS (+ the owner's app copy) for clients.
     expect(await code(createReminder(principalFor(owner), { category: "other", label: "Bluebook", calendar: "AD", expiryDate: inDays(10), offsets: [1440], channels: ["whatsapp"], clientId: c.id, ...base }, {}, db))).toBe("client_sms_only");
     // Someone else's client is not found.
-    expect(await code(createReminder(principalFor(other), { category: "other", label: "Bluebook", calendar: "AD", expiryDate: inDays(10), offsets: [1440], channels: ["sms"], clientId: c.id, ...base }, {}, db))).toBe("business_required");
+    expect(await code(createReminder(principalFor(other), { category: "other", label: "Bluebook", calendar: "AD", expiryDate: inDays(10), offsets: [1440], channels: ["sms"], clientId: c.id, ...base }, {}, db))).toBe("client_not_found");
 
     const before = await wallet(db, owner);
     const { reminder } = await createReminder(principalFor(owner), { category: "other", label: "Pulsar bluebook", calendar: "AD", expiryDate: inDays(10), offsets: [1440], channels: ["sms", "push"], clientId: c.id, ...base }, {}, db);
@@ -111,7 +127,6 @@ describe("business accounts: clients", () => {
     const r = await blockRecipient({ id: admin }, "9851000003", "asked to stop", db);
     expect(r.cancelled).toBe(2);
     expect((await wallet(db, owner)).reserved).toBeLessThan(held);
-    expect(await code(createClient(other, { name: "Gita", phone: "9851000003", note: null, consent: true }, db))).toBe("business_required");
     await setBusinessName(other, "Shyam Insurance", db);
     expect(await code(createClient(other, { name: "Gita", phone: "9851000003", note: null, consent: true }, db))).toBe("recipient_blocked");
     await unblockRecipient({ id: admin }, "9851000003", db);
@@ -146,7 +161,8 @@ describe("business accounts: Excel / CSV import with client columns", () => {
     const held = (await wallet(db, owner)).reserved;
     await setBusinessAccess({ id: admin }, owner, false, undefined, db);
     expect(await businessName(owner, db)).toBeNull();
-    expect(await code(createClient(owner, { name: "New", phone: "9851000099", note: null, consent: true }, db))).toBe("business_required");
+    // Without business tools the account is back to the family cap (and already has more recipients than that).
+    expect(await code(createClient(owner, { name: "New", phone: "9851000099", note: null, consent: true }, db))).toBe("family_limit");
     await db.query("update reminder_jobs set due_at_utc = now() - interval '1 minute' where renewal_id = $1", [reminder.id]);
     await runDispatcher(db, new Date());
     expect(sms.sent.some((m) => m.to === "+9779851000020")).toBe(false);

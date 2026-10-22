@@ -29,7 +29,7 @@ export default async function RenewalsPage({ searchParams }: { searchParams: Pro
   const groups = await listGroups(user.id);
   const group = groups.find((g) => g.id === sp.group) ?? null;
   const imported = Number(sp.imported ?? 0);
-  const clients = (await businessName(user.id)) ? await listClients(user.id) : [];
+  const clients = await listClients(user.id).catch(() => []);
   const client = clients.find((c) => c.id === sp.client) ?? null;
   const cat = REC_GROUPS.includes(sp.cat ?? "") ? sp.cat! : null;
   const remindOff = sp.remind === "off";

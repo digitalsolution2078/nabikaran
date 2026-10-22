@@ -7,6 +7,7 @@ import { getReminder, listRenewalHistory as listRenewals } from "@/lib/core/remi
 import { isPro } from "@/lib/services/plans";
 import { googleTemplateLink } from "@/lib/services/calendar";
 import { MarkRenewed } from "@/components/MarkRenewed";
+import { templateInfo } from "@/lib/services/admin-console";
 import { ProBadge } from "@/components/Shell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ChannelBadge, ChannelBadges } from "@/components/ChannelBadge";
@@ -27,7 +28,7 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
   const r = await getReminder(webPrincipal(user), id).catch(() => null);
   if (!r) notFound();
   const d = daysUntil(r.expiry.utc);
-  const [history, group, pro] = await Promise.all([listRenewalHistory(user.id, r.id), r.groupId ? getGroup(user.id, r.groupId) : Promise.resolve(null), isPro(user.id)]);
+  const [history, group, pro, info] = await Promise.all([listRenewalHistory(user.id, r.id), r.groupId ? getGroup(user.id, r.groupId) : Promise.resolve(null), isPro(user.id), templateInfo(r.templateSlug)]);
   const renewals = (await listRenewals(user.id)).filter((h) => h.renewalId === r.id);
   // Suggested new expiry for "Mark as renewed": one year after the current date, in the reminder's calendar.
   const cur = (r.inputDate ?? r.expiry.ad).split("-").map(Number);
@@ -79,6 +80,13 @@ export default async function RenewalDetail({ params }: { params: Promise<{ id: 
         </section>
       )}
 
+      {info && (
+        <section className="card info-card">
+          <h2><Icon name="info" size={18} /> {t("tpl.infoTitle")}</h2>
+          <p className="mb-0" style={{ whiteSpace: "pre-line" }}>{prefs.lang === "ne" && info.ne ? info.ne : info.en}</p>
+          <p className="hint mb-0 mt">{t("tpl.infoHint")}</p>
+        </section>
+      )}
       {lifecycle === "expired" && (
         <div className="alert info"><Icon name="info" /> <span>{t("rem.expiredHint")} <Link href={`/renewals/${r.id}/edit`}>{t("rem.editBtn")} →</Link></span></div>
       )}

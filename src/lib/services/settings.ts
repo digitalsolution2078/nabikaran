@@ -148,6 +148,8 @@ export const businessSettingsSchema = z.object({
   enabled: z.boolean(),
   /** Most active clients one account can have. */
   max_clients: z.number().int().min(1).max(100000),
+  /** Family numbers a personal (non-business) account may add; 0 switches it off. */
+  family_max: z.number().int().min(0).max(20).default(2),
 });
 
 /** How many records (reminders, documents, subscriptions) an account can keep. */
@@ -221,7 +223,7 @@ const DEFAULTS: { topup: TopupSettings; manual_qr: ManualQrSettings; signin: Sig
     enabled: true, first_days: 1, sms_days: 3, last_days: 10, sms: true, window_days: 30,
     sms_text: "Namaste! Bluebook, license, bima ko renewal date Nabikaran ma halnus, samaya mai reminder aauchha. Free app reminder: {link}",
   },
-  business: { enabled: true, max_clients: 1000 },
+  business: { enabled: true, max_clients: 1000, family_max: 2 },
   limits: { free_records: 150, pro_records: 10000 },
   usage: { alert: true, low_balance: 500, sms_cost: 0, whatsapp_cost: 0, email_cost: 0 },
   followups: { enabled: true, days: [3, 30], tax_days: 80 },

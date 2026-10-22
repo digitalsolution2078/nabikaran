@@ -129,3 +129,42 @@ export async function runProNotices(db: Db = getDb(), now: Date = new Date()): P
   }
   return sent;
 }
+
+/**
+ * Free plan: one app notification a month ("3 renewals due in the next 30
+ * days") for accounts with a push device and something due, so free users
+ * come back between renewals. Once per Nepal calendar month (user_notices
+ * `monthly:<YYYY-MM>:<user>`), daytime only. Pro accounts get the email digest.
+ */
+export async function runFreeMonthlyPush(db: Db = getDb(), now: Date = new Date(), limit = 200): Promise<number> {
+  const k = utcToKathmandu(now);
+  if (k.hour < 9 || k.hour >= 19) return 0;
+  const month = `${k.year}-${String(k.month).padStart(2, "0")}`;
+  const { rows } = await db.query<{ id: string; locale: string; due: number }>(
+    `select u.id, u.locale,
+            (select count(*) from renewal_items i where i.owner_user_id = u.id and i.status = 'active' and i.expiry_at_utc >= $1::timestamptz and i.expiry_at_utc < $1::timestamptz + interval '30 days')::int as due
+       from users u
+      where u.status = 'active' and u.role = 'user' and not u.nudges_opt_out
+        and exists (select 1 from push_subscriptions p where p.user_id = u.id)
+        and not exists (select 1 from user_plans pl where pl.user_id = u.id and pl.status = 'active' and pl.starts_at <= $1 and pl.ends_at > $1)
+        and not exists (select 1 from user_notices n where n.user_id = u.id and n.key = $2 || ':' || u.id)
+      limit $3`,
+    [now.toISOString(), `monthly:${month}`, limit],
+  );
+  let sent = 0;
+  for (const u of rows) {
+    if (u.due <= 0) continue;
+    const key = `monthly:${month}:${u.id}`;
+    const { rows: ins } = await db.query("insert into user_notices (key, user_id, created_at) values ($1, $2, $3) on conflict (key) do nothing returning key", [key, u.id, now.toISOString()]);
+    if (!ins[0]) continue;
+    const ne = u.locale?.startsWith("ne");
+    const title = ne ? `यो महिना ${u.due} नवीकरण` : `${u.due} renewal${u.due === 1 ? "" : "s"} due this month`;
+    const body = ne ? "अर्को ३० दिनमा म्याद सकिने रेकर्ड हेर्नुहोस् र समयमै नवीकरण गर्नुहोस्।" : "See what expires in the next 30 days and renew on time.";
+    try {
+      if ((await sendPushToUser(u.id, { title, body, url: "/renewals?filter=due", tag: "monthly" }, db)) > 0) sent++;
+    } catch (e) {
+      console.warn(`[monthly] ${(e as Error).message}`);
+    }
+  }
+  return sent;
+}

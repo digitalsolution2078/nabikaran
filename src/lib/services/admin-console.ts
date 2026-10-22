@@ -242,16 +242,26 @@ export interface DocTemplate {
   published?: boolean;
   version?: number;
   default_channels?: string[];
+  /** Where to go / what to bring / fees and fines (shown on the record and SEO pages). */
+  info_en?: string;
+  info_ne?: string;
 }
 
 /**
  * Customers see templates that are active AND published, popular first.
  * Staff (includeInactive) see everything, including drafts.
  */
+/** The office/fee note for one template, for the record page. */
+export async function templateInfo(slug: string | null | undefined, db: Db = getDb()): Promise<{ en: string; ne: string } | null> {
+  if (!slug) return null;
+  const { rows } = await db.query<{ info_en: string; info_ne: string }>("select info_en, info_ne from document_templates where slug = $1", [slug]);
+  return rows[0] && (rows[0].info_en || rows[0].info_ne) ? { en: rows[0].info_en, ne: rows[0].info_ne } : null;
+}
+
 export async function listDocTemplates(includeInactive = false, db: Db = getDb()): Promise<DocTemplate[]> {
   const { rows } = await db.query<DocTemplate>(
     `select slug, group_key, category, name_en, name_ne, sms_label, description_en, description_ne, default_offsets, popular, active, sort_order,
-            published, version, default_channels
+            published, version, default_channels, info_en, info_ne
        from document_templates where $1 or (active and published) order by popular desc, sort_order, name_en`,
     [includeInactive],
   );
@@ -283,14 +293,14 @@ export async function saveDocTemplate(actorId: string, t: DocTemplate, db: Db = 
     const { rows: cur } = await tx.query<{ version: number }>("select version from document_templates where slug = $1 for update", [t.slug]);
     const version = (cur[0]?.version ?? 0) + 1;
     const { rows } = await tx.query<Record<string, unknown>>(
-      `insert into document_templates (slug, group_key, category, name_en, name_ne, sms_label, description_en, description_ne, default_offsets, popular, active, sort_order, updated_by, updated_at, published, version, default_channels)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now(), $14, $15, $16)
+      `insert into document_templates (slug, group_key, category, name_en, name_ne, sms_label, description_en, description_ne, default_offsets, popular, active, sort_order, updated_by, updated_at, published, version, default_channels, info_en, info_ne)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now(), $14, $15, $16, $17, $18)
        on conflict (slug) do update set group_key = excluded.group_key, category = excluded.category, name_en = excluded.name_en, name_ne = excluded.name_ne,
          sms_label = excluded.sms_label, description_en = excluded.description_en, description_ne = excluded.description_ne, default_offsets = excluded.default_offsets,
          popular = excluded.popular, active = excluded.active, sort_order = excluded.sort_order, updated_by = excluded.updated_by, updated_at = now(),
-         published = excluded.published, version = excluded.version, default_channels = excluded.default_channels
+         published = excluded.published, version = excluded.version, default_channels = excluded.default_channels, info_en = excluded.info_en, info_ne = excluded.info_ne
        returning *`,
-      [t.slug, t.group_key, t.category, t.name_en.trim(), t.name_ne.trim(), t.sms_label.trim(), t.description_en.trim(), t.description_ne.trim(), t.default_offsets, t.popular, t.active, t.sort_order, actorId, t.published ?? true, version, channels],
+      [t.slug, t.group_key, t.category, t.name_en.trim(), t.name_ne.trim(), t.sms_label.trim(), t.description_en.trim(), t.description_ne.trim(), t.default_offsets, t.popular, t.active, t.sort_order, actorId, t.published ?? true, version, channels, (t.info_en ?? "").trim().slice(0, 1200), (t.info_ne ?? "").trim().slice(0, 1200)],
     );
     const snapshot = { ...rows[0] };
     delete snapshot.created_at;

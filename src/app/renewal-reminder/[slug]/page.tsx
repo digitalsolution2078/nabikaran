@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { getSeoPage } from "@/lib/services/seo";
 import { env } from "@/lib/env";
 import { getRequestContext } from "@/lib/i18n/server";
+import { templateInfo } from "@/lib/services/admin-console";
 
 // Pages are editable by admins, so they are rendered per request.
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 export default async function SeoLanding({ params }: { params: Promise<{ slug: string }> }) {
   const p = await getSeoPage((await params).slug);
   if (!p) notFound();
-  const { t } = await getRequestContext();
+  const { t, prefs } = await getRequestContext();
+  const info = await templateInfo(p.template);
   const start = p.template ? `/renewals/new?template=${p.template}` : "/renewals/new";
   const jsonLd = {
     "@context": "https://schema.org",
@@ -41,6 +43,12 @@ export default async function SeoLanding({ params }: { params: Promise<{ slug: s
 
       <h2>{t("seo.schedule")}</h2>
       <p>{p.schedule} {t("seo.scheduleTail")}</p>
+
+      {info && (<>
+        <h2>{t("tpl.infoTitle")}</h2>
+        <p style={{ whiteSpace: "pre-line" }}>{prefs.lang === "ne" && info.ne ? info.ne : info.en}</p>
+        <p className="hint">{t("tpl.infoHint")}</p>
+      </>)}
 
       <h2>{t("seo.steps")}</h2>
       <ol>

@@ -16,13 +16,14 @@ import { MAX_SEND_ATTEMPTS, retryDelayMs, SCHEDULING_HORIZON_DAYS } from "../sch
 import { redactPhone } from "../phone";
 import { pushReminders, type ReminderPush } from "./push";
 import { getEmailProvider, textToHtml } from "../providers/email";
-import { runDigests, runProNotices } from "./digest";
+import { runDigests, runFreeMonthlyPush, runProNotices } from "./digest";
 import { liftExpiredBans } from "./bans";
 import { runProCredits } from "./plans";
 import { runLowCreditAlerts } from "./low-credit";
 import { runNudges } from "./nudges";
 import { runSmsBalanceWatch } from "./message-usage";
 import { runRenewalFollowups } from "./followups";
+import { familySigner } from "./clients";
 
 /**
  * Database-backed dispatcher (PRD §7). Runs every minute.
@@ -72,6 +73,8 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
   if (jobs.length === 0) return summary;
 
   const templates = await loadTemplates(db);
+  // Personal accounts may keep a few family numbers; a business whose tools were taken away keeps none.
+  const familyMax = (await getSetting("business", db)).family_max;
   const pricing = await getActivePricing(db, "sms");
   const hasWa = jobs.some((j) => j.channel === "whatsapp");
   const [waPricing, waTemplates, waSettings, waOk] = hasWa
@@ -90,12 +93,13 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         job_status: string; due_at_utc: string; renewal_status: string; label: string; category: string; expiry_at_utc: string; cycle_no: number; job_cycle: number;
         phone_e164: string; phone_verified_at: string | null; locale: string; user_status: string; reservation_status: string | null; held: string | null;
         email: string | null; email_verified_at: string | null;
-        client_id: string | null; client_name: string | null; client_phone: string | null; client_status: string | null; client_blocked: boolean; business_name: string | null;
+        client_id: string | null; client_name: string | null; client_phone: string | null; client_status: string | null; client_blocked: boolean; business_name: string | null; owner_name: string | null; recipient_count: number;
         prior: number;
       }>(
         `select j.status as job_status, j.due_at_utc, i.status as renewal_status, i.label, i.category, i.expiry_at_utc, i.cycle_no, j.cycle_no as job_cycle,
                 u.phone_e164, u.phone_verified_at, u.locale, u.status as user_status, u.email, u.email_verified_at, r.status as reservation_status, r.held_credits::text as held,
-                i.client_id, c.name as client_name, c.phone_e164 as client_phone, c.status as client_status, case when u.business_allowed then u.business_name end as business_name,
+                i.client_id, c.name as client_name, c.phone_e164 as client_phone, c.status as client_status, case when u.business_allowed then u.business_name end as business_name, u.display_name as owner_name,
+                (select count(*) from clients cc where cc.owner_user_id = u.id and cc.status = 'active')::int as recipient_count,
                 exists (select 1 from blocked_recipients b where b.phone_e164 = c.phone_e164) as client_blocked,
                 (select count(*) from sms_attempts a where a.job_id = j.id and a.api_state in ('pending','accepted'))::int as prior
            from reminder_jobs j
@@ -118,7 +122,9 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
       if (s.prior > 0) return fail("unknown", "prior attempt exists; reconcile", false);
       // Business client reminder: the client must still be active and not blocked, and business tools on.
       const forClient = Boolean(s.client_id) && job.channel === "sms";
-      if (forClient && (s.client_status !== "active" || !s.client_phone || !s.business_name)) return fail("cancelled", "client archived or business tools off; credits returned");
+      const signer = s.business_name ?? familySigner(s.owner_name);
+      if (forClient && (s.client_status !== "active" || !s.client_phone)) return fail("cancelled", "recipient archived; credits returned");
+      if (forClient && !s.business_name && s.recipient_count > familyMax) return fail("cancelled", "business tools off; credits returned");
       if (forClient && s.client_blocked) return fail("cancelled", "recipient blocked; credits returned");
       if (new Date(s.due_at_utc).getTime() > now.getTime()) return fail("scheduled", "not due", false);
       if (job.channel === "push") {
@@ -151,7 +157,7 @@ export async function runDispatcher(db: Db = getDb(), now: Date = new Date()): P
         return { ok: true as const, attemptNo, idempotencyKey, to: s.phone_e164, text: w.preview, estimatedSegments: 1, wa: w, email: null };
       }
       // Client SMS: the business name goes after the label; the label shrinks first if the SMS would not fit.
-      const rendered = renderReminder(forClient ? { ...base, label: `${s.label} - ${s.business_name}` } : base, templates);
+      const rendered = renderReminder(forClient ? { ...base, label: `${s.label} - ${signer}` } : base, templates);
       if (isEmail) {
         return { ok: true as const, attemptNo, idempotencyKey, to: s.email!, text: rendered.body, estimatedSegments: 1, wa: null, email: { subject: `Reminder: ${s.label}`.slice(0, 120) } };
       }
@@ -259,6 +265,7 @@ export interface ReconcileSummary {
   nudges?: number;
   smsBalanceAlerts?: number;
   followups?: number;
+  monthlyPush?: number;
 }
 
 /**
@@ -393,6 +400,8 @@ export async function runReconciler(db: Db = getDb(), now: Date = new Date()): P
   out.smsBalanceAlerts = await runSmsBalanceWatch(db, now).catch((e) => { console.warn(`[sms-balance] ${(e as Error).message}`); return 0; });
   // 10. "Did you renew?" follow-ups for one-time records whose date passed (free: app + email).
   out.followups = await runRenewalFollowups(db, now).catch((e) => { console.warn(`[followup] ${(e as Error).message}`); return 0; });
+  // 11. Free plan: one "N renewals due this month" app notification a month.
+  out.monthlyPush = await runFreeMonthlyPush(db, now).catch((e) => { console.warn(`[monthly] ${(e as Error).message}`); return 0; });
   return out;
 }
 

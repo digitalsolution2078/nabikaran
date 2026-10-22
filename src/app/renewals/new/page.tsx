@@ -26,7 +26,7 @@ export default async function NewRenewal({ searchParams }: { searchParams: Promi
     getDb().query<{ at: string | null }>("select whatsapp_opt_in_at as at from users where id = $1", [user.id]),
     listGroups(user.id),
   ]);
-  const clients = (await businessName(user.id)) ? (await listClients(user.id)).map((c) => ({ id: c.id, name: c.name, phone: c.phone })) : [];
+  const clients = (await listClients(user.id).catch(() => [])).map((c) => ({ id: c.id, name: c.name, phone: c.phone }));
   const whatsapp = { available: waOk, optedIn: Boolean(opt.rows[0]?.at) };
   return (
     <div>

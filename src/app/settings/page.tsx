@@ -51,6 +51,7 @@ export default async function SettingsPage() {
     <div className="stack">
       <h1>{t("settings.title")}</h1>
       {staffMust && <div className="alert warn" role="alert"><span><strong>{t("tfa.staffRequired")}</strong> <a href="#two-factor">{t("tfa.enable")} →</a></span></div>}
+      <h2 className="set-h">{t("set.account")}</h2>
       <div className="card">
         <div className="field mb-0">
           <label htmlFor="phone">{t("settings.phone")}</label>
@@ -59,14 +60,16 @@ export default async function SettingsPage() {
         </div>
       </div>
       <SettingsForm displayName={user.displayName ?? ""} smsLanguage={user.locale} balance={(await readWallet(user.id)).posted} />
+      <h2 className="set-h">{t("set.reminders")}</h2>
+      <PushManager />
+      {nudge.show && <NudgesToggle initial={nudge.on} />}
+      {pro && <EmailManager initial={email} digest={proPrefs.digest} />}
+      {calendar && <CalendarSync initial={calendar} />}
+      <h2 className="set-h">{t("set.sharing")}</h2>
       {ref.settings.enabled && (
         <InviteFriends link={link} referrerCredits={ref.settings.referrer_credits} refereeCredits={ref.settings.referee_credits} minTopup={ref.settings.min_topup_npr}
           message={ref.settings.message} invited={ref.invited} rewarded={ref.rewarded} pending={ref.pending} creditsEarned={ref.creditsEarned} />
       )}
-      {pro && <EmailManager initial={email} digest={proPrefs.digest} />}
-      {calendar && <CalendarSync initial={calendar} />}
-      <PushManager />
-      {nudge.show && <NudgesToggle initial={nudge.on} />}
       {biz.show && <BusinessCard initial={biz.name} />}
       {biz.request && (
         <section className="card">
@@ -75,9 +78,11 @@ export default async function SettingsPage() {
           <Link className="btn btn-secondary btn-sm" href="/support">{t("biz.requestCta")}</Link>
         </section>
       )}
+      <h2 className="set-h">{t("set.security")}</h2>
       {staffMust && <TwoFactorManager initial={tfa} />}
       <PinManager initial={pin} />
       {!staffMust && <TwoFactorManager initial={tfa} />}
+      <h2 className="set-h">{t("set.apps")}</h2>
       <InstallApp variant="card" />
       <ConnectedApps connections={connections} />
       <SessionsCard />
