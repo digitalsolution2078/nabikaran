@@ -17,9 +17,8 @@ export const metadata = { title: "Subscriptions" };
 export default async function SubscriptionsPage() {
   const { user, t, prefs } = await getRequestContext();
   if (!user) redirect("/login?next=/subscriptions");
-  // Pro feature: Basic accounts go to the Pro page instead.
-  if (!(await isPro(user.id))) redirect("/pro");
-  const [data, email, provider] = await Promise.all([listSubscriptions(user.id), emailStatus(user.id), getEmailProvider().catch(() => null)]);
+  // Free for everyone: tracking what you pay for and when. Trial / cancel-by alerts and email are Pro.
+  const [pro, data, email, provider] = await Promise.all([isPro(user.id), listSubscriptions(user.id), emailStatus(user.id), getEmailProvider().catch(() => null)]);
   const n = (x: number, d = 0) => localizeNumber(Number(x.toFixed(d)), prefs.lang);
   return (
     <div className="stack">
@@ -49,7 +48,7 @@ export default async function SubscriptionsPage() {
 
       <section className="card" id="add">
         <h2>{t("sub.add")}</h2>
-        <SubscriptionForm emailAvailable={email.verified && Boolean(provider)} />
+        <SubscriptionForm emailAvailable={pro && email.verified && Boolean(provider)} pro={pro} />
       </section>
 
       <section className="card">

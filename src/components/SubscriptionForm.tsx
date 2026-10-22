@@ -29,7 +29,7 @@ const CURRENCIES = ["NPR", "USD", "INR", "EUR", "GBP", "AUD"];
 const OFFSETS = [7 * 1440, 3 * 1440, 1440, 0];
 
 /** Pro: add a subscription (a repeating reminder with amount and payment method). */
-export function SubscriptionForm({ emailAvailable }: { emailAvailable: boolean }) {
+export function SubscriptionForm({ emailAvailable, pro = true }: { emailAvailable: boolean; pro?: boolean }) {
   const { t, prefs } = usePrefs();
   const router = useRouter();
   const [f, setF] = useState({ label: "", amount: "", currency: "NPR", cycle: 1 as 1 | 3 | 6 | 12, date: "", payment: "", autoRenew: true, offsets: [7 * 1440, 1440], email: false, trial: false, cancelDays: "" as string });
@@ -140,12 +140,12 @@ export function SubscriptionForm({ emailAvailable }: { emailAvailable: boolean }
       <div className="grid grid-2">
         <div className="field">
           <span className="label">&nbsp;</span>
-          <label className="row small"><input type="checkbox" checked={f.trial} onChange={(e) => set("trial", e.target.checked)} /> {t("sub.isTrial")}</label>
+          <label className="row small"><input type="checkbox" checked={f.trial} disabled={!pro} onChange={(e) => set("trial", e.target.checked)} /> {t("sub.isTrial")}{!pro && <span className="pro-badge sm">PRO</span>}</label>
           <label className="row small"><input type="checkbox" checked={f.autoRenew} onChange={(e) => set("autoRenew", e.target.checked)} /> {t("sub.autoRenew")}</label>
         </div>
         <div className="field">
-          <label htmlFor="sub-cancel">{t("sub.cancelNotice")}</label>
-          <select id="sub-cancel" value={f.cancelDays} onChange={(e) => set("cancelDays", e.target.value)}>
+          <label htmlFor="sub-cancel">{t("sub.cancelNotice")}{!pro && <span className="pro-badge sm">PRO</span>}</label>
+          <select id="sub-cancel" value={f.cancelDays} disabled={!pro} onChange={(e) => set("cancelDays", e.target.value)}>
             <option value="">{t("sub.cancelNone")}</option>
             <option value="0">{t("sub.cancelSameDay")}</option>
             {[1, 2, 3, 7, 14, 30].map((d) => <option key={d} value={String(d)}>{t("sub.cancelDays", { n: d })}</option>)}

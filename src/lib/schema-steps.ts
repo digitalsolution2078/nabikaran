@@ -140,4 +140,10 @@ export const ENSURE_STEPS: EnsureStep[] = [
       "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'business_allowed') as ok",
     sql: "-- 0027: Business tools need an admin's approval. Accounts already using them\n-- keep access. Additive, re-runnable.\nalter table users add column if not exists business_allowed boolean not null default false;\nupdate users set business_allowed = true where business_name is not null and not business_allowed;\n",
   },
+  {
+    name: "0028_followups_funnel",
+    check:
+      "select (exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'signup_source') and exists (select 1 from document_templates where slug = 'vehicle-tax' and 0 = any(default_offsets))) as ok",
+    sql: "-- 0028: Renewal follow-ups and the sign-up funnel. Additive, re-runnable.\n\n-- Offsets: vehicle tax now reminds on the due day too; insurance gets a 3-day\n-- reminder (a policy must not lapse) and a due-day one.\nupdate document_templates set default_offsets = '{43200,10080,1440,0}' where slug = 'vehicle-tax' and not (0 = any(default_offsets));\nupdate document_templates set default_offsets = '{43200,10080,4320,1440,0}' where slug = 'vehicle-insurance' and not (4320 = any(default_offsets));\nupdate document_templates set default_offsets = '{43200,10080,1440,0}' where slug in ('health-insurance','life-insurance','other-policy') and not (0 = any(default_offsets));\n\n-- Where a sign-up came from (utm_source / referral code captured on the first visit).\nalter table users add column if not exists signup_source text;\n\n-- \"Did you renew?\" follow-ups look up the latest renewal per record.\ncreate index if not exists renewal_history_renewal_idx on renewal_history (renewal_id, created_at desc);\n",
+  },
 ];

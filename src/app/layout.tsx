@@ -10,13 +10,18 @@ import { isAdminRole } from "@/lib/auth/rbac";
 import { getPlanState } from "@/lib/services/plans";
 import { getSetting } from "@/lib/services/settings";
 import { MotionRoot } from "@/components/motion/MotionRoot";
+import { SourceCapture } from "@/components/SourceCapture";
 import { jakarta, mukta } from "./fonts";
 import { businessName } from "@/lib/services/clients";
 import { translate } from "@/lib/i18n/dict";
+import { env } from "@/lib/env";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(env.appUrl),
   title: { default: "Nabikaran — SMS renewal reminders for Nepal", template: "%s · Nabikaran" },
   description: "Save expiry dates for your Bluebook, licence, passport, insurance, tax and business renewals. Get SMS reminders on your Nepal mobile.",
+  openGraph: { type: "website", siteName: "Nabikaran", locale: "en_NP", alternateLocale: ["ne_NP"] },
+  twitter: { card: "summary_large_image" },
   manifest: "/manifest.webmanifest",
   applicationName: "Nabikaran",
   icons: {
@@ -43,15 +48,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           : null,
       }
     : null;
+  const company = await getSetting("company").catch(() => null);
   return (
     <html lang={ctx.prefs.lang} className={`${jakarta.variable} ${mukta.variable}`}>
       <body>
         <a href="#main" className="skip-link">{translate(ctx.prefs.lang, "common.skip")}</a>
         <PrefsProvider initial={ctx.prefs} chosen={ctx.chosen} signedIn={Boolean(ctx.user)}>
-          <Shell user={shellUser} clockIso={new Date().toISOString()}>{children}</Shell>
+          <Shell user={shellUser} clockIso={new Date().toISOString()} company={company}>{children}</Shell>
         </PrefsProvider>
         <SwRegister />
         <MotionRoot />
+        <SourceCapture />
       </body>
     </html>
   );

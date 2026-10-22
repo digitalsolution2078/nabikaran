@@ -14,6 +14,7 @@ import { can } from "@/lib/auth/rbac";
 import { formatPhoneLocal } from "@/lib/phone";
 import { lastLowCreditAlerts } from "@/lib/services/low-credit";
 import { balanceHistory } from "@/lib/services/message-usage";
+import { funnelReport } from "@/lib/services/funnel";
 import { getSetting } from "@/lib/services/settings";
 
 export const dynamic = "force-dynamic";
@@ -53,7 +54,8 @@ function ChannelRow({ name, c, extra }: { name: string; c: ChannelOps; extra?: R
 export default async function AdminOverview() {
   await requireAdminPage();
   const [o, m, ops, clients, me, tickets] = await Promise.all([getOverview(), getMetrics(), getOps(), listClientsForAdmin(), getCurrentUser(), supportCounts().catch(() => ({ open: 0, waiting: 0 }))]);
-  const [checks, usageSet] = await Promise.all([balanceHistory(undefined, 5).catch(() => []), getSetting("usage").catch(() => null)]);
+  const [checks, usageSet, funnel] = await Promise.all([balanceHistory(undefined, 5).catch(() => []), getSetting("usage").catch(() => null), funnelReport(30).catch(() => null)]);
+  const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : "—");
   const smsBal = checks.find((c) => c.available !== null)?.available ?? null;
   const smsLow = smsBal !== null && usageSet !== null && smsBal < usageSet.low_balance;
   const alerts = await lastLowCreditAlerts(ops.lowBalance.map((u) => u.id)).catch(() => new Map<string, { at: string; stage: string }>());
@@ -100,6 +102,21 @@ export default async function AdminOverview() {
         </div>
         <p className="hint mt mb-0">Accepted = provider took the message (charged). Delivered/read come from provider reports. Failed after acceptance is refunded automatically.</p>
       </section>
+
+      {funnel && (
+        <>
+          <h2>Sign-up funnel · last 30 days</h2>
+          <div className="grid grid-4">
+            <Stat label="Sign-ups" value={funnel.signups} icon="users" sub={`${funnel.noRecord} without a record yet`} href="/admin/users" />
+            <Stat label="Added a record" value={funnel.firstRecord} icon="bell" sub={`${pct(funnel.firstRecord, funnel.signups)} of sign-ups`} />
+            <Stat label="Topped up" value={funnel.firstTopup} icon="wallet" sub={`${pct(funnel.firstTopup, funnel.signups)} of sign-ups`} />
+            <Stat label="Pro" value={funnel.pro} icon="star" sub={`${pct(funnel.pro, funnel.signups)} of sign-ups`} />
+          </div>
+          {funnel.sources.length > 0 && (
+            <p className="small muted">Where they came from: {funnel.sources.map((s) => `${s.source} ${s.signups} (${s.withRecord} added a record)`).join(" · ")}. Share links with <code>?utm_source=facebook</code> or <code>?utm_source=tiktok</code> to track campaigns.</p>
+          )}
+        </>
+      )}
 
       <h2>Money</h2>
       <div className="grid grid-4">

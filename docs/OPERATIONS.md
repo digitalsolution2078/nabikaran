@@ -672,3 +672,15 @@ Business tools (clients, client reminder SMS) are no longer self-service. `users
 - **Customers without access** see a *Request business tools* button in Settings that opens Support.
 - **Take away:** *Turn off*. Clients are kept. Their pending reminders are cancelled with credits returned when they fall due, and new clients cannot be added.
 - Accounts that already had a business name before this update keep access (the migration grants it).
+
+## 33. Free record book, renewal follow-ups, funnel, nightly backups (migration `0028`)
+
+**Free for everyone (was Pro):** *Mark as renewed* (cost field stays Pro), the subscription tracker (`/subscriptions`: name, amount, cycle, next charge; free-trial and cancel-by alerts stay Pro), and renewal history on the record page. New records default to the free app notification; SMS/WhatsApp are opt-in. Vehicle, licence and insurance templates default to "repeat yearly".
+
+**Template offsets:** vehicle tax now has a due-day reminder; vehicle insurance adds a 3-day reminder; health/life/other policies add the due day.
+
+**"Did you renew?" follow-ups** (`src/lib/services/followups.ts`, reconciler step 10): for one-time records whose date passed, a free app notification + email (verified) at 3 and 30 days after expiry, and at 80 days for vehicle tax / bluebook (late fines rise after 90 days). Once per step per record (`user_notices` `followup:<days>:<id>`), 10 am–7 pm Nepal time, never SMS. Stops when the record is marked renewed, moved to a new date, paused or deleted, and for people who turned off tips in Settings. Settings key `followups {enabled, days, tax_days}` via `POST /api/admin/settings`.
+
+**Sign-up funnel** (Admin → Dashboard): sign-ups → added a record → topped up → Pro for the last 30 days, derived from existing tables (no third-party analytics). `?utm_source=facebook&utm_campaign=launch` or `?ref=` on any first visit is kept in a 30-day cookie and stored on the account at sign-up (`users.signup_source`), then shown per source.
+
+**Nightly backups:** compose service `backup` (`deploy/backup.sh`) runs `pg_dump` at 02:30 Nepal time into `/root/backups/nabikaran/daily` (keeps 14) and copies Sunday files to `weekly` (keeps 8). Deploys still back up first. Restore: see `docs/DEPLOY_VPS.md` §7; do a restore drill into a scratch database once a quarter: `gunzip -c <file> | docker exec -i nabikaran-db-1 psql -U nabikaran -d nabikaran_restore_test`.

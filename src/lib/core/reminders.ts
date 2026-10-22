@@ -597,10 +597,16 @@ async function loadDto(tx: Db, renewalId: string): Promise<ReminderDTO> {
 }
 
 /** Subscription details and every-N-months repeat are Pro features. */
+/**
+ * Subscription basics (amount, currency, payment method, auto-renew) are free so
+ * anyone can keep "when does my Netflix end" in one place. Free-trial and
+ * last-day-to-cancel alerts are Pro.
+ */
 async function assertProFields(tx: Db, userId: string, input: ReminderInput): Promise<void> {
-  if (!input.subscription) return;
+  const s = input.subscription;
+  if (!s || (!s.isTrial && s.cancelNoticeDays == null)) return;
   const { rows } = await tx.query("select 1 from user_plans where user_id = $1 and status = 'active' and starts_at <= now() and ends_at > now() limit 1", [userId]);
-  if (!rows[0]) throw new HttpError(403, "Subscriptions are a Nabikaran Pro feature.", "pro_required");
+  if (!rows[0]) throw new HttpError(403, "Free-trial and cancel-by alerts are a Nabikaran Pro feature.", "pro_required");
 }
 
 const subColumns = (sub: ReminderInput["subscription"]) =>
@@ -698,16 +704,19 @@ export const markRenewedSchema = z.object({
 });
 
 /**
- * Pro: record that a renewal was done (date, cost, note). A one-time reminder
+ * Record that a renewal was done (date, note; cost on Pro). A one-time reminder
  * moves to the new expiry date (its messages are re-planned and funded); a
- * repeating one keeps its schedule.
+ * repeating one keeps its schedule. Free for everyone: it is the one action
+ * every customer takes once a year, and it keeps the record alive.
  */
 export async function markRenewed(p: Principal, renewalId: string, raw: z.input<typeof markRenewedSchema>, db: Db = getDb(), now = new Date()): Promise<{ reminder: ReminderDTO; history: RenewalHistoryRow[] }> {
   requireScope(p, "reminders:write");
   const input = markRenewedSchema.parse(raw);
   return db.tx(async (tx) => {
-    const { rows: plan } = await tx.query("select 1 from user_plans where user_id = $1 and status = 'active' and starts_at <= now() and ends_at > now() limit 1", [p.userId]);
-    if (!plan[0]) throw new HttpError(403, "Renewal history is a Nabikaran Pro feature.", "pro_required");
+    if (input.amount !== null) {
+      const { rows: plan } = await tx.query("select 1 from user_plans where user_id = $1 and status = 'active' and starts_at <= now() and ends_at > now() limit 1", [p.userId]);
+      if (!plan[0]) throw new HttpError(403, "Recording the renewal cost is a Nabikaran Pro feature. Leave the amount empty to mark it renewed.", "pro_required");
+    }
     const { rows } = await tx.query<RenewalRow>("select * from renewal_items where id = $1 and owner_user_id = $2 and status <> 'deleted' for update", [renewalId, p.userId]);
     const r = rows[0];
     if (!r) throw new HttpError(404, "Reminder not found", "not_found");

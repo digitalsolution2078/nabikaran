@@ -16,6 +16,20 @@ const DOCS: { icon: IconName; key: MessageKey }[] = [
 
 const SAMPLE_DATE = "2026-11-02T06:00:00.000Z";
 
+export const metadata = { alternates: { canonical: "/" } };
+
+const ORG_JSON_LD = {
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "Organization", name: "Nabikaran", url: "https://nabikaran.org", logo: "https://nabikaran.org/brand/nabikaran-logo.png", areaServed: "NP" },
+    {
+      "@type": "SoftwareApplication", name: "Nabikaran", applicationCategory: "UtilitiesApplication", operatingSystem: "Web, Android, iOS",
+      description: "Renewal reminders for Nepal: Bluebook, driving licence, insurance, passport, tax, subscriptions. App, SMS and WhatsApp reminders in BS and AD dates.",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "NPR" }, url: "https://nabikaran.org",
+    },
+  ],
+};
+
 export default async function Home() {
   const { t, prefs, user } = await getRequestContext();
   const templates = await listDocTemplates(false).catch(() => []);
@@ -236,6 +250,7 @@ export default async function Home() {
           </div>
         </section>
       )}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSON_LD).replace(/</g, "\\u003c") }} />
     </>
   );
 }

@@ -26,8 +26,8 @@ export interface ShellUser {
 
 const APP_PREFIXES = ["/dashboard", "/renewals", "/messages", "/wallet", "/settings", "/admin", "/onboarding", "/pro", "/subscriptions", "/insights", "/history", "/support", "/clients"];
 
+const SUBS_NAV = { href: "/subscriptions", icon: "repeat" as IconName, key: "nav.subscriptions" as MessageKey };
 const PRO_NAV: { href: string; icon: IconName; key: MessageKey }[] = [
-  { href: "/subscriptions", icon: "repeat", key: "nav.subscriptions" },
   { href: "/insights", icon: "chart", key: "nav.insights" },
   { href: "/history", icon: "clock", key: "nav.history" },
 ];
@@ -63,10 +63,12 @@ function isActive(path: string, href: string) {
   return path === href || path.startsWith(`${href}/`);
 }
 
-export function Shell({ user, clockIso, children }: { user: ShellUser | null; clockIso: string; children: React.ReactNode }) {
+export interface CompanyInfo { name: string; pan: string; address: string; phone: string; email: string }
+
+export function Shell({ user, clockIso, children, company }: { user: ShellUser | null; clockIso: string; children: React.ReactNode; company?: CompanyInfo | null }) {
   const path = usePathname() ?? "/";
   const inApp = Boolean(user) && APP_PREFIXES.some((p) => isActive(path, p));
-  return inApp && user ? <AppShell user={user} path={path} clockIso={clockIso}>{children}</AppShell> : <PublicShell signedIn={Boolean(user)}>{children}</PublicShell>;
+  return inApp && user ? <AppShell user={user} path={path} clockIso={clockIso}>{children}</AppShell> : <PublicShell signedIn={Boolean(user)} company={company}>{children}</PublicShell>;
 }
 
 function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: string; clockIso: string; children: React.ReactNode }) {
@@ -81,14 +83,13 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
     <div className={`app${user.pro ? " is-pro" : ""}`}>
       <aside className="sidebar" aria-label="Main navigation">
         <Logo href="/dashboard" />
-        {[...NAV.slice(0, 2), ...(user.business ? [{ href: "/clients", icon: "users" as IconName, key: "nav.clients" as MessageKey }] : []), ...(user.pro ? PRO_NAV : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
+        {[...NAV.slice(0, 2), ...(user.business ? [{ href: "/clients", icon: "users" as IconName, key: "nav.clients" as MessageKey }] : []), SUBS_NAV, ...(user.pro ? PRO_NAV : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
           <Link key={n.href} href={n.href} className={`side-link ${isActive(path, n.href) && !path.startsWith("/renewals/new") ? "active" : ""}`} aria-current={isActive(path, n.href) ? "page" : undefined}>
             <Icon name={n.icon} /> {t(n.key)}
           </Link>
         ))}
         <Link href="/renewals/new" className="btn btn-primary" style={{ margin: "10px 4px 0" }}><Icon name="plus" /> {t("dash.addReminder")}</Link>
-        {user.pro && <Link href="/subscriptions#add" className="btn btn-secondary btn-sm" style={{ margin: "6px 4px 10px" }}><Icon name="repeat" size={14} /> {t("sub.addSub")}</Link>}
-        {!user.pro && <span style={{ height: 10 }} />}
+        <Link href="/subscriptions#add" className="btn btn-secondary btn-sm" style={{ margin: "6px 4px 10px" }}><Icon name="repeat" size={14} /> {t("sub.addSub")}</Link>
         {user.isAdmin && (
           <>
             <div className="side-section">Admin</div>
@@ -141,7 +142,7 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
   );
 }
 
-function PublicShell({ signedIn, children }: { signedIn: boolean; children: React.ReactNode }) {
+function PublicShell({ signedIn, children, company }: { signedIn: boolean; children: React.ReactNode; company?: CompanyInfo | null }) {
   const { t } = usePrefs();
   return (
     <>
@@ -165,6 +166,12 @@ function PublicShell({ signedIn, children }: { signedIn: boolean; children: Reac
       </header>
       <main className="pub-main" id="main">{children}</main>
       <footer className="pub-footer">
+        {company && (
+          <div className="inner trust">
+            <span className="trust-co"><strong>{company.name}</strong>{company.pan ? ` · PAN ${company.pan}` : ""}<br /><span className="small muted">{company.address}{company.phone ? ` · ${company.phone}` : ""}{company.email ? ` · ${company.email}` : ""}</span></span>
+            <span className="trust-pay small muted">{t("foot.pay")}: <span className="pay-badge">Khalti</span> <span className="pay-badge">Fonepay</span> <span className="pay-badge">QR</span> · {t("foot.secure")}</span>
+          </div>
+        )}
         <div className="inner">
           <span>© {new Date().getFullYear()} Nabikaran · nabikaran.org</span>
           <span className="row">

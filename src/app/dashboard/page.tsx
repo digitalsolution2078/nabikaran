@@ -13,6 +13,7 @@ import { emailStatus } from "@/lib/services/email-auth";
 import { ProOverview } from "@/components/ProOverview";
 import { getDb } from "@/lib/db";
 import { getSetting } from "@/lib/services/settings";
+import { listDocTemplates } from "@/lib/services/admin-console";
 import { findShortfalls } from "@/lib/services/low-credit";
 import { AppBadge } from "@/components/AppBadge";
 import { CountUp } from "@/components/motion/CountUp";
@@ -115,6 +116,8 @@ export default async function Dashboard() {
 
       {!s ? (
         <div className="alert bad" role="alert"><Icon name="alert" /> <span>{t("dash.sectionError")}</span></div>
+      ) : s.counts.active + s.counts.paused === 0 ? (
+        <Onboarding t={t} lang={prefs.lang} templates={(await listDocTemplates(false).catch(() => [])).filter((x) => x.popular).slice(0, 8)} />
       ) : (
         <>
           <AppBadge count={s.counts.expired + s.counts.dueSoon} />
@@ -215,5 +218,29 @@ function MessageList({ rows, empty, t, prefs }: { rows: MessageRow[]; empty: str
         </Link>
       ))}
     </div>
+  );
+}
+
+/** First visit: no records yet. Three steps and the popular templates instead of six empty counters. */
+function Onboarding({ t, lang, templates }: { t: (k: MessageKey) => string; lang: string; templates: Array<{ slug: string; name_en: string; name_ne: string; group_key: string }> }) {
+  return (
+    <section className="card onboard">
+      <h2 style={{ marginBottom: 4 }}>{t("onb.title")}</h2>
+      <p className="muted" style={{ marginTop: 0 }}>{t("onb.sub")}</p>
+      <ol className="onboard-steps">
+        <li><span className="num">1</span>{t("onb.s1")}</li>
+        <li><span className="num">2</span>{t("onb.s2")}</li>
+        <li><span className="num">3</span>{t("onb.s3")}</li>
+      </ol>
+      <Link href="/renewals/new" className="btn btn-primary btn-lg"><Icon name="plus" size={18} /> {t("onb.cta")}</Link>
+      {templates.length > 0 && (
+        <div className="mt">
+          <span className="small muted">{t("onb.popular")}:</span>
+          <div className="chips mt" style={{ marginTop: 6 }}>
+            {templates.map((x) => <Link key={x.slug} href={`/renewals/new?template=${x.slug}`} className="chip chip-lift"><Icon name={iconForCategory(x.group_key)} size={14} /> {lang === "ne" ? x.name_ne : x.name_en}</Link>)}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

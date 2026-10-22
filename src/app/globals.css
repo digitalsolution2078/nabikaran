@@ -968,3 +968,23 @@ a.chip { text-decoration: none !important; }
 .use-email { background: var(--accent-orange); }
 .use-push { background: var(--info); }
 .use-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+/* Footer trust block */
+.pub-footer .inner.trust { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
+.pay-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-weight: 600; font-size: 12px; }
+
+/* Mobile: templates first on the add-record page; comfortable touch targets */
+@media (max-width: 899px) {
+  .form-with-side > .tpl-side { order: -1; }
+}
+@media (hover: none) and (pointer: coarse) {
+  .btn-sm { min-height: 40px; }
+  .chip { min-height: 40px; }
+  .lang-switch button { min-height: 36px; }
+}
+
+/* Dashboard onboarding (no records yet) */
+.onboard-steps { list-style: none; padding: 0; margin: 14px 0 18px; display: grid; gap: 10px; }
+.onboard-steps li { display: flex; align-items: center; gap: 12px; font-weight: 500; }
+.onboard-steps .num { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-100); color: var(--brand-700); font-weight: 800; }
+@media (min-width: 700px) { .onboard-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
