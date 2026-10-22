@@ -94,10 +94,22 @@ export async function setBusinessName(userId: string, name: string | null, db: D
   return name;
 }
 
-async function requireBusiness(userId: string, db: Db): Promise<string> {
-  const name = await businessName(userId, db);
-  if (!name) throw new HttpError(403, "Turn on business tools in Settings first.", "business_required");
-  return name;
+/**
+ * Who may have recipients: a business (its clients, up to max_clients) or any
+ * personal account (family numbers, up to family_max). The SMS is signed with
+ * the business name, or for family with the owner's name when it is plain
+ * ASCII (keeps the SMS to one part), else "family".
+ */
+export async function recipientsAllowance(userId: string, db: Db = getDb()): Promise<{ business: string | null; max: number; signer: string }> {
+  const [name, s, u] = await Promise.all([businessName(userId, db), getSetting("business", db), db.query<{ display_name: string | null }>("select display_name from users where id = $1", [userId])]);
+  if (name) return { business: name, max: s.max_clients, signer: name };
+  if (s.family_max <= 0) throw new HttpError(403, "Turn on business tools in Settings first.", "business_required");
+  return { business: null, max: s.family_max, signer: familySigner(u.rows[0]?.display_name) };
+}
+
+export function familySigner(displayName: string | null | undefined): string {
+  const n = (displayName ?? "").trim();
+  return /^[A-Za-z0-9 .'-]{2,20}$/.test(n) ? n : "family";
 }
 
 function phoneOrThrow(input: string): string {
@@ -134,13 +146,16 @@ export async function getClient(userId: string, clientId: string, db: Db = getDb
 }
 
 export async function createClient(userId: string, input: z.infer<typeof clientInputSchema> & { consent: boolean }, db: Db = getDb()): Promise<ClientRow> {
-  await requireBusiness(userId, db);
-  if (!input.consent) throw new HttpError(400, "Confirm that the client agreed to receive reminder SMS.", "consent_required");
+  const allow = await recipientsAllowance(userId, db);
+  if (!input.consent) throw new HttpError(400, "Confirm that the person agreed to receive reminder SMS.", "consent_required");
   const phone = phoneOrThrow(input.phone);
   await assertNotBlocked(db, phone);
-  const { max_clients } = await getSetting("business", db);
   const { rows: n } = await db.query<{ n: number }>("select count(*)::int as n from clients where owner_user_id = $1 and status = 'active'", [userId]);
-  if (n[0].n >= max_clients) throw new HttpError(409, `You can have up to ${max_clients} clients. Archive old clients or contact support.`, "client_limit");
+  if (n[0].n >= allow.max) {
+    throw allow.business
+      ? new HttpError(409, `You can have up to ${allow.max} clients. Archive old clients or contact support.`, "client_limit")
+      : new HttpError(409, `Up to ${allow.max} family numbers on a personal account. Dealers and agents can request business tools in Settings.`, "family_limit");
+  }
   const { rows: dup } = await db.query("select 1 from clients where owner_user_id = $1 and phone_e164 = $2 and status = 'active'", [userId, phone]);
   if (dup[0]) throw new HttpError(409, "You already have a client with this number.", "client_exists");
   const { rows } = await db.query<{ id: string }>(
@@ -152,7 +167,7 @@ export async function createClient(userId: string, input: z.infer<typeof clientI
 }
 
 export async function updateClient(userId: string, clientId: string, input: z.infer<typeof clientInputSchema>, db: Db = getDb()): Promise<ClientRow> {
-  await requireBusiness(userId, db);
+  await recipientsAllowance(userId, db);
   const phone = phoneOrThrow(input.phone);
   await assertNotBlocked(db, phone);
   const { rows: dup } = await db.query("select 1 from clients where owner_user_id = $1 and phone_e164 = $2 and status = 'active' and id <> $3", [userId, phone, clientId]);
@@ -182,7 +197,7 @@ export async function archiveClient(userId: string, clientId: string, db: Db = g
  */
 export async function assertClientReminder(tx: Db, userId: string, clientId: string | null | undefined, channels: string[]): Promise<void> {
   if (!clientId) return;
-  await requireBusiness(userId, tx);
+  await recipientsAllowance(userId, tx);
   const { rows } = await tx.query<{ phone_e164: string }>("select phone_e164 from clients where id = $1 and owner_user_id = $2 and status = 'active'", [clientId, userId]);
   if (!rows[0]) throw new HttpError(404, "Client not found", "client_not_found");
   await assertNotBlocked(tx, rows[0].phone_e164);

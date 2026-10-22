@@ -11,7 +11,7 @@ import { api as apiGet } from "../api";
 interface T {
   slug: string; group_key: string; category: string; name_en: string; name_ne: string; sms_label: string;
   description_en: string; description_ne: string; default_offsets: number[]; popular: boolean; active: boolean; sort_order: number;
-  published?: boolean; version?: number; default_channels?: string[];
+  published?: boolean; version?: number; default_channels?: string[]; info_en?: string; info_ne?: string;
 }
 
 function CustomerPreview({ t }: { t: T }) {
@@ -101,6 +101,8 @@ export function DocTemplateEditor({ templates, canEdit = true }: { templates: T[
           <div className="grid grid-2">
             <div className="field"><label>Description (English)</label><textarea rows={3} value={edit.description_en} onChange={f("description_en")} /></div>
             <div className="field"><label>Description (नेपाली)</label><textarea rows={3} value={edit.description_ne} onChange={f("description_ne")} /></div>
+            <div className="field"><label>Where to go / what to bring / fees (English)</label><textarea rows={4} value={edit.info_en ?? ""} onChange={f("info_en")} placeholder="Where: … Bring: … Fees: … Late: … Confirm with the office." /><span className="hint">Shown on the record page and the SEO page. Keep it general; no exact fees as fact.</span></div>
+            <div className="field"><label>कहाँ जाने / के लैजाने / शुल्क (नेपाली)</label><textarea rows={4} value={edit.info_ne ?? ""} onChange={f("info_ne")} /></div>
           </div>
           <div className="grid grid-3">
             <div className="field"><label>Default reminders (days before, comma-separated)</label><input type="text" value={offsetsText} onChange={(e) => setOffsetsText(e.target.value)} /></div>

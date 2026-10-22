@@ -83,7 +83,7 @@ function AppShell({ user, path, clockIso, children }: { user: ShellUser; path: s
     <div className={`app${user.pro ? " is-pro" : ""}`}>
       <aside className="sidebar" aria-label="Main navigation">
         <Logo href="/dashboard" />
-        {[...NAV.slice(0, 2), ...(user.business ? [{ href: "/clients", icon: "users" as IconName, key: "nav.clients" as MessageKey }] : []), SUBS_NAV, ...(user.pro ? PRO_NAV : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
+        {[...NAV.slice(0, 2), { href: "/clients", icon: "users" as IconName, key: "nav.clients" as MessageKey }, SUBS_NAV, ...(user.pro ? PRO_NAV : []), ...NAV.slice(2), ...(user.pro || user.proOffer ? [{ href: "/pro", icon: "star" as IconName, key: "nav.pro" as MessageKey }] : [])].map((n) => (
           <Link key={n.href} href={n.href} className={`side-link ${isActive(path, n.href) && !path.startsWith("/renewals/new") ? "active" : ""}`} aria-current={isActive(path, n.href) ? "page" : undefined}>
             <Icon name={n.icon} /> {t(n.key)}
           </Link>

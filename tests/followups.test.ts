@@ -72,3 +72,28 @@ describe("did-you-renew follow-ups", () => {
     expect(cleanSource("<script>")).toBe("script");
   });
 });
+
+describe("free monthly push and Nepal templates", () => {
+  it("free accounts with a device get one 'due this month' notification per month", async () => {
+    const { runFreeMonthlyPush } = await import("@/lib/services/digest");
+    const u = await createUser(db, "+9779841012020");
+    await fund(db, u, 20);
+    await savePushSubscription(u, { endpoint: "https://fcm.googleapis.com/fcm/send/m1", keys: { p256dh: "B".repeat(87), auth: "A".repeat(22) } }, "test", db);
+    const noon = new Date(); noon.setUTCHours(6, 15, 0, 0);
+    await runFreeMonthlyPush(db, noon); // other test users get theirs; ours has nothing due yet
+    await createReminder(principalFor(u), { category: "bluebook", label: "Bluebook", calendar: "AD", expiryDate: inDays(12), offsets: [1440], channels: ["push"], ...base }, {}, db);
+    const before = pushes.length;
+    expect(await runFreeMonthlyPush(db, noon)).toBe(1);
+    expect(pushes.length).toBe(before + 1);
+    expect(pushes.at(-1)!.url).toBe("/renewals?filter=due");
+    expect(await runFreeMonthlyPush(db, noon)).toBe(0); // once a month
+  });
+
+  it("the Nepal templates and their office/fee notes are there", async () => {
+    const { listDocTemplates, templateInfo } = await import("@/lib/services/admin-console");
+    const slugs = (await listDocTemplates(false, db)).map((t) => t.slug);
+    for (const s of ["ward-business-registration", "pollution-check", "electricity-bill", "sim-validity", "bank-kyc", "ssf-contribution"]) expect(slugs).toContain(s);
+    expect((await templateInfo("vehicle-tax", db))?.ne).toContain("यातायात");
+    expect(await templateInfo("domain", db)).toBeNull();
+  });
+});

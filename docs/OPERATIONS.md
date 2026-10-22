@@ -684,3 +684,15 @@ Business tools (clients, client reminder SMS) are no longer self-service. `users
 **Sign-up funnel** (Admin → Dashboard): sign-ups → added a record → topped up → Pro for the last 30 days, derived from existing tables (no third-party analytics). `?utm_source=facebook&utm_campaign=launch` or `?ref=` on any first visit is kept in a 30-day cookie and stored on the account at sign-up (`users.signup_source`), then shown per source.
 
 **Nightly backups:** compose service `backup` (`deploy/backup.sh`) runs `pg_dump` at 02:30 Nepal time into `/root/backups/nabikaran/daily` (keeps 14) and copies Sunday files to `weekly` (keeps 8). Deploys still back up first. Restore: see `docs/DEPLOY_VPS.md` §7; do a restore drill into a scratch database once a quarter: `gunzip -c <file> | docker exec -i nabikaran-db-1 psql -U nabikaran -d nabikaran_restore_test`.
+
+## 34. Nepal templates, office notes, family numbers, monthly push (migration `0029`)
+
+**Eight more templates:** ward business registration, trade/firm licence, pollution check (green sticker), electricity (NEA) bill, water bill, SIM validity / data pack, bank KYC update, SSF contribution — with six new SEO landing pages (`src/lib/seo-pages.ts`). New categories in `src/lib/categories.ts`.
+
+**Office / fee notes:** `document_templates.info_en` / `info_ne` ("where to go, what to bring, fees, late rules") edited in Admin → Templates and shown on the record page and the SEO page. Seeded for bluebook, vehicle tax, licence, vehicle insurance, passport, ward registration and pollution check. Keep them general: no exact fees as fact.
+
+**Family numbers (free):** any account may add up to `business.family_max` (default 2) recipients under *Family & clients* (`/clients`) with the same consent checkbox and block list as business clients. Their reminder SMS is signed with the owner's name when it is plain English (`familySigner`), else "family". Business accounts keep `max_clients`. When an admin takes business tools away from an account that has more recipients than the family cap, its client reminders are cancelled with credits returned.
+
+**Free monthly push:** accounts without Pro that have an app device and at least one record due in the next 30 days get one notification a month ("3 renewals due this month", `user_notices` `monthly:<YYYY-MM>:<user>`), reconciler step 11. Pro accounts get the email digest instead.
+
+**Settings page** is grouped: Account · Reminders & notifications · Family, clients & invites · Security · App & connected services.
